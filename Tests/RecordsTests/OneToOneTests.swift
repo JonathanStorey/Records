@@ -19,7 +19,7 @@ struct Profile: Equatable {
 @Record
 struct Account: Equatable {
     var id: UUID
-    @Reference(to: Settings.self) var settingsID: UUID?
+    @Reference(Settings.self) var settingsID: UUID?
 }
 
 @Record

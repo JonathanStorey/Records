@@ -3,8 +3,8 @@ import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
 /// `@Reference` on a property that points at other records: one record, `@Reference var author: Person?`,
-/// or many, `@Reference var tags: [Tag]`. With `(to:)` it holds only IDs, as in
-/// `@Reference(to: Person.self) var authorID: UUID?` or `@Reference(to: Tag.self) var tagIDs: [UUID]`.
+/// or many, `@Reference var tags: [Tag]`. Given the record type, it holds only IDs, as in
+/// `@Reference(Person.self) var authorID: UUID?` or `@Reference(Tag.self) var tagIDs: [UUID]`.
 ///
 /// Turns the property into a computed one backed by a `Records.ToOne` or `Records.ToMany` named
 /// with a leading underscore. The storage keeps the current targets, the targets last loaded or
@@ -149,7 +149,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
         let arguments = node.arguments?.as(LabeledExprListSyntax.self).map(Array.init) ?? []
 
-        // The first argument is `to: Person.self` or `from: \User.profile`. Only `from:` takes a
+        // The first argument is `Person.self` or `from: \User.profile`. Only `from:` takes a
         // key path: the owner never names its inverse, because two key paths naming each other's
         // macro-backed properties would make the compiler expand each macro to resolve the other.
         var typeArgument: ExprSyntax?
@@ -157,10 +157,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         if let first = arguments.first {
             let keyPathExpr = first.expression.as(KeyPathExprSyntax.self)
             switch first.label?.text {
-            case "to":
+            case nil:
                 guard keyPathExpr == nil else {
                     throw MacroExpansionErrorMessage(
-                        "@Reference(to:) takes a record type; name this property in the other side's '@Reference(from:)' instead"
+                        "@Reference takes a record type; name this property in the other side's '@Reference(from:)' instead"
                     )
                 }
                 typeArgument = first.expression
@@ -170,7 +170,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
                 }
                 keyPath = try parse(keyPathExpr, owner: owner)
             default:
-                throw MacroExpansionErrorMessage("@Reference takes 'to:' or 'from:'")
+                throw MacroExpansionErrorMessage("@Reference takes a record type or 'from:'")
             }
         }
         let isFrom = keyPath != nil
@@ -191,7 +191,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named.
         if isID, !isFrom, typeArgument == nil {
             throw MacroExpansionErrorMessage(
-                "@Reference on a UUID needs the record type it points at, e.g. '@Reference(to: Person.self)'"
+                "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'"
             )
         }
         if !isID, typeArgument != nil {
@@ -209,7 +209,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
                   member.declName.baseName.tokenKind == .keyword(.self),
                   let base = member.base
             else {
-                throw MacroExpansionErrorMessage("@Reference(to:) takes a record type, e.g. 'Person.self'")
+                throw MacroExpansionErrorMessage("@Reference takes a record type, e.g. 'Person.self'")
             }
             target = resolved(base.trimmedDescription)
         }

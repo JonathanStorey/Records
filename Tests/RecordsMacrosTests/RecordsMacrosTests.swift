@@ -513,7 +513,7 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var id: UUID
                 @Reference var tags: [Tag]
-                @Reference(to: Tag.self) var pinnedIDs: [UUID]
+                @Reference(Tag.self) var pinnedIDs: [UUID]
             }
             """,
             expandedSource: """
@@ -596,7 +596,7 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct Article {
                 var id: UUID
-                @Reference(to: Person.self) var authorID: UUID?
+                @Reference(Person.self) var authorID: UUID?
             }
             """,
             expandedSource: """
@@ -667,7 +667,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(to: Person.self)'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -681,7 +681,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(to: Person.self) var authorID: UUID
+                @Reference(Person.self) var authorID: UUID
             }
             """,
             expandedSource: """
@@ -704,7 +704,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(to: Person.self) var author: Person?
+                @Reference(Person.self) var author: Person?
             }
             """,
             expandedSource: """
@@ -775,7 +775,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Person {
-                @Reference(to: Person.self) var managerID: UUID?
+                @Reference(Person.self) var managerID: UUID?
             }
             """,
             expandedSource: """
@@ -808,7 +808,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(to: person) var authorID: UUID?
+                @Reference(person) var authorID: UUID?
             }
             """,
             expandedSource: """
@@ -817,7 +817,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference(to:) takes a record type, e.g. 'Person.self'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference takes a record type, e.g. 'Person.self'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -1002,12 +1002,12 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testToTakesNoKeyPath() throws {
+    func testOwnerTakesNoKeyPath() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct User {
-                @Reference(to: \\Profile.user) var profile: Profile?
+                @Reference(\\Profile.user) var profile: Profile?
             }
             """,
             expandedSource: """
@@ -1017,7 +1017,7 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(
-                    message: "@Reference(to:) takes a record type; name this property in the other side's '@Reference(from:)' instead",
+                    message: "@Reference takes a record type; name this property in the other side's '@Reference(from:)' instead",
                     line: 2, column: 5
                 ),
             ],
@@ -1033,7 +1033,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct User {
-                @Reference(to: Profile.self, deleteSelf: true) var profileID: UUID?
+                @Reference(Profile.self, deleteSelf: true) var profileID: UUID?
             }
             """,
             expandedSource: """

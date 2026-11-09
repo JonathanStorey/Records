@@ -80,21 +80,21 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a property that holds only the IDs of other `Record`s, e.g.
-/// `@Reference(to: Person.self) var authorID: UUID?` or `@Reference(to: Tag.self) var tagIDs: [UUID]`.
+/// `@Reference(Person.self) var authorID: UUID?` or `@Reference(Tag.self) var tagIDs: [UUID]`.
 /// Records never loads the records themselves.
 ///
 /// Like `@Reference`, the property is stored as links, never as a field. It must be a `UUID?`
 /// or `[UUID]` with no initial value.
 @attached(accessor, names: named(init), named(get), named(set))
 @attached(peer, names: prefixed(_))
-public macro Reference<Target: Record>(to target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks the read-only side of a two-way relationship, naming the owner's property, e.g.
 /// `@Reference(from: \User.profile, deleteSelf: true) var user: User?` or
 /// `@Reference(from: \Account.settingsID) var accountID: UUID?`.
 ///
 /// The owner is a plain `@Reference var profile: Profile?` or
-/// `@Reference(to: Settings.self) var settingsID: UUID?`, and it writes the links. Their
+/// `@Reference(Settings.self) var settingsID: UUID?`, and it writes the links. Their
 /// signature includes this side, such as `User.profile:Profile <-> Profile.user:User`, so a
 /// profile belongs to one user. This side never writes links. It is filled from the owner's links
 /// when the record is decoded, and can only be set when the record is made. With
