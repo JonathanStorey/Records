@@ -337,17 +337,17 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
     let ignition = album.tracks[0]
     #expect(ignition.albumID == album.id)
     #expect(ignition.tags.isEmpty)
-    #expect(ignition.$tags.ids == [library.energetic.id, library.live.id])
+    #expect(ignition.$tags == [library.energetic.id, library.live.id])
     #expect(ignition.playlistIDs == [library.road.id])
     #expect(album.tracks[1].featuring.isEmpty)
-    #expect(album.tracks[1].$featuring.ids == [library.juno.id])
+    #expect(album.tracks[1].$featuring == [library.juno.id])
     #expect(album.artist.map { sameIDs($0.albumIDs, [library.signal.id, library.orbit.id]) } == true)
     #expect(album.cover?.albumID == album.id)
 
     // A record pointing at its own type loads the same way.
     let mix = try saved.load(Track.self, library.orbitMix.id)
     #expect(mix.remixOf?.title == "Ignition")
-    #expect(mix.remixOf?.$tags.ids == [library.energetic.id, library.live.id])
+    #expect(mix.remixOf?.$tags == [library.energetic.id, library.live.id])
 
     let road = try saved.load(Playlist.self, library.road.id)
     #expect(road.tracks.map(\.title) == ["Low Orbit", "Ignition", "Harbor Lights"])
@@ -362,8 +362,8 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
     // Depth 0: every reference holds only IDs.
     let flat = try saved.load(Album.self, library.signal.id, depth: 0)
     #expect(flat.tracks.isEmpty && flat.artist == nil && flat.cover == nil)
-    #expect(flat.$tracks.ids == [library.ignition.id, library.bloom.id, library.afterglow.id])
-    #expect(flat.$artist.id == library.nova.id)
+    #expect(flat.$tracks == [library.ignition.id, library.bloom.id, library.afterglow.id])
+    #expect(flat.$artist == library.nova.id)
     #expect(flat == library.signal)
     #expect(hasNoChanges(flat))
 
@@ -391,22 +391,25 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
     let library = Library()
     let saved = library.saved()
 
+    // Not loaded: the record form is empty, but `$` holds the IDs.
     let flat = try saved.load(Album.self, library.signal.id, depth: 0)
     #expect(flat.tracks.isEmpty)
-    #expect(flat.$tracks.count == 3)
-    #expect(!flat.$tracks.isLoaded)
-    #expect(flat.artist == nil && flat.$artist.id == library.nova.id && !flat.$artist.isLoaded)
-    #expect(flat.cover == nil && flat.$cover.id == library.signalArt.id)
+    #expect(flat.$tracks == [library.ignition.id, library.bloom.id, library.afterglow.id])
+    #expect(flat.artist == nil && flat.$artist == library.nova.id)
+    #expect(flat.cover == nil && flat.$cover == library.signalArt.id)
 
+    // Loaded: the counts match.
     let album = try saved.load(Album.self, library.signal.id)
-    #expect(album.$tracks.isLoaded && album.$artist.isLoaded && album.$cover.isLoaded)
-    #expect(album.$tracks.ids == album.tracks.map(\.id))
-    #expect(!album.tracks[0].$tags.isLoaded) // the next level holds only IDs
-    #expect(album.tracks[0].$tags.count == 2)
-    #expect(album.tracks[2].$tags.isLoaded) // nothing to load is loaded
+    #expect(album.$tracks == album.tracks.map(\.id))
+    #expect(album.$artist == album.artist?.id)
 
+    // The next level holds only IDs.
+    #expect(album.tracks[0].tags.count == 0)
+    #expect(album.tracks[0].$tags.count == 2)
+
+    // Truly empty: no record and no ID.
     let orbit = try saved.load(Album.self, library.orbit.id)
-    #expect(orbit.cover == nil && orbit.$cover.id == nil && orbit.$cover.isLoaded) // truly empty
+    #expect(orbit.cover == nil && orbit.$cover == nil)
 }
 
 /// Walks the whole library from one listener by following IDs, as an app would, one fetch at a time.
@@ -429,9 +432,9 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
             queue += artist.albumIDs.map(Node.album)
         case .album(let id):
             let album = try saved.load(Album.self, id)
-            queue += album.$artist.id.map(Node.artist).map { [$0] } ?? []
-            queue += album.$tracks.ids.map(Node.track)
-            queue += album.$cover.id.map(Node.artwork).map { [$0] } ?? []
+            queue += album.$artist.map(Node.artist).map { [$0] } ?? []
+            queue += album.$tracks.map(Node.track)
+            queue += album.$cover.map(Node.artwork).map { [$0] } ?? []
             queue += album.genreID.map(Node.genre).map { [$0] } ?? []
         case .artwork(let id):
             let artwork = try saved.load(Artwork.self, id)
@@ -439,9 +442,9 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
         case .track(let id):
             let track = try saved.load(Track.self, id)
             queue += track.albumID.map(Node.album).map { [$0] } ?? []
-            queue += track.$tags.ids.map(Node.tag)
-            queue += track.$featuring.ids.map(Node.artist)
-            queue += track.$remixOf.id.map(Node.track).map { [$0] } ?? []
+            queue += track.$tags.map(Node.tag)
+            queue += track.$featuring.map(Node.artist)
+            queue += track.$remixOf.map(Node.track).map { [$0] } ?? []
             queue += track.playlistIDs.map(Node.playlist)
         case .tag(let id):
             _ = try saved.load(Tag.self, id)
@@ -450,13 +453,13 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
             queue += genre.parentID.map(Node.genre).map { [$0] } ?? []
         case .playlist(let id):
             let playlist = try saved.load(Playlist.self, id)
-            queue += playlist.$curator.id.map(Node.listener).map { [$0] } ?? []
-            queue += playlist.$tracks.ids.map(Node.track)
+            queue += playlist.$curator.map(Node.listener).map { [$0] } ?? []
+            queue += playlist.$tracks.map(Node.track)
             queue += playlist.folderID.map(Node.playlist).map { [$0] } ?? []
         case .listener(let id):
             let listener = try saved.load(Listener.self, id)
             queue += listener.playlistIDs.map(Node.playlist)
-            queue += listener.$favorite.id.map(Node.track).map { [$0] } ?? []
+            queue += listener.$favorite.map(Node.track).map { [$0] } ?? []
             queue += listener.followingIDs.map(Node.listener)
         }
     }

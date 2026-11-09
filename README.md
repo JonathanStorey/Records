@@ -305,13 +305,13 @@ tell "empty" from "not loaded", read the reference's `$` projection, which holds
 way:
 
 ```swift
-track.$tags.ids          // every tag's ID, loaded or not
-track.$tags.count        // 2
-track.$tags.isLoaded     // false: the records weren't loaded at this level
-album.$cover.id          // nil only when the album truly has no cover
+track.tags               // []: the records weren't loaded at this level
+track.$tags              // [energetic.id, live.id]: every ID, loaded or not
+track.tags.count == track.$tags.count   // false here, so the tags weren't loaded
+album.$cover             // nil only when the album truly has no cover
 ```
 
-`$name` is read-only and as visible as the property, so a public record exposes it too. ID-form
+`$name` is `[UUID]` or `UUID?`, read-only, and as visible as the property, so a public record exposes it too. ID-form
 and `from:` references don't have one, because they are always complete.
 
 To load further, pass `depth:`. Each level multiplies what's loaded, so ask for depth only where a
@@ -323,7 +323,7 @@ album.tracks[0].tags.map(\.name)   // ["energetic", "live"]: level two holds rec
 
 let bare = try decoder.decode(Album.self, from: record, links: links, depth: 0)
 bare.tracks                        // []: depth 0 loads no records
-bare.$tracks.ids                   // but every ID is there
+bare.$tracks                       // but every ID is there
 ```
 
 Depth also makes cycles safe. A mentor who mentors their mentor loads back and forth until the

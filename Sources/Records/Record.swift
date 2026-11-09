@@ -78,7 +78,7 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 /// non-optional array, in a `var` with no initial value. Either may point at its own type.
 ///
 /// Where loading stopped, the property reads `nil` or `[]` even when it has targets. `$name`
-/// holds the IDs either way: `album.$tracks.ids`, `album.$tracks.isLoaded`, `album.$artist.id`.
+/// holds the IDs either way, as `[UUID]` or `UUID?`: `album.$tracks`, `album.$artist`.
 @attached(accessor, names: named(init), named(get), named(set))
 @attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")

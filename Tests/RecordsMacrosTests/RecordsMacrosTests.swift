@@ -374,8 +374,8 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _author: Records.ToOne<Person>
-                var $author: Records.ToOne<Person> {
-                    _author
+                var $author: UUID? {
+                    _author.id
                 }
             }
 
@@ -536,8 +536,8 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _tags: Records.ToMany<Tag>
-                var $tags: Records.ToMany<Tag> {
-                    _tags
+                var $tags: [UUID] {
+                    _tags.ids
                 }
                 var pinnedIDs: [UUID] {
                     @storageRestrictions(initializes: _pinnedIDs)
@@ -753,8 +753,8 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _manager: Records.ToOne<Person>
-                var $manager: Records.ToOne<Person> {
-                    _manager
+                var $manager: UUID? {
+                    _manager.id
                 }
                 var mentor: Self? {
                     @storageRestrictions(initializes: _mentor)
@@ -770,8 +770,8 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _mentor: Records.ToOne<Person>
-                var $mentor: Records.ToOne<Person> {
-                    _mentor
+                var $mentor: UUID? {
+                    _mentor.id
                 }
             }
             """,
@@ -865,8 +865,8 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _profile: Records.ToOne<Profile>
-                var $profile: Records.ToOne<Profile> {
-                    _profile
+                var $profile: UUID? {
+                    _profile.id
                 }
             }
 
