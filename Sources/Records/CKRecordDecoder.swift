@@ -93,7 +93,8 @@ public struct CKRecordDecoder: Sendable {
     }
 
     /// The value of `key` as `T`. Used by the code `@Record` generates for non-optional properties.
-    public static func decode<T>(_ type: T.Type, forKey key: String, from record: CKRecord) throws -> T {
+    /// Pass `record.encryptedValues` for an `@Encrypted` field.
+    public static func decode<T>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
         guard let value = try decodeIfPresent(type, forKey: key, from: record) else {
             throw CKRecordDecodingError.missingField(key)
         }
@@ -102,8 +103,9 @@ public struct CKRecordDecoder: Sendable {
 
     /// The value of `key` as `T`, or `nil` when the field is missing. Used by the code `@Record`
     /// generates for optional properties.
-    public static func decodeIfPresent<T>(_ type: T.Type, forKey key: String, from record: CKRecord) throws -> T? {
-        guard let value = record[key] else { return nil }
+    /// Pass `record.encryptedValues` for an `@Encrypted` field.
+    public static func decodeIfPresent<T>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
+        guard let value = record.object(forKey: key) else { return nil }
         guard let typed = value as? T else {
             throw CKRecordDecodingError.typeMismatch(field: key)
         }

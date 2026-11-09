@@ -30,6 +30,21 @@ struct Tag {
 }
 ```
 
+Mark a field `@Encrypted` to store it in the record's `encryptedValues`, so CloudKit encrypts it
+with a key only the user's devices hold:
+
+```swift
+@Record
+struct Listener {
+    var id: UUID
+    var name: String
+    @Encrypted var email: String?
+}
+```
+
+An encrypted field can't be a `CKAsset` and can't be queried on the server, and once its schema is
+deployed it can't switch between encrypted and plain.
+
 The record type is the struct's name. Pass a name to use another, which generic types must do:
 `@Record("Tag")`.
 
