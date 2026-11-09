@@ -31,7 +31,8 @@ public struct CKRecordDecoder: Sendable {
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
     /// whose source is `record` are used. To-many targets are ordered by their order keys, then
     /// by when the link was created, then by the link's name. A reference that holds records is
-    /// filled from the matching records in `targets`, one level deep. Every reference starts out
+    /// filled from the matching records in `targets`, one level deep: those records get their
+    /// own references' IDs from `links`, but not their records. Every reference starts out
     /// unchanged, so the encoder writes no links for it until it changes.
     public func decode<R: Record>(
         _ type: R.Type,
@@ -60,7 +61,7 @@ public struct CKRecordDecoder: Sendable {
                 if dateA != dateB { return dateA < dateB }
                 return lhs.link.recordID.recordName < rhs.link.recordID.recordName
             }
-            try decoded.loadReference(property, to: ordered.map(\.target), from: targets)
+            try decoded.loadReference(property, to: ordered.map(\.target), from: targets, links: links)
         }
         return decoded
     }
