@@ -217,11 +217,11 @@ private struct Graph {
     let graph = Graph()
     let ada = try graph.saved.load(Member.self, graph.ada.id, depth: 4)
 
-    // Ada → Grace → Ada → Grace, then only Grace's mentor's ID.
+    // Four levels: Grace, Ada, Grace, Ada. The fourth holds only its mentor's ID.
     let last = try #require(ada.mentor?.mentor?.mentor?.mentor)
-    #expect(last.name == "Grace")
+    #expect(last.name == "Ada")
     #expect(last.mentor == nil)
-    #expect(last._mentor.id == graph.ada.id)
+    #expect(last._mentor.id == graph.grace.id)
     #expect(hasNoChanges(ada))
 }
 
