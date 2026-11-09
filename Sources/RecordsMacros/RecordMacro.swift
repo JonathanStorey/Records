@@ -133,7 +133,8 @@ public struct RecordMacro: ExtensionMacro {
 
         for member in members.members {
             guard let variable = member.decl.as(VariableDeclSyntax.self),
-                  !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) })
+                  !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) }),
+                  !ReferenceMacro.isReference(variable) // Links hold references, not fields.
             else { continue }
             let isLet = variable.bindingSpecifier.tokenKind == .keyword(.let)
 
@@ -182,7 +183,7 @@ public struct RecordMacro: ExtensionMacro {
     }
 
     /// `Int` for `Int?`, `Int!`, or `Optional<Int>`; `nil` for any other type.
-    private static func wrappedType(of type: TypeSyntax) -> TypeSyntax? {
+    static func wrappedType(of type: TypeSyntax) -> TypeSyntax? {
         if let optional = type.as(OptionalTypeSyntax.self) {
             return optional.wrappedType
         }
@@ -199,7 +200,7 @@ public struct RecordMacro: ExtensionMacro {
         return nil
     }
 
-    private static func isArray(_ type: TypeSyntax) -> Bool {
+    static func isArray(_ type: TypeSyntax) -> Bool {
         if type.is(ArrayTypeSyntax.self) { return true }
         if let identifier = type.as(IdentifierTypeSyntax.self) { return identifier.name.text == "Array" }
         return false

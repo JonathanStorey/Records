@@ -9,6 +9,7 @@ import RecordsMacros
 private var macroSpecs: [String: MacroSpec] {
     [
         "Record": MacroSpec(type: RecordMacro.self, conformances: ["Record"]),
+        "Reference": MacroSpec(type: ReferenceMacro.self),
     ]
 }
 #endif
@@ -336,6 +337,136 @@ final class RecordMacroTests: XCTestCase {
                     line: 1,
                     column: 1
                 ),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRecordSkipsReferenceProperties() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Article {
+                var id: UUID
+                var title: String
+                @Reference var author: Person?
+            }
+            """,
+            expandedSource: """
+            struct Article {
+                var id: UUID
+                var title: String
+                var author: Person?
+            }
+
+            extension Article: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Article"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
+                }
+                func encodeFields(into record: CKRecord) {
+                    record["title"] = self.title
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testReferenceMustBeOptional() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference var author: Person
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var author: Person
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference to one record must be optional, e.g. 'Person?'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testReferenceMustBeVar() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference let author: Person?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                let author: Person?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference property must be a 'var'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testReferenceCannotHaveInitialValue() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference var author: Person? = nil
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var author: Person? = nil
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference property cannot have an initial value", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testReferenceToManyNotSupportedYet() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference var tags: [Tag]
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var tags: [Tag]
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference does not support to-many properties yet", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )

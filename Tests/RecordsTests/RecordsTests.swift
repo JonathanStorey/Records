@@ -25,6 +25,19 @@ struct Box<Value: CKRecordValueProtocol & Equatable>: Equatable {
     var value: Value
 }
 
+@Record
+struct Person: Equatable {
+    var id: UUID
+    var name: String
+}
+
+@Record
+struct Article {
+    var id: UUID
+    var title: String
+    @Reference var author: Person?
+}
+
 private func zone() -> CKRecordZone.ID {
     CKRecordZone.ID(zoneName: "Records", ownerName: CKCurrentUserDefaultName)
 }
@@ -190,4 +203,25 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
     let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: Date(timeIntervalSince1970: 0))
     let record = CKRecordEncoder().encode(note, in: zone())
     #expect(try CKRecordDecoder().decode(Note.self, from: record) == note)
+}
+
+// MARK: - References
+
+@Test func referenceIsNotWrittenAsAField() {
+    let author = Person(id: UUID(), name: "Ada")
+    let article = Article(id: UUID(), title: "Notes", author: author)
+    let record = CKRecordEncoder().encode(article, in: zone())
+    #expect(Set(record.allKeys()) == ["title"])
+}
+
+@Test func referenceDecodesAsNil() throws {
+    let article = Article(id: UUID(), title: "Notes", author: Person(id: UUID(), name: "Ada"))
+    let decoded = try CKRecordDecoder().decode(Article.self, from: CKRecordEncoder().encode(article, in: zone()))
+    #expect(decoded.title == "Notes")
+    #expect(decoded.author == nil)
+}
+
+@Test func referenceDefaultsToNilInMemberwiseInit() {
+    let article = Article(id: UUID(), title: "Notes")
+    #expect(article.author == nil)
 }
