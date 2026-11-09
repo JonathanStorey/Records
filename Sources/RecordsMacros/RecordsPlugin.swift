@@ -3,5 +3,7 @@ import SwiftSyntaxMacros
 
 @main
 struct RecordsPlugin: CompilerPlugin {
-    let providingMacros: [Macro.Type] = []
+    let providingMacros: [Macro.Type] = [
+        RecordMacro.self,
+    ]
 }
