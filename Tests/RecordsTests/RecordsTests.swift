@@ -169,3 +169,25 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
         try CKRecordEncoder().encode(note, into: other)
     }
 }
+
+// MARK: - nil and empty values
+
+@Test func nilOptionalLeavesNoField() {
+    let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: ["x"], created: .now)
+    let record = CKRecordEncoder().encode(note, in: zone())
+    #expect(!record.allKeys().contains("rating"))
+}
+
+@Test func missingArrayFieldDecodesAsEmpty() throws {
+    // CloudKit drops empty lists, so a saved `tags: []` comes back with no field.
+    let record = noteRecord()
+    record["tags"] = nil
+    let note = try CKRecordDecoder().decode(Note.self, from: record)
+    #expect(note.tags == [])
+}
+
+@Test func emptyArrayRoundTrips() throws {
+    let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: Date(timeIntervalSince1970: 0))
+    let record = CKRecordEncoder().encode(note, in: zone())
+    #expect(try CKRecordDecoder().decode(Note.self, from: record) == note)
+}

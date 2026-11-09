@@ -65,7 +65,7 @@ final class RecordMacroTests: XCTestCase {
                     self.rating = try CKRecordDecoder.decodeIfPresent((Int).self, forKey: "rating", from: record)
                     self.first = try CKRecordDecoder.decode((String).self, forKey: "first", from: record)
                     self.last = try CKRecordDecoder.decode((String).self, forKey: "last", from: record)
-                    self.tags = try CKRecordDecoder.decode(([String]).self, forKey: "tags", from: record)
+                    self.tags = try CKRecordDecoder.decodeIfPresent(([String]).self, forKey: "tags", from: record) ?? []
                 }
                 func encodeFields(into record: CKRecord) {
                     record["title"] = self.title

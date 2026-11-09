@@ -38,10 +38,16 @@ public struct RecordMacro: ExtensionMacro {
             "        self.id = try CKRecordDecoder.decodeID(from: record)",
         ]
         for field in fields {
-            let call = field.wrappedType.map { "decodeIfPresent((\($0)).self" } ?? "decode((\(field.type)).self"
-            lines.append(
-                "        self.\(field.name) = try CKRecordDecoder.\(call), forKey: \"\(field.key)\", from: record)"
-            )
+            let read: String
+            if let wrapped = field.wrappedType {
+                read = "decodeIfPresent((\(wrapped)).self, forKey: \"\(field.key)\", from: record)"
+            } else if field.isArray {
+                // CloudKit does not keep empty lists, so a missing array field means empty.
+                read = "decodeIfPresent((\(field.type)).self, forKey: \"\(field.key)\", from: record) ?? []"
+            } else {
+                read = "decode((\(field.type)).self, forKey: \"\(field.key)\", from: record)"
+            }
+            lines.append("        self.\(field.name) = try CKRecordDecoder.\(read)")
         }
         lines += [
             "    }",
@@ -113,6 +119,8 @@ public struct RecordMacro: ExtensionMacro {
         let type: String
         /// The wrapped type when the declared type is optional, such as `Int` for `Int?`.
         let wrappedType: String?
+        /// Whether the declared type is `[T]` or `Array<T>`.
+        let isArray: Bool
     }
 
     /// Instance properties with storage that `init(record:)` can assign: not static, not lazy,
@@ -159,7 +167,8 @@ public struct RecordMacro: ExtensionMacro {
                     name: name,
                     key: key,
                     type: type.trimmedDescription,
-                    wrappedType: wrappedType(of: type)?.trimmedDescription
+                    wrappedType: wrappedType(of: type)?.trimmedDescription,
+                    isArray: isArray(type)
                 ))
             }
             properties += found.reversed()
@@ -183,6 +192,12 @@ public struct RecordMacro: ExtensionMacro {
             return argument.argument.as(TypeSyntax.self)
         }
         return nil
+    }
+
+    private static func isArray(_ type: TypeSyntax) -> Bool {
+        if type.is(ArrayTypeSyntax.self) { return true }
+        if let identifier = type.as(IdentifierTypeSyntax.self) { return identifier.name.text == "Array" }
+        return false
     }
 
     private static func hasStorage(_ accessors: AccessorBlockSyntax) -> Bool {
