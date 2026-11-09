@@ -28,6 +28,32 @@ struct Settings: Equatable {
     @Reference(from: \Account.settingsID) var accountID: UUID?
 }
 
+/// A record owner with an ID-only `from:` side.
+@Record
+struct Team: Equatable {
+    var id: UUID
+    @Reference var crest: Crest?
+}
+
+@Record
+struct Crest: Equatable {
+    var id: UUID
+    @Reference(from: \Team.crest, deleteSelf: true) var teamID: UUID?
+}
+
+/// An ID-only owner with a record `from:` side.
+@Record
+struct Desk: Equatable {
+    var id: UUID
+    @Reference(Seat.self) var seatID: UUID?
+}
+
+@Record
+struct Seat: Equatable {
+    var id: UUID
+    @Reference(from: \Desk.seatID) var desk: Desk?
+}
+
 private let encoder = CKRecordEncoder()
 private let decoder = CKRecordDecoder()
 
@@ -165,4 +191,24 @@ private func makeProfile() -> Profile {
     user.profile = nil
     #expect(encoder.linksToSave(for: user, in: .records).isEmpty)
     #expect(encoder.linkIDsToDelete(for: user, in: .records) == original.map(\.recordID))
+}
+
+@Test func mixedFormsDecodeOnBothSides() throws {
+    let crest = Crest(id: UUID(), teamID: nil)
+    let team = Team(id: UUID(), crest: crest)
+    let teamLinks = encoder.linksToSave(for: team, in: .records)
+    #expect(try teamLinks.map { try link($0).relationship } == ["Team.crest:Crest <-> Crest.teamID:Team"])
+    #expect(try teamLinks.map { try link($0).deleteSelf } == [true])
+    let crestAgain = try decoder.decode(Crest.self, from: encoder.encode(crest, in: .records), links: teamLinks)
+    #expect(crestAgain.teamID == team.id)
+
+    let seat = Seat(id: UUID(), desk: nil)
+    let desk = Desk(id: UUID(), seatID: seat.id)
+    let deskLinks = encoder.linksToSave(for: desk, in: .records)
+    #expect(try deskLinks.map { try link($0).relationship } == ["Desk.seatID:Seat <-> Seat.desk:Desk"])
+    let seatAgain = try decoder.decode(
+        Seat.self, from: encoder.encode(seat, in: .records),
+        links: deskLinks, targets: [encoder.encode(desk, in: .records)]
+    )
+    #expect(seatAgain.desk == desk)
 }
