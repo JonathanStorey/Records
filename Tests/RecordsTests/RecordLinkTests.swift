@@ -50,15 +50,15 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
     let cases: [(CKRecord, String)] = try [
         (CKRecord.Link.oneToOne(source: user, property: "profile", target: profile, inverse: "user"),
          "User.profile:Profile <-> Profile.user:User"),
-        (CKRecord.Link.oneToMany(source: folder, property: "notes", target: note, inverse: "folder"),
+        (CKRecord.Link.oneToMany(source: folder, property: "notes", target: note, inverse: "folder", order: "a0"),
          "Folder.notes:[Note] <-> Note.folder:Folder"),
         (CKRecord.Link.manyToOne(source: note, property: "folder", target: folder, inverse: "notes"),
          "Note.folder:Folder <-> Folder.notes:[Note]"),
         (CKRecord.Link.manyToOne(source: note, property: "author", target: person),
          "Note.author:Person"),
-        (CKRecord.Link.manyToMany(source: note, property: "tags", target: tag, inverse: "notes"),
+        (CKRecord.Link.manyToMany(source: note, property: "tags", target: tag, inverse: "notes", order: "a0"),
          "Note.tags:[Tag] <-> Tag.notes:[Note]"),
-        (CKRecord.Link.manyToMany(source: note, property: "tags", target: tag),
+        (CKRecord.Link.manyToMany(source: note, property: "tags", target: tag, order: "a0"),
          "Note.tags:[Tag]"),
     ]
     for (link, signature) in cases {
@@ -98,16 +98,16 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
 
 @Test func oneToManyLinkOverwritesWhenSourceChanges() throws {
     let note = record("Note", "note-1")
-    let first = try CKRecord.Link.oneToMany(source: record("Folder", "folder-1"), property: "notes", target: note, inverse: "folder")
-    let second = try CKRecord.Link.oneToMany(source: record("Folder", "folder-2"), property: "notes", target: note, inverse: "folder")
+    let first = try CKRecord.Link.oneToMany(source: record("Folder", "folder-1"), property: "notes", target: note, inverse: "folder", order: "a0")
+    let second = try CKRecord.Link.oneToMany(source: record("Folder", "folder-2"), property: "notes", target: note, inverse: "folder", order: "a0")
     #expect(first.recordID == second.recordID)
 }
 
 @Test func manyToManyLinkIsOnePerPair() throws {
     let note = record("Note", "note-1")
-    let a = try CKRecord.Link.manyToMany(source: note, property: "tags", target: record("Tag", "tag-1"))
-    let b = try CKRecord.Link.manyToMany(source: note, property: "tags", target: record("Tag", "tag-1"))
-    let c = try CKRecord.Link.manyToMany(source: note, property: "tags", target: record("Tag", "tag-2"))
+    let a = try CKRecord.Link.manyToMany(source: note, property: "tags", target: record("Tag", "tag-1"), order: "a0")
+    let b = try CKRecord.Link.manyToMany(source: note, property: "tags", target: record("Tag", "tag-1"), order: "a0")
+    let c = try CKRecord.Link.manyToMany(source: note, property: "tags", target: record("Tag", "tag-2"), order: "a0")
     #expect(a.recordID == b.recordID)
     #expect(a.recordID != c.recordID)
 }
@@ -119,19 +119,21 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
     #expect(author.recordID != editor.recordID)
 }
 
-@Test func orderIsStoredWhenGiven() throws {
-    let link = try CKRecord.Link.manyToMany(
-        source: record("Note", "note-1"),
-        property: "tags",
-        target: record("Tag", "tag-1"),
-        order: "a0"
+@Test func toManyLinksAlwaysStoreOrder() throws {
+    let tags = try CKRecord.Link.manyToMany(
+        source: record("Note", "note-1"), property: "tags", target: record("Tag", "tag-1"), order: "a0"
     )
-    #expect(link[CKRecord.LinkKey.order] as? String == "a0")
+    let notes = try CKRecord.Link.oneToMany(
+        source: record("Folder", "folder-1"), property: "notes", target: record("Note", "note-1"),
+        inverse: "folder", order: "b1"
+    )
+    #expect(tags[CKRecord.LinkKey.order] as? String == "a0")
+    #expect(notes[CKRecord.LinkKey.order] as? String == "b1")
 }
 
 @Test func invalidPropertyNameThrows() {
     #expect(throws: RecordLinkError.invalidSignature("Note.my tags:[Tag]")) {
-        try CKRecord.Link.manyToMany(source: record("Note", "note-1"), property: "my tags", target: record("Tag", "tag-1"))
+        try CKRecord.Link.manyToMany(source: record("Note", "note-1"), property: "my tags", target: record("Tag", "tag-1"), order: "a0")
     }
 }
 
@@ -162,8 +164,8 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
 @Test func addingAnInverseKeepsLinkNames() throws {
     let note = record("Note", "note-1"), tag = record("Tag", "tag-1"), person = record("Person", "person-1")
 
-    let tagsBefore = try CKRecord.Link.manyToMany(source: note, property: "tags", target: tag)
-    let tagsAfter = try CKRecord.Link.manyToMany(source: note, property: "tags", target: tag, inverse: "notes")
+    let tagsBefore = try CKRecord.Link.manyToMany(source: note, property: "tags", target: tag, order: "a0")
+    let tagsAfter = try CKRecord.Link.manyToMany(source: note, property: "tags", target: tag, inverse: "notes", order: "a0")
     #expect(tagsBefore.recordID == tagsAfter.recordID)
 
     let authorBefore = try CKRecord.Link.manyToOne(source: note, property: "author", target: person)

@@ -147,6 +147,7 @@ extension CKRecord {
 
         /// One source to many targets, e.g. `Folder.notes:[Note] <-> Note.folder:Folder`.
         /// The inverse is required, because a to-many link without one reads as many-to-many.
+        /// To-many links are always ordered, so `order` is a required fractional index key.
         public static func oneToMany(
             source: CKRecord,
             property: String,
@@ -154,7 +155,7 @@ extension CKRecord {
             inverse: String,
             sourceRule: DeleteRule = .nullify,
             targetRule: DeleteRule = .nullify,
-            order: String? = nil
+            order: String
         ) throws -> CKRecord {
             try make(
                 .oneToMany,
@@ -184,6 +185,7 @@ extension CKRecord {
 
         /// Many sources to many targets, e.g. `Note.tags:[Tag] <-> Tag.notes:[Note]`,
         /// or `Note.tags:[Tag]` without an inverse.
+        /// To-many links are always ordered, so `order` is a required fractional index key.
         public static func manyToMany(
             source: CKRecord,
             property: String,
@@ -191,7 +193,7 @@ extension CKRecord {
             inverse: String? = nil,
             sourceRule: DeleteRule = .nullify,
             targetRule: DeleteRule = .nullify,
-            order: String? = nil
+            order: String
         ) throws -> CKRecord {
             try make(
                 .manyToMany,
