@@ -251,9 +251,11 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 }
 
 @Test func zoneRoundTripsThroughZoneID() {
-    let shared = Zone("Shared", ownerName: "_abc123")
-    #expect(Zone(shared.zoneID) == shared)
-    #expect(shared != Zone("Shared"))
+    let sharedID = CKRecordZone.ID(zoneName: "Shared", ownerName: "_abc123")
+    let shared = Zone(sharedID)
+    #expect(shared.zoneID == sharedID)
+    #expect(shared.ownerName == "_abc123")
+    #expect(shared != "Shared")
 }
 
 @Test func encoderUsesTheZone() {
