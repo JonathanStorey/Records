@@ -264,13 +264,45 @@ let record = encoder.encode(album, in: zone)               // the album's fields
 let links = encoder.linksToSave(for: album, in: zone)      // new and changed links
 let removed = encoder.linkIDsToDelete(for: album, in: zone) // links to delete
 // ...save them...
-album.markReferencesSaved()
+album.markSaved()
 ```
 
-After `markReferencesSaved()`, the encoder reports only what changes next. Reordering tracks
+After `markSaved()`, the encoder reports only what changes next. Reordering tracks
 rewrites only the links of the tracks that moved. Pointing a to-one reference somewhere else
 overwrites its one link. A link is deleted only if the record was loaded or saved with it, so a
 record decoded before all its links arrived never deletes the ones it hasn't seen.
+
+### Tracking changes
+
+Every stored `var` except `id` notes when it is set. A record you make starts with every field
+changed, and a decoded record starts with none.
+
+```swift
+var album = try decoder.decode(Album.self, from: record, links: links, targets: targets)
+album.hasChanges            // false
+album.title = "Signal Fires (Deluxe)"
+album.changedFields         // ["title"]
+album.hasChanges            // true: a field or a link changed
+
+try encoder.encode(album, into: record)   // writes only "title"
+album.markSaved()
+```
+
+`encode(_:into:)` updates the `CKRecord` you loaded with only the changed fields, so an edit on
+another device to a different field survives. `encode(_:in:)` makes a new `CKRecord` with every
+field, for a record that has never been saved.
+
+Each record tracks only its own fields and links. Editing a record loaded inside another, such as
+`album.tracks[0].title`, marks the track, not the album, so save the track on its own:
+
+```swift
+album.tracks[0].title = "Ignition (Live)"
+album.hasChanges             // false
+album.tracks[0].hasChanges   // true
+```
+
+Declare each tracked `var` on its own line, without `willSet` or `didSet`. `@Record` turns it into a
+computed property backed by its own storage, the same way `@Reference` does.
 
 To decode, pass the record, the links, and any target records you have:
 
@@ -331,7 +363,8 @@ depth runs out, then holds only an ID.
 
 ## Not built yet
 
-- The SQLite store and `CKSyncEngine` sync.
+- The SQLite store and `CKSyncEngine` sync. The store's save will walk the records loaded inside
+  the one you save and save each that `hasChanges`.
 - Deletion with `deleteSelf`. The flag is stored on each link, and the store will delete the
   targets.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store

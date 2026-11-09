@@ -24,34 +24,31 @@ final class RecordMacroTests: XCTestCase {
                 var id: UUID
                 var title: String
                 let isPinned: Bool
-                var rating: Int? {
-                    didSet { print("changed") }
-                }
+                var rating: Int?
                 var summary: String {
                     title
                 }
                 static var shared = 0
                 lazy var cache = 0
                 let version = 1
-                var first, last: String
                 var tags: [String] = []
             }
             """,
             expandedSource: """
             struct Note {
                 var id: UUID
+                @RecordField
                 var title: String
                 let isPinned: Bool
-                var rating: Int? {
-                    didSet { print("changed") }
-                }
+                @RecordField
+                var rating: Int?
                 var summary: String {
                     title
                 }
                 static var shared = 0
                 lazy var cache = 0
                 let version = 1
-                var first, last: String
+                @RecordField
                 var tags: [String] = []
             }
 
@@ -61,20 +58,33 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
+                    self._title = try Records.Field(saved: CKRecordDecoder.decode((String).self, forKey: "title", from: record))
                     self.isPinned = try CKRecordDecoder.decode((Bool).self, forKey: "isPinned", from: record)
-                    self.rating = try CKRecordDecoder.decodeIfPresent((Int).self, forKey: "rating", from: record)
-                    self.first = try CKRecordDecoder.decode((String).self, forKey: "first", from: record)
-                    self.last = try CKRecordDecoder.decode((String).self, forKey: "last", from: record)
-                    self.tags = try CKRecordDecoder.decodeIfPresent(([String]).self, forKey: "tags", from: record) ?? []
+                    self._rating = try Records.Field(saved: CKRecordDecoder.decodeIfPresent((Int).self, forKey: "rating", from: record))
+                    self._tags = try Records.Field(saved: CKRecordDecoder.decodeIfPresent(([String]).self, forKey: "tags", from: record) ?? [])
                 }
                 func encodeFields(into record: CKRecord) {
                     record["title"] = self.title
                     record["isPinned"] = self.isPinned
                     record["rating"] = self.rating
-                    record["first"] = self.first
-                    record["last"] = self.last
                     record["tags"] = self.tags
+                }
+                var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._title.isChanged { fields.insert("title") }
+                    if self._rating.isChanged { fields.insert("rating") }
+                    if self._tags.isChanged { fields.insert("tags") }
+                    return fields
+                }
+                func encodeChangedFields(into record: CKRecord) {
+                    if self._title.isChanged { record["title"] = self.title }
+                    if self._rating.isChanged { record["rating"] = self.rating }
+                    if self._tags.isChanged { record["tags"] = self.tags }
+                }
+                mutating func markFieldsSaved() {
+                    self._title.markSaved()
+                    self._rating.markSaved()
+                    self._tags.markSaved()
                 }
             }
             """,
@@ -98,6 +108,7 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             public struct LegacyFolder {
                 public var id: UUID
+                @RecordField
                 public var `default`: Bool
             }
 
@@ -107,10 +118,21 @@ final class RecordMacroTests: XCTestCase {
                 }
                 public init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.`default` = try CKRecordDecoder.decode((Bool).self, forKey: "default", from: record)
+                    self._default = try Records.Field(saved: CKRecordDecoder.decode((Bool).self, forKey: "default", from: record))
                 }
                 public func encodeFields(into record: CKRecord) {
                     record["default"] = self.`default`
+                }
+                public var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._default.isChanged { fields.insert("default") }
+                    return fields
+                }
+                public func encodeChangedFields(into record: CKRecord) {
+                    if self._default.isChanged { record["default"] = self.`default` }
+                }
+                public mutating func markFieldsSaved() {
+                    self._default.markSaved()
                 }
             }
             """,
@@ -134,6 +156,7 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Box<Value> {
                 var id: UUID
+                @RecordField
                 var value: Optional<Value>
             }
 
@@ -143,10 +166,21 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.value = try CKRecordDecoder.decodeIfPresent((Value).self, forKey: "value", from: record)
+                    self._value = try Records.Field(saved: CKRecordDecoder.decodeIfPresent((Value).self, forKey: "value", from: record))
                 }
                 func encodeFields(into record: CKRecord) {
                     record["value"] = self.value
+                }
+                var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._value.isChanged { fields.insert("value") }
+                    return fields
+                }
+                func encodeChangedFields(into record: CKRecord) {
+                    if self._value.isChanged { record["value"] = self.value }
+                }
+                mutating func markFieldsSaved() {
+                    self._value.markSaved()
                 }
             }
             """,
@@ -274,6 +308,7 @@ final class RecordMacroTests: XCTestCase {
             """,
             expandedSource: """
             struct Note {
+                @RecordField
                 var title: String
             }
             """,
@@ -328,6 +363,7 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Note {
                 var id: UUID
+                @RecordField
                 var tags: [String]?
             }
             """,
@@ -359,6 +395,7 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Article {
                 var id: UUID
+                @RecordField
                 var title: String
                 var author: Person? {
                     @storageRestrictions(initializes: _author)
@@ -386,11 +423,22 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
+                    self._title = try Records.Field(saved: CKRecordDecoder.decode((String).self, forKey: "title", from: record))
                     self._author = Records.ToOne(id: nil)
                 }
                 func encodeFields(into record: CKRecord) {
                     record["title"] = self.title
+                }
+                var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._title.isChanged { fields.insert("title") }
+                    return fields
+                }
+                func encodeChangedFields(into record: CKRecord) {
+                    if self._title.isChanged { record["title"] = self.title }
+                }
+                mutating func markFieldsSaved() {
+                    self._title.markSaved()
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
@@ -1282,6 +1330,105 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(message: "@Reference to itself is not supported yet", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    // MARK: - Field changes
+
+    func testFieldIsBackedByStorage() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @RecordField var title: String
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var title: String {
+                    @storageRestrictions(initializes: _title)
+                    init(initialValue) {
+                        _title = Records.Field(initialValue)
+                    }
+                    get {
+                        _title.value
+                    }
+                    set {
+                        _title.value = newValue
+                    }
+                }
+
+                var _title: Records.Field<String>
+            }
+            """,
+            macroSpecs: ["RecordField": MacroSpec(type: RecordFieldMacro.self)]
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testFieldsDeclaredTogetherAreAnError() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note {
+                var id: UUID
+                var first, last: String
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+                var first, last: String
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(
+                    message: "@Record tracks each field's changes, so declare 'first' and 'last' separately",
+                    line: 1,
+                    column: 1
+                ),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testFieldObserverIsAnError() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note {
+                var id: UUID
+                var rating: Int? {
+                    didSet { print("changed") }
+                }
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+                var rating: Int? {
+                    didSet { print("changed") }
+                }
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(
+                    message: "@Record tracks changes to 'rating', so it can't have 'willSet' or 'didSet'",
+                    line: 1,
+                    column: 1
+                ),
             ],
             macroSpecs: macroSpecs
         )

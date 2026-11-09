@@ -15,7 +15,8 @@ public enum CKRecordEncodingError: Error, Equatable {
 public struct CKRecordEncoder: Sendable {
     public init() {}
 
-    /// A new `CKRecord` for `record` in `zone`. CloudKit treats it as a record it has never seen.
+    /// A new `CKRecord` for `record` in `zone`, with every field. CloudKit treats it as a record it
+    /// has never seen.
     public func encode(_ record: some Record, in zone: Zone) -> CKRecord {
         let recordID = CKRecord.ID(recordName: record.id.uuidString, zoneID: zone.zoneID)
         let ckRecord = CKRecord(recordType: type(of: record).recordType, recordID: recordID)
@@ -23,9 +24,10 @@ public struct CKRecordEncoder: Sendable {
         return ckRecord
     }
 
-    /// Writes `record`'s fields into an existing `CKRecord`, keeping its system fields and change
-    /// tag so CloudKit treats the save as an update. Optional properties that are `nil` clear
-    /// their field.
+    /// Writes the fields that changed since `record` was loaded or last saved into an existing
+    /// `CKRecord`, keeping its system fields and change tag so CloudKit treats the save as an
+    /// update. Unchanged fields are left alone, so an edit on another device to a different field
+    /// isn't overwritten. Optional properties set to `nil` clear their field.
     ///
     /// Throws when `ckRecord` has a different record type or a record name other than `record.id`.
     public func encode(_ record: some Record, into ckRecord: CKRecord) throws {
@@ -39,7 +41,7 @@ public struct CKRecordEncoder: Sendable {
                 expected: expectedName, found: ckRecord.recordID.recordName
             )
         }
-        record.encodeFields(into: ckRecord)
+        record.encodeChangedFields(into: ckRecord)
     }
 
     // MARK: Links
@@ -50,7 +52,7 @@ public struct CKRecordEncoder: Sendable {
     /// it had before. A to-many reference writes a link for each added target and each target
     /// whose order key changed, so moving one target rewrites only that target's link.
     ///
-    /// Save these along with the record, then call `markReferencesSaved()` on it.
+    /// Save these along with the record, then call `markSaved()` on it.
     public func linksToSave<R: Record>(for record: R, in zone: Zone) -> [CKRecord] {
         record.referenceStates.flatMap { reference -> [CKRecord] in
             guard reference.hasChanges else { return [] }
