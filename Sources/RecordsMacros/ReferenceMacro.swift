@@ -36,7 +36,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         case (true, true): "ids"
         case (true, false): "values"
         }
-        return [
+        var accessors: [AccessorDeclSyntax] = [
             """
             @storageRestrictions(initializes: \(raw: storage))
             init(initialValue) {
@@ -48,12 +48,18 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
                 \(raw: storage).\(raw: member)
             }
             """,
-            """
-            set {
-                \(raw: storage).\(raw: member) = newValue
-            }
-            """,
         ]
+        // The `from:` side never writes links, so it can only be set when the record is made.
+        if !reference.isFrom {
+            accessors.append(
+                """
+                set {
+                    \(raw: storage).\(raw: member) = newValue
+                }
+                """
+            )
+        }
+        return accessors
     }
 
     public static func expansion(
@@ -81,6 +87,12 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         let isID: Bool
         /// Whether the property holds many targets, `[Target]` or `[UUID]`.
         let isToMany: Bool
+        /// For `@Reference(to: \Profile.user)`, the inverse property, such as `user`.
+        var inverse: String? = nil
+        /// Whether this is the read-only `@Reference(from:)` side.
+        var isFrom = false
+        /// For `@Reference(from:deleteSelf:)`, whether the record is deleted with its owner.
+        var deleteSelf = false
 
         /// The generated storage property, such as `_author`.
         var storage: String { "_" + key }
@@ -131,37 +143,108 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             wrapped = optional
         }
 
-        // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named: `@Reference(to: Person.self)`.
-        let argument = node.arguments?.as(LabeledExprListSyntax.self)?.first
+        let name = pattern.identifier.text
+        let key = name.filter { $0 != "`" }
         let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
-        if isID, argument == nil {
+        let arguments = node.arguments?.as(LabeledExprListSyntax.self).map(Array.init) ?? []
+
+        // The first argument is `to: Person.self`, `to: \Profile.user`, or `from: User.self`.
+        // `from:` takes a type, not a key path: two key paths naming each other's macro-backed
+        // properties would make the compiler expand each macro to resolve the other.
+        var typeArgument: ExprSyntax?
+        var keyPath: (root: String, property: String)?
+        var isFrom = false
+        if let first = arguments.first {
+            let keyPathExpr = first.expression.as(KeyPathExprSyntax.self)
+            switch first.label?.text {
+            case "to" where keyPathExpr != nil:
+                keyPath = try parse(keyPathExpr!, owner: owner)
+            case "to":
+                typeArgument = first.expression
+            case "from":
+                guard keyPathExpr == nil else {
+                    throw MacroExpansionErrorMessage("@Reference(from:) takes a record type, e.g. 'User.self'")
+                }
+                typeArgument = first.expression
+                isFrom = true
+            default:
+                throw MacroExpansionErrorMessage("@Reference takes 'to:' or 'from:'")
+            }
+        }
+        var deleteSelf = false
+        for argument in arguments.dropFirst() {
+            guard argument.label?.text == "deleteSelf", isFrom else {
+                throw MacroExpansionErrorMessage("Only @Reference(from:) takes 'deleteSelf:'")
+            }
+            guard let literal = argument.expression.as(BooleanLiteralExprSyntax.self) else {
+                throw MacroExpansionErrorMessage("'deleteSelf:' must be 'true' or 'false'")
+            }
+            deleteSelf = literal.literal.tokenKind == .keyword(.true)
+        }
+
+        if keyPath != nil || isFrom, isToMany {
+            throw MacroExpansionErrorMessage("@Reference with an inverse supports to-one properties for now")
+        }
+        // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named.
+        if isID, typeArgument == nil, keyPath == nil {
             throw MacroExpansionErrorMessage(
                 "@Reference on a UUID needs the record type it points at, e.g. '@Reference(to: Person.self)'"
             )
         }
-        if !isID, argument != nil {
+        if !isID, typeArgument != nil, !isFrom {
             throw MacroExpansionErrorMessage(
                 "@Reference only takes a record type on a UUID property; '\(wrapped.trimmedDescription)' already names it"
             )
         }
 
-        var target = wrapped.trimmedDescription
-        if let argument {
-            guard let member = argument.expression.as(MemberAccessExprSyntax.self),
+        // `Self` cannot appear in a stored property's type, so name the struct instead.
+        func resolved(_ type: String) -> String { type == "Self" ? owner ?? type : type }
+
+        var target = resolved(wrapped.trimmedDescription)
+        if let typeArgument {
+            guard let member = typeArgument.as(MemberAccessExprSyntax.self),
                   member.declName.baseName.tokenKind == .keyword(.self),
                   let base = member.base
             else {
-                throw MacroExpansionErrorMessage("@Reference(to:) takes a record type, e.g. 'Person.self'")
+                let label = isFrom ? "from" : "to"
+                throw MacroExpansionErrorMessage("@Reference(\(label):) takes a record type, e.g. 'Person.self'")
             }
-            target = base.trimmedDescription
+            let named = resolved(base.trimmedDescription)
+            if isFrom, !isID, named != target {
+                throw MacroExpansionErrorMessage(
+                    "The record type '\(named)' does not match the property's type '\(target)'"
+                )
+            }
+            target = named
         }
-        // `Self` cannot appear in a stored property's type, so name the struct instead.
-        if target == "Self", let owner {
-            target = owner
+        if let keyPath {
+            if !isID, keyPath.root != target {
+                throw MacroExpansionErrorMessage(
+                    "The key path's type '\(keyPath.root)' does not match the property's type '\(target)'"
+                )
+            }
+            if keyPath.root == owner, keyPath.property == key {
+                throw MacroExpansionErrorMessage("@Reference to itself is not supported yet")
+            }
+            target = keyPath.root
         }
 
-        let name = pattern.identifier.text
-        return Reference(name: name, key: name.filter { $0 != "`" }, target: target, isID: isID, isToMany: isToMany)
+        return Reference(
+            name: name, key: key, target: target, isID: isID, isToMany: isToMany,
+            inverse: keyPath?.property, isFrom: isFrom, deleteSelf: deleteSelf
+        )
+    }
+
+    /// The root type and property of a key path such as `\Profile.user`.
+    private static func parse(_ keyPath: KeyPathExprSyntax, owner: String?) throws -> (root: String, property: String) {
+        guard let root = keyPath.root?.trimmedDescription,
+              keyPath.components.count == 1,
+              let component = keyPath.components.first?.component.as(KeyPathPropertyComponentSyntax.self)
+        else {
+            throw MacroExpansionErrorMessage("@Reference takes a key path to one property, e.g. '\\Profile.user'")
+        }
+        let property = component.declName.baseName.text.filter { $0 != "`" }
+        return (root == "Self" ? owner ?? root : root, property)
     }
 
     /// `Tag` for `[Tag]` or `Array<Tag>`.

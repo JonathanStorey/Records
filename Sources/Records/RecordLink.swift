@@ -272,29 +272,40 @@ struct RecordLink: Equatable, Sendable {
 // MARK: - References
 
 extension RecordLink {
-    /// The link a `@Reference` writes to `target`: many-to-one or many-to-many with no inverse,
-    /// such as `Article.author:Person` or `Page.labels:[Label]`.
+    /// The link a `@Reference` writes to `target`, such as `Article.author:Person`,
+    /// `Page.labels:[Label]`, or, with an inverse, `User.profile:Profile <-> Profile.user:User`.
     ///
-    /// Adding a `@Reference(from:)` inverse later keeps the same ID, because only the forward
-    /// side is hashed.
+    /// Only the forward side is hashed into the ID, so adding an inverse keeps the IDs of to-one
+    /// links. A to-many link's ID changes when an inverse makes it one-to-many.
     init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, target: ReferenceTarget) {
         self.init(
             id: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: target.id),
-            relationship: Self.forward(reference, sourceType: sourceType),
+            relationship: Self.signature(
+                sourceType: sourceType, property: reference.property, sourceIsToMany: reference.isToMany,
+                targetType: reference.targetType, inverse: reference.inverse?.property,
+                inverseIsToMany: reference.inverse?.isToMany ?? true
+            ),
             sourceName: sourceID.uuidString,
             targetName: target.id.uuidString,
-            deleteSelf: false,
+            deleteSelf: reference.inverse?.deleteSelf ?? false,
             order: target.order,
             version: Self.currentVersion
         )
     }
 
     /// The ID of the link a `@Reference` writes. A to-one link leaves out the target, so it is
-    /// the same whatever the reference points at. A to-many link has one per target.
+    /// the same whatever the reference points at. A one-to-many link leaves out the source, so a
+    /// target belongs to one source. A many-to-many link has one per pair.
     static func id(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, targetID: UUID) -> UUID {
-        id(
+        let kind: Relationship = switch (reference.isToMany, reference.inverse?.isToMany) {
+        case (false, false?): .oneToOne
+        case (false, _): .manyToOne
+        case (true, false?): .oneToMany
+        case (true, _): .manyToMany
+        }
+        return id(
             forward: forward(reference, sourceType: sourceType),
-            kind: reference.isToMany ? .manyToMany : .manyToOne,
+            kind: kind,
             sourceName: sourceID.uuidString,
             targetName: targetID.uuidString
         )
@@ -310,8 +321,19 @@ extension RecordLink {
     /// The source's record type and property, read from the forward side of the signature,
     /// or `nil` when the signature is invalid.
     var source: (type: String, property: String)? {
-        let forward = relationship.components(separatedBy: " <-> ")[0]
-        guard let side = try? SignatureSide(forward, signature: relationship) else { return nil }
+        side(0)
+    }
+
+    /// The target's record type and `@Reference(from:)` property, read from the inverse side of
+    /// the signature, or `nil` when there is no inverse or the signature is invalid.
+    var target: (type: String, property: String)? {
+        side(1)
+    }
+
+    private func side(_ index: Int) -> (type: String, property: String)? {
+        guard (try? Relationship(signature: relationship)) != nil else { return nil }
+        let sides = relationship.components(separatedBy: " <-> ")
+        guard index < sides.count, let side = try? SignatureSide(sides[index], signature: relationship) else { return nil }
         return (String(side.declaringType), String(side.property))
     }
 }

@@ -13,6 +13,34 @@ public struct ReferenceTarget: Hashable, Sendable {
     }
 }
 
+/// The other side of a two-way relationship: the target's `@Reference(from:)` property.
+///
+/// `@Reference(to: \Profile.user)` generates one from its key path. The key path's type says
+/// whether that side holds one or many, and the target type says whether it deletes itself
+/// when its owner is deleted.
+public struct Inverse: Hashable, Sendable {
+    /// The inverse property's name, such as `user`.
+    public let property: String
+    /// Whether the inverse holds many records.
+    public let isToMany: Bool
+    /// Whether the target is deleted with its owner.
+    public let deleteSelf: Bool
+
+    /// The inverse of a to-one property, such as `\Profile.user` for `var user: User?`.
+    public init<Root: Record, Value>(_ keyPath: KeyPath<Root, Value?>, name: String) {
+        self.property = name
+        self.isToMany = false
+        self.deleteSelf = Root.deleteSelfReferences.contains(name)
+    }
+
+    /// The inverse of a to-many property, such as `\Folder.notes` for `var notes: [Note]`.
+    public init<Root: Record, Value>(_ keyPath: KeyPath<Root, [Value]>, name: String) {
+        self.property = name
+        self.isToMany = true
+        self.deleteSelf = Root.deleteSelfReferences.contains(name)
+    }
+}
+
 /// The state of one `@Reference`, as the encoder needs it to write links.
 public struct ReferenceState: Equatable, Sendable {
     /// The property name, such as `author`.
@@ -21,6 +49,8 @@ public struct ReferenceState: Equatable, Sendable {
     public let targetType: CKRecord.RecordType
     /// Whether the property holds many targets.
     public let isToMany: Bool
+    /// The target's `@Reference(from:)` side, when the relationship is two-way.
+    public let inverse: Inverse?
     /// The targets now, in order, each with the order key it will be saved with.
     public let targets: [ReferenceTarget]
     /// The targets when the record was last loaded or saved. Empty for a record never saved.
@@ -86,9 +116,9 @@ public struct ToOne<Target: Record> {
     }
 
     /// The reference's state for the encoder.
-    public func state(property: String) -> ReferenceState {
+    public func state(property: String, inverse: Inverse? = nil) -> ReferenceState {
         ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: false,
+            property: property, targetType: Target.recordType, isToMany: false, inverse: inverse,
             targets: id.map { [ReferenceTarget(id: $0)] } ?? [],
             loaded: loadedID.map { [ReferenceTarget(id: $0)] } ?? []
         )
@@ -189,9 +219,9 @@ public struct ToMany<Target: Record> {
     }
 
     /// The reference's state for the encoder.
-    public func state(property: String) -> ReferenceState {
+    public func state(property: String, inverse: Inverse? = nil) -> ReferenceState {
         ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: true,
+            property: property, targetType: Target.recordType, isToMany: true, inverse: inverse,
             targets: plannedTargets, loaded: loaded
         )
     }

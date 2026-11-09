@@ -7,7 +7,8 @@ import SwiftSyntaxMacros
 /// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
 /// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
 /// each stored property except `id` under its own name. A struct with `@Reference` properties
-/// also gets `referenceStates`, `loadReference(_:to:from:links:)`, and `markReferencesSaved()`.
+/// also gets `referenceStates`, `loadReference(_:to:from:links:)`, and `markReferencesSaved()`,
+/// and one with `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
 public struct RecordMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -64,11 +65,24 @@ public struct RecordMacro: ExtensionMacro {
             lines.append("        record[\"\(field.key)\"] = self.\(field.name)")
         }
         lines.append("    }")
+        let deleteSelf = references.filter(\.deleteSelf).map { "\"\($0.key)\"" }
+        if !deleteSelf.isEmpty {
+            lines += [
+                "    \(access)static var deleteSelfReferences: Set<String> {",
+                "        [\(deleteSelf.joined(separator: ", "))]",
+                "    }",
+            ]
+        }
         if !references.isEmpty {
+            // `@Reference(from:)` properties never write links, so the encoder doesn't see them.
             lines.append("    \(access)var referenceStates: [Records.ReferenceState] {")
             lines.append("        [")
-            for reference in references {
-                lines.append("            self.\(reference.storage).state(property: \"\(reference.key)\"),")
+            for reference in references where !reference.isFrom {
+                var arguments = "property: \"\(reference.key)\""
+                if let inverse = reference.inverse {
+                    arguments += ", inverse: Records.Inverse(\\\(reference.target).\(inverse), name: \"\(inverse)\")"
+                }
+                lines.append("            self.\(reference.storage).state(\(arguments)),")
             }
             lines += [
                 "        ]",
