@@ -15,9 +15,8 @@ public struct ReferenceTarget: Hashable, Sendable {
 
 /// The other side of a two-way relationship: the target's `@Reference(from:)` property.
 ///
-/// `@Reference(to: \Profile.user)` generates one from its key path. The key path's type says
-/// whether that side holds one or many, and the target type says whether it deletes itself
-/// when its owner is deleted.
+/// `@Record` generates one for each `@Reference(from: \User.profile)` property, and the owner's
+/// encoder looks it up with `Record.inverse(of:in:)`. The owner never names it.
 public struct Inverse: Hashable, Sendable {
     /// The inverse property's name, such as `user`.
     public let property: String
@@ -26,18 +25,24 @@ public struct Inverse: Hashable, Sendable {
     /// Whether the target is deleted with its owner.
     public let deleteSelf: Bool
 
-    /// The inverse of a to-one property, such as `\Profile.user` for `var user: User?`.
-    public init<Root: Record, Value>(_ keyPath: KeyPath<Root, Value?>, name: String) {
-        self.property = name
+    /// The `from:` side of a to-one owner that holds the record, such as `\User.profile` for
+    /// `var profile: Profile?`. The key path's value type must be the `from:` side's type.
+    public init<Owner: Record, Target: Record>(
+        _ owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String, deleteSelf: Bool = false
+    ) {
+        self.property = property
         self.isToMany = false
-        self.deleteSelf = Root.deleteSelfReferences.contains(name)
+        self.deleteSelf = deleteSelf
     }
 
-    /// The inverse of a to-many property, such as `\Folder.notes` for `var notes: [Note]`.
-    public init<Root: Record, Value>(_ keyPath: KeyPath<Root, [Value]>, name: String) {
-        self.property = name
-        self.isToMany = true
-        self.deleteSelf = Root.deleteSelfReferences.contains(name)
+    /// The `from:` side of a to-one owner that holds only the ID, such as `\Account.settingsID`
+    /// for `var settingsID: UUID?`.
+    public init<Owner: Record, Target: Record>(
+        _ owner: KeyPath<Owner, UUID?>, to target: Target.Type, property: String, deleteSelf: Bool = false
+    ) {
+        self.property = property
+        self.isToMany = false
+        self.deleteSelf = deleteSelf
     }
 }
 
@@ -115,10 +120,12 @@ public struct ToOne<Target: Record> {
         loadedID = id
     }
 
-    /// The reference's state for the encoder.
-    public func state(property: String, inverse: Inverse? = nil) -> ReferenceState {
+    /// The reference's state for the encoder. `owner` is the record type that declares it, used
+    /// to find the target's `@Reference(from:)` side.
+    public func state(property: String, owner: CKRecord.RecordType) -> ReferenceState {
         ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: false, inverse: inverse,
+            property: property, targetType: Target.recordType, isToMany: false,
+            inverse: Target.inverse(of: property, in: owner),
             targets: id.map { [ReferenceTarget(id: $0)] } ?? [],
             loaded: loadedID.map { [ReferenceTarget(id: $0)] } ?? []
         )
@@ -218,10 +225,12 @@ public struct ToMany<Target: Record> {
         loaded = plannedTargets
     }
 
-    /// The reference's state for the encoder.
-    public func state(property: String, inverse: Inverse? = nil) -> ReferenceState {
+    /// The reference's state for the encoder. `owner` is the record type that declares it, used
+    /// to find the target's `@Reference(from:)` side.
+    public func state(property: String, owner: CKRecord.RecordType) -> ReferenceState {
         ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: true, inverse: inverse,
+            property: property, targetType: Target.recordType, isToMany: true,
+            inverse: Target.inverse(of: property, in: owner),
             targets: plannedTargets, loaded: loaded
         )
     }

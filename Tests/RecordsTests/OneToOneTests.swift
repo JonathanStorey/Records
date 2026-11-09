@@ -6,26 +6,26 @@ import Testing
 struct User: Equatable {
     var id: UUID
     var name: String
-    @Reference(to: \Profile.user) var profile: Profile?
+    @Reference var profile: Profile?
 }
 
 @Record
 struct Profile: Equatable {
     var id: UUID
     var bio: String
-    @Reference(from: User.self, deleteSelf: true) var user: User?
+    @Reference(from: \User.profile, deleteSelf: true) var user: User?
 }
 
 @Record
 struct Account: Equatable {
     var id: UUID
-    @Reference(to: \Settings.accountID) var settingsID: UUID?
+    @Reference(to: Settings.self) var settingsID: UUID?
 }
 
 @Record
 struct Settings: Equatable {
     var id: UUID
-    @Reference(from: Account.self) var accountID: UUID?
+    @Reference(from: \Account.settingsID) var accountID: UUID?
 }
 
 private let encoder = CKRecordEncoder()
@@ -78,6 +78,19 @@ private func makeProfile() -> Profile {
     #expect(Settings.deleteSelfReferences.isEmpty)
 }
 
+@Test func theOwnerFindsItsInverseOnTheTarget() {
+    #expect(Profile.inverse(of: "profile", in: "User") == Inverse(\User.profile, to: Profile.self, property: "user", deleteSelf: true))
+    #expect(Settings.inverse(of: "settingsID", in: "Account")?.property == "accountID")
+    #expect(Settings.inverse(of: "settingsID", in: "Account")?.deleteSelf == false)
+    #expect(Profile.inverse(of: "bio", in: "User") == nil)
+    #expect(Profile.inverse(of: "profile", in: "Account") == nil)
+    #expect(User.inverse(of: "user", in: "Profile") == nil)
+
+    let state = makeUser(with: nil).referenceStates.first
+    #expect(state?.inverse?.property == "user")
+    #expect(state?.inverse?.deleteSelf == true)
+}
+
 @Test func addingAnInverseKeepsToOneLinkIDs() {
     let sourceID = UUID()
     let oneWay = ReferenceState(
@@ -85,7 +98,7 @@ private func makeProfile() -> Profile {
     )
     let twoWay = ReferenceState(
         property: "profile", targetType: "Profile", isToMany: false,
-        inverse: Inverse(\Profile.user, name: "user"), targets: [], loaded: []
+        inverse: Inverse(\User.profile, to: Profile.self, property: "user"), targets: [], loaded: []
     )
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "User", sourceID: sourceID, targetID: UUID())

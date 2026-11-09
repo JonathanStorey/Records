@@ -8,7 +8,8 @@ import SwiftSyntaxMacros
 /// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
 /// each stored property except `id` under its own name. A struct with `@Reference` properties
 /// also gets `referenceStates`, `loadReference(_:to:from:links:)`, and `markReferencesSaved()`,
-/// and one with `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
+/// one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
+/// `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
 public struct RecordMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -73,16 +74,35 @@ public struct RecordMacro: ExtensionMacro {
                 "    }",
             ]
         }
+        let inverses = references.filter(\.isFrom)
+        if !inverses.isEmpty {
+            // The owner's encoder asks for its inverse here. The key path checks that the owner's
+            // property exists and points back at this type.
+            lines += [
+                "    \(access)static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {",
+                "        switch (owner, property) {",
+            ]
+            for reference in inverses {
+                let ownerProperty = reference.ownerProperty ?? ""
+                let deleteSelf = reference.deleteSelf ? ", deleteSelf: true" : ""
+                lines += [
+                    "        case (\(reference.target).recordType, \"\(ownerProperty)\"):",
+                    "            return Records.Inverse(\\\(reference.target).\(ownerProperty), to: Self.self, property: \"\(reference.key)\"\(deleteSelf))",
+                ]
+            }
+            lines += [
+                "        default:",
+                "            return nil",
+                "        }",
+                "    }",
+            ]
+        }
         if !references.isEmpty {
             // `@Reference(from:)` properties never write links, so the encoder doesn't see them.
             lines.append("    \(access)var referenceStates: [Records.ReferenceState] {")
             lines.append("        [")
             for reference in references where !reference.isFrom {
-                var arguments = "property: \"\(reference.key)\""
-                if let inverse = reference.inverse {
-                    arguments += ", inverse: Records.Inverse(\\\(reference.target).\(inverse), name: \"\(inverse)\")"
-                }
-                lines.append("            self.\(reference.storage).state(\(arguments)),")
+                lines.append("            self.\(reference.storage).state(property: \"\(reference.key)\", owner: Self.recordType),")
             }
             lines += [
                 "        ]",

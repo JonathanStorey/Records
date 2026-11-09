@@ -390,7 +390,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
-                        self._author.state(property: "author"),
+                        self._author.state(property: "author", owner: Self.recordType),
                     ]
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
@@ -562,8 +562,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
-                        self._tags.state(property: "tags"),
-                        self._pinnedIDs.state(property: "pinnedIDs"),
+                        self._tags.state(property: "tags", owner: Self.recordType),
+                        self._pinnedIDs.state(property: "pinnedIDs", owner: Self.recordType),
                     ]
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
@@ -630,7 +630,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
-                        self._authorID.state(property: "authorID"),
+                        self._authorID.state(property: "authorID", owner: Self.recordType),
                     ]
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
@@ -833,7 +833,7 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct User {
                 var id: UUID
-                @Reference(to: \\Profile.user) var profile: Profile?
+                @Reference var profile: Profile?
             }
             """,
             expandedSource: """
@@ -867,7 +867,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
-                        self._profile.state(property: "profile", inverse: Records.Inverse(\\Profile.user, name: "user")),
+                        self._profile.state(property: "profile", owner: Self.recordType),
                     ]
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
@@ -897,8 +897,8 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct Profile {
                 var id: UUID
-                @Reference(from: User.self, deleteSelf: true) var user: User?
-                @Reference(from: Account.self) var accountID: UUID?
+                @Reference(from: \\User.profile, deleteSelf: true) var user: User?
+                @Reference(from: \\Account.settingsID) var accountID: UUID?
             }
             """,
             expandedSource: """
@@ -942,6 +942,16 @@ final class RecordMacroTests: XCTestCase {
                 static var deleteSelfReferences: Set<String> {
                     ["user"]
                 }
+                static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {
+                    switch (owner, property) {
+                    case (User.recordType, "profile"):
+                        return Records.Inverse(\\User.profile, to: Self.self, property: "user", deleteSelf: true)
+                    case (Account.recordType, "settingsID"):
+                        return Records.Inverse(\\Account.settingsID, to: Self.self, property: "accountID")
+                    default:
+                        return nil
+                    }
+                }
                 var referenceStates: [Records.ReferenceState] {
                     [
                     ]
@@ -969,12 +979,12 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testFromNeedsARecordType() throws {
+    func testFromNeedsAKeyPath() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct Profile {
-                @Reference(from: \\User.profile) var user: User?
+                @Reference(from: User.self) var user: User?
             }
             """,
             expandedSource: """
@@ -983,7 +993,33 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference(from:) takes a record type, e.g. 'User.self'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference(from:) takes the owner's property, e.g. '\\User.profile'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testToTakesNoKeyPath() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct User {
+                @Reference(to: \\Profile.user) var profile: Profile?
+            }
+            """,
+            expandedSource: """
+            struct User {
+                var profile: Profile?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(
+                    message: "@Reference(to:) takes a record type; name this property in the other side's '@Reference(from:)' instead",
+                    line: 2, column: 5
+                ),
             ],
             macroSpecs: macroSpecs
         )
@@ -997,12 +1033,12 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct User {
-                @Reference(to: \\Profile.user, deleteSelf: true) var profile: Profile?
+                @Reference(to: Profile.self, deleteSelf: true) var profileID: UUID?
             }
             """,
             expandedSource: """
             struct User {
-                var profile: Profile?
+                var profileID: UUID?
             }
             """,
             diagnostics: [
@@ -1020,7 +1056,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Folder {
-                @Reference(to: \\Note.folder) var notes: [Note]
+                @Reference(from: \\Note.folder) var notes: [Note]
             }
             """,
             expandedSource: """
@@ -1029,7 +1065,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference with an inverse supports to-one properties for now", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference(from:) supports to-one properties for now", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -1043,16 +1079,16 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct User {
-                @Reference(to: \\Avatar.user) var profile: Profile?
+                @Reference(from: \\Avatar.profile) var user: User?
             }
             """,
             expandedSource: """
             struct User {
-                var profile: Profile?
+                var user: User?
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "The key path's type 'Avatar' does not match the property's type 'Profile'", line: 2, column: 5),
+                DiagnosticSpec(message: "The key path's type 'Avatar' does not match the property's type 'User'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -1066,7 +1102,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Person {
-                @Reference(to: \\Person.spouse) var spouse: Person?
+                @Reference(from: \\Person.spouse) var spouse: Person?
             }
             """,
             expandedSource: """

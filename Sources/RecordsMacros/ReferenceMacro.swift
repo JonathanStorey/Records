@@ -87,10 +87,11 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         let isID: Bool
         /// Whether the property holds many targets, `[Target]` or `[UUID]`.
         let isToMany: Bool
-        /// For `@Reference(to: \Profile.user)`, the inverse property, such as `user`.
-        var inverse: String? = nil
+        /// For `@Reference(from: \User.profile)`, the owner's property, such as `profile`.
+        /// The owner's type is `target`.
+        var ownerProperty: String? = nil
         /// Whether this is the read-only `@Reference(from:)` side.
-        var isFrom = false
+        var isFrom: Bool { ownerProperty != nil }
         /// For `@Reference(from:deleteSelf:)`, whether the record is deleted with its owner.
         var deleteSelf = false
 
@@ -148,29 +149,31 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
         let arguments = node.arguments?.as(LabeledExprListSyntax.self).map(Array.init) ?? []
 
-        // The first argument is `to: Person.self`, `to: \Profile.user`, or `from: User.self`.
-        // `from:` takes a type, not a key path: two key paths naming each other's macro-backed
-        // properties would make the compiler expand each macro to resolve the other.
+        // The first argument is `to: Person.self` or `from: \User.profile`. Only `from:` takes a
+        // key path: the owner never names its inverse, because two key paths naming each other's
+        // macro-backed properties would make the compiler expand each macro to resolve the other.
         var typeArgument: ExprSyntax?
         var keyPath: (root: String, property: String)?
-        var isFrom = false
         if let first = arguments.first {
             let keyPathExpr = first.expression.as(KeyPathExprSyntax.self)
             switch first.label?.text {
-            case "to" where keyPathExpr != nil:
-                keyPath = try parse(keyPathExpr!, owner: owner)
             case "to":
-                typeArgument = first.expression
-            case "from":
                 guard keyPathExpr == nil else {
-                    throw MacroExpansionErrorMessage("@Reference(from:) takes a record type, e.g. 'User.self'")
+                    throw MacroExpansionErrorMessage(
+                        "@Reference(to:) takes a record type; name this property in the other side's '@Reference(from:)' instead"
+                    )
                 }
                 typeArgument = first.expression
-                isFrom = true
+            case "from":
+                guard let keyPathExpr else {
+                    throw MacroExpansionErrorMessage("@Reference(from:) takes the owner's property, e.g. '\\User.profile'")
+                }
+                keyPath = try parse(keyPathExpr, owner: owner)
             default:
                 throw MacroExpansionErrorMessage("@Reference takes 'to:' or 'from:'")
             }
         }
+        let isFrom = keyPath != nil
         var deleteSelf = false
         for argument in arguments.dropFirst() {
             guard argument.label?.text == "deleteSelf", isFrom else {
@@ -182,16 +185,16 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             deleteSelf = literal.literal.tokenKind == .keyword(.true)
         }
 
-        if keyPath != nil || isFrom, isToMany {
-            throw MacroExpansionErrorMessage("@Reference with an inverse supports to-one properties for now")
+        if isFrom, isToMany {
+            throw MacroExpansionErrorMessage("@Reference(from:) supports to-one properties for now")
         }
         // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named.
-        if isID, typeArgument == nil, keyPath == nil {
+        if isID, !isFrom, typeArgument == nil {
             throw MacroExpansionErrorMessage(
                 "@Reference on a UUID needs the record type it points at, e.g. '@Reference(to: Person.self)'"
             )
         }
-        if !isID, typeArgument != nil, !isFrom {
+        if !isID, typeArgument != nil {
             throw MacroExpansionErrorMessage(
                 "@Reference only takes a record type on a UUID property; '\(wrapped.trimmedDescription)' already names it"
             )
@@ -206,16 +209,9 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
                   member.declName.baseName.tokenKind == .keyword(.self),
                   let base = member.base
             else {
-                let label = isFrom ? "from" : "to"
-                throw MacroExpansionErrorMessage("@Reference(\(label):) takes a record type, e.g. 'Person.self'")
+                throw MacroExpansionErrorMessage("@Reference(to:) takes a record type, e.g. 'Person.self'")
             }
-            let named = resolved(base.trimmedDescription)
-            if isFrom, !isID, named != target {
-                throw MacroExpansionErrorMessage(
-                    "The record type '\(named)' does not match the property's type '\(target)'"
-                )
-            }
-            target = named
+            target = resolved(base.trimmedDescription)
         }
         if let keyPath {
             if !isID, keyPath.root != target {
@@ -231,7 +227,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
 
         return Reference(
             name: name, key: key, target: target, isID: isID, isToMany: isToMany,
-            inverse: keyPath?.property, isFrom: isFrom, deleteSelf: deleteSelf
+            ownerProperty: keyPath?.property, deleteSelf: deleteSelf
         )
     }
 
@@ -241,7 +237,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
               keyPath.components.count == 1,
               let component = keyPath.components.first?.component.as(KeyPathPropertyComponentSyntax.self)
         else {
-            throw MacroExpansionErrorMessage("@Reference takes a key path to one property, e.g. '\\Profile.user'")
+            throw MacroExpansionErrorMessage("@Reference(from:) takes a key path to one property, e.g. '\\User.profile'")
         }
         let property = component.declName.baseName.text.filter { $0 != "`" }
         return (root == "Self" ? owner ?? root : root, property)

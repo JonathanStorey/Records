@@ -84,7 +84,7 @@ private struct SignatureSide {
 
 /// A relationship between two records, stored as its own internal `RecordLink` record.
 ///
-/// The source is always the owning side, the property a `@Reference(to:)` marks. The inverse is
+/// The source is always the owning side, a `@Reference` property that writes links. The inverse is
 /// the target's `@Reference(from:)` property, which never writes links.
 ///
 /// Each factory builds the relationship signature from the records' types and the property
