@@ -142,8 +142,12 @@ extension CKRecord {
             )
         }
 
-        /// One source to many targets, e.g. `Folder.notes:[Note] <-> Note.folder:Folder`.
+        /// One source to many targets, e.g. `Folder.notes` holding notes that each have one folder.
         /// The inverse is required, because a to-many link without one reads as many-to-many.
+        ///
+        /// The link is stored from the target's side as many-to-one, so this returns exactly the
+        /// record `manyToOne(source: target, property: inverse, target: source, inverse: property)`
+        /// returns, with the rules swapped to match.
         public static func oneToMany(
             source: CKRecord,
             property: String,
@@ -153,11 +157,13 @@ extension CKRecord {
             targetRule: DeleteRule = .nullify,
             order: String? = nil
         ) throws -> CKRecord {
+            // Stored from the "many" side, so one-to-many and many-to-one never produce two
+            // records for the same fact. Ends and rules swap; `order` keeps its meaning.
             try make(
-                .oneToMany,
-                source: source, property: property, sourceIsToMany: true,
-                target: target, inverse: inverse, inverseIsToMany: false,
-                sourceRule: sourceRule, targetRule: targetRule, order: order
+                .manyToOne,
+                source: target, property: inverse, sourceIsToMany: false,
+                target: source, inverse: property, inverseIsToMany: true,
+                sourceRule: targetRule, targetRule: sourceRule, order: order
             )
         }
 
@@ -242,10 +248,18 @@ extension CKRecord {
                 throw RecordLinkError.invalidSignature(relationship)
             }
 
+            let forward = signature(
+                sourceType: source.recordType,
+                property: property,
+                sourceIsToMany: sourceIsToMany,
+                targetType: target.recordType,
+                inverse: nil,
+                inverseIsToMany: inverseIsToMany
+            )
             let recordID = CKRecord.ID(
                 recordName: recordName(
-                    kind: kind,
-                    relationship: relationship,
+                    forward: forward,
+                    isToMany: sourceIsToMany,
                     sourceName: source.recordID.recordName,
                     targetName: target.recordID.recordName
                 ),
@@ -268,19 +282,16 @@ extension CKRecord {
 
         /// `link-` followed by the hex SHA-256 of the fields that identify the link.
         ///
-        /// To-one links leave out the target, so pointing at a new target overwrites the same
-        /// record. One-to-many links leave out the source, so each target has one source.
+        /// Only the forward side of the signature (before ` <-> `) is hashed, so adding or
+        /// renaming an inverse never changes existing link names. To-one links leave out the
+        /// target, so pointing at a new target overwrites the same record.
         static func recordName(
-            kind: Relationship,
-            relationship: String,
+            forward: String,
+            isToMany: Bool,
             sourceName: String,
             targetName: String
         ) -> String {
-            let parts: [String] = switch kind {
-            case .oneToOne, .manyToOne: [relationship, sourceName]
-            case .oneToMany: [relationship, targetName]
-            case .manyToMany: [relationship, sourceName, targetName]
-            }
+            let parts = isToMany ? [forward, sourceName, targetName] : [forward, sourceName]
             let digest = SHA256.hash(data: Data(parts.joined(separator: "|").utf8))
             return "link-" + digest.map { String(format: "%02x", $0) }.joined()
         }
