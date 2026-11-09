@@ -25,8 +25,12 @@ struct Box<Value: CKRecordValueProtocol & Equatable>: Equatable {
     var value: Value
 }
 
+extension Zone {
+    static let records: Zone = "Records"
+}
+
 private func zone() -> CKRecordZone.ID {
-    CKRecordZone.ID(zoneName: "Records", ownerName: CKCurrentUserDefaultName)
+    Zone.records.zoneID
 }
 
 @Test func encodesIdentityAndFields() {
@@ -34,7 +38,7 @@ private func zone() -> CKRecordZone.ID {
     let created = Date(timeIntervalSince1970: 1_000)
     let note = Note(id: id, title: "Groceries", isPinned: true, rating: nil, tags: ["home", "food"], created: created)
 
-    let record = CKRecordEncoder().encode(note, in: zone())
+    let record = CKRecordEncoder().encode(note, in: .records)
 
     #expect(record.recordType == "Note")
     #expect(record.recordID.recordName == id.uuidString)
@@ -51,13 +55,13 @@ private func zone() -> CKRecordZone.ID {
 
 @Test func encodesOptionalWhenSet() {
     let note = Note(id: UUID(), title: "A", isPinned: false, rating: 4, tags: [], created: .now)
-    let record = CKRecordEncoder().encode(note, in: zone())
+    let record = CKRecordEncoder().encode(note, in: .records)
     #expect(record["rating"] as? Int == 4)
 }
 
 @Test func explicitNameSetsRecordType() {
     let folder = LegacyFolder(id: UUID(), name: "Inbox")
-    let record = CKRecordEncoder().encode(folder, in: zone())
+    let record = CKRecordEncoder().encode(folder, in: .records)
     #expect(LegacyFolder.recordType == "Folder")
     #expect(record.recordType == "Folder")
     #expect(record["name"] as? String == "Inbox")
@@ -65,7 +69,7 @@ private func zone() -> CKRecordZone.ID {
 
 @Test func genericRecordUsesItsName() {
     let box = Box(id: UUID(), value: "hello")
-    let record = CKRecordEncoder().encode(box, in: zone())
+    let record = CKRecordEncoder().encode(box, in: .records)
     #expect(record.recordType == "Box")
     #expect(record["value"] as? String == "hello")
 }
@@ -77,21 +81,21 @@ private func zone() -> CKRecordZone.ID {
         id: UUID(), title: "Groceries", isPinned: true, rating: 3,
         tags: ["home"], created: Date(timeIntervalSince1970: 1_000)
     )
-    let record = CKRecordEncoder().encode(note, in: zone())
+    let record = CKRecordEncoder().encode(note, in: .records)
     #expect(try CKRecordDecoder().decode(Note.self, from: record) == note)
 }
 
 @Test func missingOptionalDecodesAsNil() throws {
     let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: .now)
-    let decoded = try CKRecordDecoder().decode(Note.self, from: CKRecordEncoder().encode(note, in: zone()))
+    let decoded = try CKRecordDecoder().decode(Note.self, from: CKRecordEncoder().encode(note, in: .records))
     #expect(decoded.rating == nil)
 }
 
 @Test func roundTripsExplicitNameAndGeneric() throws {
     let folder = LegacyFolder(id: UUID(), name: "Inbox")
     let box = Box(id: UUID(), value: 42)
-    #expect(try CKRecordDecoder().decode(LegacyFolder.self, from: CKRecordEncoder().encode(folder, in: zone())) == folder)
-    #expect(try CKRecordDecoder().decode(Box<Int>.self, from: CKRecordEncoder().encode(box, in: zone())) == box)
+    #expect(try CKRecordDecoder().decode(LegacyFolder.self, from: CKRecordEncoder().encode(folder, in: .records)) == folder)
+    #expect(try CKRecordDecoder().decode(Box<Int>.self, from: CKRecordEncoder().encode(box, in: .records)) == box)
 }
 
 private func noteRecord(name: String = UUID().uuidString, type: String = "Note") -> CKRecord {
@@ -143,7 +147,7 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 
 @Test func encodeIntoUpdatesTheSameRecord() throws {
     var note = Note(id: UUID(), title: "Draft", isPinned: false, rating: 2, tags: [], created: .now)
-    let record = CKRecordEncoder().encode(note, in: zone())
+    let record = CKRecordEncoder().encode(note, in: .records)
 
     note.title = "Final"
     note.rating = nil
@@ -174,7 +178,7 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 
 @Test func nilOptionalLeavesNoField() {
     let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: ["x"], created: .now)
-    let record = CKRecordEncoder().encode(note, in: zone())
+    let record = CKRecordEncoder().encode(note, in: .records)
     #expect(!record.allKeys().contains("rating"))
 }
 
@@ -188,6 +192,27 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 
 @Test func emptyArrayRoundTrips() throws {
     let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: Date(timeIntervalSince1970: 0))
-    let record = CKRecordEncoder().encode(note, in: zone())
+    let record = CKRecordEncoder().encode(note, in: .records)
     #expect(try CKRecordDecoder().decode(Note.self, from: record) == note)
+}
+
+// MARK: - Zone
+
+@Test func zoneFromStringLiteral() {
+    let zone: Zone = "Notes"
+    #expect(zone.name == "Notes")
+    #expect(zone.ownerName == CKCurrentUserDefaultName)
+    #expect(zone.zoneID == CKRecordZone.ID(zoneName: "Notes", ownerName: CKCurrentUserDefaultName))
+}
+
+@Test func zoneRoundTripsThroughZoneID() {
+    let shared = Zone("Shared", ownerName: "_abc123")
+    #expect(Zone(shared.zoneID) == shared)
+    #expect(shared != Zone("Shared"))
+}
+
+@Test func encoderUsesTheZone() {
+    let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: .now)
+    let record = CKRecordEncoder().encode(note, in: "Inbox")
+    #expect(record.recordID.zoneID.zoneName == "Inbox")
 }
