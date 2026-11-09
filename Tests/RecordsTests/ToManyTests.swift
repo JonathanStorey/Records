@@ -174,20 +174,59 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 }
 
 @Test func assignKeepsKeysThatStillSort() {
-    #expect(OrderKey.assign(["a", "b", "c"]) == ["a", "b", "c"])
+    #expect(OrderKey.assign(["a1", "a2", "a3"]) == ["a1", "a2", "a3"])
 
-    let moved = OrderKey.assign(["c", "a", "b"])
-    #expect(moved[1] == "a" && moved[2] == "b")
-    #expect(OrderKey.precedes(moved[0], "a"))
+    let moved = OrderKey.assign(["a3", "a1", "a2"])
+    #expect(moved[1] == "a1" && moved[2] == "a2")
+    #expect(OrderKey.precedes(moved[0], "a1"))
 
-    let inserted = OrderKey.assign(["a", nil, "b"])
-    #expect(inserted[0] == "a" && inserted[2] == "b")
-    #expect(OrderKey.precedes("a", inserted[1]) && OrderKey.precedes(inserted[1], "b"))
+    let inserted = OrderKey.assign(["a1", nil, "a2"])
+    #expect(inserted[0] == "a1" && inserted[2] == "a2")
+    #expect(OrderKey.precedes("a1", inserted[1]) && OrderKey.precedes(inserted[1], "a2"))
 }
 
 @Test func assignReplacesInvalidKeys() {
-    let keys = OrderKey.assign(["a0", "", "b"])
-    #expect(keys[2] == "b")
+    let keys = OrderKey.assign(["a00", "", "a5"])
+    #expect(keys[2] == "a5")
     #expect(keys.allSatisfy(OrderKey.isValid))
     #expect(OrderKey.precedes(keys[0], keys[1]) && OrderKey.precedes(keys[1], keys[2]))
+}
+
+@Test func orderKeyFormat() {
+    #expect(OrderKey.between(nil, nil) == "a0")
+    #expect(OrderKey.between("a0", nil) == "a1")
+    #expect(OrderKey.between(nil, "a0") == "Zz")
+    #expect(OrderKey.between("az", nil) == "b00")
+    #expect(OrderKey.between("a0", "a1") == "a0V")
+    #expect(["a0", "a1", "Zz", "b00", "a0V", "a0V1"].allSatisfy(OrderKey.isValid))
+    #expect(!["", "a", "a0V0", "b0", "a0-"].contains(where: OrderKey.isValid))
+}
+
+/// Whether `keys` strictly increase, are all valid, and are at most `length` characters.
+private func wellOrdered(_ keys: [String], maxLength length: Int) -> Bool {
+    keys.allSatisfy(OrderKey.isValid)
+        && zip(keys, keys.dropFirst()).allSatisfy { OrderKey.precedes($0, $1) }
+        && keys.allSatisfy { $0.utf8.count <= length }
+}
+
+@Test func appendingKeepsKeysShort() {
+    var keys: [String] = []
+    for _ in 0..<5_000 { keys.append(OrderKey.between(keys.last, nil)) }
+    #expect(wellOrdered(keys, maxLength: 4))
+}
+
+@Test func prependingKeepsKeysShort() {
+    var keys: [String] = []
+    for _ in 0..<5_000 { keys.insert(OrderKey.between(nil, keys.first), at: 0) }
+    #expect(wellOrdered(keys, maxLength: 4))
+}
+
+@Test func manyNewTargetsGetShortKeys() {
+    let fresh = OrderKey.assign([String?](repeating: nil, count: 5_000))
+    #expect(wellOrdered(fresh, maxLength: 4))
+
+    // A run inserted between two neighbors is spread across the gap.
+    let inserted = OrderKey.assign(["a1"] + [String?](repeating: nil, count: 1_000) + ["a2"])
+    #expect(inserted.first == "a1" && inserted.last == "a2")
+    #expect(wellOrdered(inserted, maxLength: 5))
 }
