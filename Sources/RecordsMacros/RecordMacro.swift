@@ -4,8 +4,9 @@ import SwiftSyntaxMacros
 
 /// `@Record` and `@Record("Name")`.
 ///
-/// Adds an extension that conforms the struct to `Records.Record`, with a `recordType` and an
-/// `encodeFields(into:)` that writes each stored property except `id` under its own name.
+/// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
+/// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
+/// each stored property except `id` under its own name.
 public struct RecordMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -22,15 +23,32 @@ public struct RecordMacro: ExtensionMacro {
         let access = accessModifier(for: structDecl.modifiers)
         let conformance = protocols.isEmpty ? "" : ": Records.Record"
 
+        let properties = try storedProperties(in: structDecl.memberBlock)
+        guard properties.contains(where: { $0.key == "id" }) else {
+            throw MacroExpansionErrorMessage("@Record requires a stored 'id: UUID' property")
+        }
+        let fields = properties.filter { $0.key != "id" }
+
         var lines = [
             "extension \(type.trimmedDescription)\(conformance) {",
             "    \(access)static var recordType: CKRecord.RecordType {",
             "        \"\(recordType)\"",
             "    }",
+            "    \(access)init(record: CKRecord) throws {",
+            "        self.id = try CKRecordDecoder.decodeID(from: record)",
+        ]
+        for field in fields {
+            let call = field.wrappedType.map { "decodeIfPresent((\($0)).self" } ?? "decode((\(field.type)).self"
+            lines.append(
+                "        self.\(field.name) = try CKRecordDecoder.\(call), forKey: \"\(field.key)\", from: record)"
+            )
+        }
+        lines += [
+            "    }",
             "    \(access)func encodeFields(into record: CKRecord) {",
         ]
-        for property in storedProperties(in: structDecl.memberBlock) where property.key != "id" {
-            lines.append("        record[\"\(property.key)\"] = self.\(property.name)")
+        for field in fields {
+            lines.append("        record[\"\(field.key)\"] = self.\(field.name)")
         }
         lines += ["    }", "}"]
 
@@ -85,25 +103,86 @@ public struct RecordMacro: ExtensionMacro {
         return ""
     }
 
-    /// Instance properties with storage: not static, not lazy, and not computed.
-    /// Properties with only `willSet` / `didSet` observers still have storage.
-    private static func storedProperties(in members: MemberBlockSyntax) -> [(name: String, key: String)] {
+    /// A stored property that `@Record` reads and writes.
+    private struct StoredProperty {
+        /// The identifier as written, including any backticks.
+        let name: String
+        /// The CloudKit field key: the name without backticks.
+        let key: String
+        /// The declared type, as written.
+        let type: String
+        /// The wrapped type when the declared type is optional, such as `Int` for `Int?`.
+        let wrappedType: String?
+    }
+
+    /// Instance properties with storage that `init(record:)` can assign: not static, not lazy,
+    /// not computed, and not a `let` with an initial value. Properties with only `willSet` /
+    /// `didSet` observers still have storage. Each one needs an explicit type, because the
+    /// generated initializer decodes by type.
+    private static func storedProperties(in members: MemberBlockSyntax) throws -> [StoredProperty] {
         let skipped: [TokenKind] = [.keyword(.static), .keyword(.class), .keyword(.lazy)]
-        var properties: [(name: String, key: String)] = []
+        var properties: [StoredProperty] = []
 
         for member in members.members {
             guard let variable = member.decl.as(VariableDeclSyntax.self),
                   !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) })
             else { continue }
+            let isLet = variable.bindingSpecifier.tokenKind == .keyword(.let)
 
-            for binding in variable.bindings {
+            // In `var a, b: String`, only `b` spells the type, so walk backwards and carry it.
+            var carriedType: TypeSyntax?
+            var found: [StoredProperty] = []
+            for binding in variable.bindings.reversed() {
+                if let annotation = binding.typeAnnotation {
+                    carriedType = annotation.type
+                } else if binding.initializer != nil {
+                    carriedType = nil
+                }
+
                 guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { continue }
                 if let accessors = binding.accessorBlock, !hasStorage(accessors) { continue }
                 let name = pattern.identifier.text
-                properties.append((name: name, key: unescaped(name)))
+                let key = unescaped(name)
+
+                if isLet, binding.initializer != nil {
+                    if key == "id" {
+                        throw MacroExpansionErrorMessage(
+                            "@Record cannot decode 'id' because it is a 'let' with an initial value; use 'var id = UUID()' or 'let id: UUID'"
+                        )
+                    }
+                    continue // A constant: nothing to read or write.
+                }
+                guard let type = binding.typeAnnotation?.type ?? carriedType else {
+                    throw MacroExpansionErrorMessage("@Record property '\(key)' needs an explicit type annotation")
+                }
+                found.append(StoredProperty(
+                    name: name,
+                    key: key,
+                    type: type.trimmedDescription,
+                    wrappedType: wrappedType(of: type)?.trimmedDescription
+                ))
             }
+            properties += found.reversed()
         }
         return properties
+    }
+
+    /// `Int` for `Int?`, `Int!`, or `Optional<Int>`; `nil` for any other type.
+    private static func wrappedType(of type: TypeSyntax) -> TypeSyntax? {
+        if let optional = type.as(OptionalTypeSyntax.self) {
+            return optional.wrappedType
+        }
+        if let unwrapped = type.as(ImplicitlyUnwrappedOptionalTypeSyntax.self) {
+            return unwrapped.wrappedType
+        }
+        if let identifier = type.as(IdentifierTypeSyntax.self),
+           identifier.name.text == "Optional",
+           let arguments = identifier.genericArgumentClause?.arguments,
+           arguments.count == 1,
+           let argument = arguments.first {
+            return argument.argument.as(TypeSyntax.self)
+        }
+        return nil
     }
 
     private static func hasStorage(_ accessors: AccessorBlockSyntax) -> Bool {
