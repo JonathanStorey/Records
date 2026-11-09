@@ -109,70 +109,180 @@ extension CKRecord {
     /// The current `RecordLink` format version.
     public static let linkVersion: Int64 = 1
 
-    /// Creates a `RecordLink` record connecting `source` to `target`.
+    /// Factories for `RecordLink` records, one per relationship kind.
     ///
-    /// The record name is derived from the link's identity, so creating the same link twice,
-    /// on any device, produces the same record. The parent is set to `source` so the link
-    /// travels with shares.
+    /// Each factory builds the relationship signature from the records' types and the property
+    /// names, so the signature is always canonical. The record name is derived from the link's
+    /// identity, so creating the same link twice, on any device, produces the same record.
+    /// The parent is set to `source` so the link travels with shares.
     ///
-    /// - Parameters:
-    ///   - relationship: The relationship signature, e.g. `Note.tags:[Tag] <-> Tag.notes:[Note]`.
-    ///   - source: The record that declares the relationship.
-    ///   - target: The record it points at. Must be in the same zone as `source`.
-    ///   - sourceRule: What happens to the target when the source is deleted.
-    ///   - targetRule: What happens to the source when the target is deleted.
-    ///   - order: Fractional index key for ordered to-many relationships.
-    public static func Link(
-        relationship: String,
-        source: CKRecord.ID,
-        target: CKRecord.ID,
-        sourceRule: DeleteRule = .nullify,
-        targetRule: DeleteRule = .nullify,
-        order: String? = nil
-    ) throws -> CKRecord {
-        guard source.zoneID == target.zoneID else { throw RecordLinkError.zoneMismatch }
-
-        let kind = try Relationship(signature: relationship)
-        let recordID = CKRecord.ID(
-            recordName: linkRecordName(
-                kind: kind,
-                relationship: relationship,
-                sourceName: source.recordName,
-                targetName: target.recordName
-            ),
-            zoneID: source.zoneID
-        )
-
-        let record = CKRecord(recordType: linkRecordType, recordID: recordID)
-        record[LinkKey.relationship] = relationship
-        record[LinkKey.sourceName] = source.recordName
-        record[LinkKey.targetName] = target.recordName
-        record[LinkKey.sourceRule] = sourceRule.rawValue
-        record[LinkKey.targetRule] = targetRule.rawValue
-        record[LinkKey.version] = linkVersion
-        if let order {
-            record[LinkKey.order] = order
+    /// ```swift
+    /// let link = try CKRecord.Link.manyToOne(
+    ///     source: note, property: "folder",
+    ///     target: folder, inverse: "notes",
+    ///     targetRule: .cascade)
+    /// // relationship == "Note.folder:Folder <-> Folder.notes:[Note]"
+    /// ```
+    public enum Link {
+        /// One source to one target, e.g. `User.profile:Profile <-> Profile.user:User`.
+        /// The inverse is required, because a to-one link without one reads as many-to-one.
+        public static func oneToOne(
+            source: CKRecord,
+            property: String,
+            target: CKRecord,
+            inverse: String,
+            sourceRule: DeleteRule = .nullify,
+            targetRule: DeleteRule = .nullify
+        ) throws -> CKRecord {
+            try make(
+                .oneToOne,
+                source: source, property: property, sourceIsToMany: false,
+                target: target, inverse: inverse, inverseIsToMany: false,
+                sourceRule: sourceRule, targetRule: targetRule, order: nil
+            )
         }
-        record.setParent(source)
-        return record
-    }
 
-    /// `link-` followed by the hex SHA-256 of the fields that identify the link.
-    ///
-    /// To-one links leave out the target, so pointing at a new target overwrites the same
-    /// record. One-to-many links leave out the source, so each target has one source.
-    static func linkRecordName(
-        kind: Relationship,
-        relationship: String,
-        sourceName: String,
-        targetName: String
-    ) -> String {
-        let parts: [String] = switch kind {
-        case .oneToOne, .manyToOne: [relationship, sourceName]
-        case .oneToMany: [relationship, targetName]
-        case .manyToMany: [relationship, sourceName, targetName]
+        /// One source to many targets, e.g. `Folder.notes:[Note] <-> Note.folder:Folder`.
+        /// The inverse is required, because a to-many link without one reads as many-to-many.
+        public static func oneToMany(
+            source: CKRecord,
+            property: String,
+            target: CKRecord,
+            inverse: String,
+            sourceRule: DeleteRule = .nullify,
+            targetRule: DeleteRule = .nullify,
+            order: String? = nil
+        ) throws -> CKRecord {
+            try make(
+                .oneToMany,
+                source: source, property: property, sourceIsToMany: true,
+                target: target, inverse: inverse, inverseIsToMany: false,
+                sourceRule: sourceRule, targetRule: targetRule, order: order
+            )
         }
-        let digest = SHA256.hash(data: Data(parts.joined(separator: "|").utf8))
-        return "link-" + digest.map { String(format: "%02x", $0) }.joined()
+
+        /// Many sources to one target, e.g. `Note.folder:Folder <-> Folder.notes:[Note]`,
+        /// or `Note.author:Person` without an inverse.
+        public static func manyToOne(
+            source: CKRecord,
+            property: String,
+            target: CKRecord,
+            inverse: String? = nil,
+            sourceRule: DeleteRule = .nullify,
+            targetRule: DeleteRule = .nullify
+        ) throws -> CKRecord {
+            try make(
+                .manyToOne,
+                source: source, property: property, sourceIsToMany: false,
+                target: target, inverse: inverse, inverseIsToMany: true,
+                sourceRule: sourceRule, targetRule: targetRule, order: nil
+            )
+        }
+
+        /// Many sources to many targets, e.g. `Note.tags:[Tag] <-> Tag.notes:[Note]`,
+        /// or `Note.tags:[Tag]` without an inverse.
+        public static func manyToMany(
+            source: CKRecord,
+            property: String,
+            target: CKRecord,
+            inverse: String? = nil,
+            sourceRule: DeleteRule = .nullify,
+            targetRule: DeleteRule = .nullify,
+            order: String? = nil
+        ) throws -> CKRecord {
+            try make(
+                .manyToMany,
+                source: source, property: property, sourceIsToMany: true,
+                target: target, inverse: inverse, inverseIsToMany: true,
+                sourceRule: sourceRule, targetRule: targetRule, order: order
+            )
+        }
+
+        /// Builds the canonical signature, e.g. `Note.tags:[Tag] <-> Tag.notes:[Note]`.
+        static func signature(
+            sourceType: String,
+            property: String,
+            sourceIsToMany: Bool,
+            targetType: String,
+            inverse: String?,
+            inverseIsToMany: Bool
+        ) -> String {
+            let forward = "\(sourceType).\(property):" + (sourceIsToMany ? "[\(targetType)]" : targetType)
+            guard let inverse else { return forward }
+            let backward = "\(targetType).\(inverse):" + (inverseIsToMany ? "[\(sourceType)]" : sourceType)
+            return forward + " <-> " + backward
+        }
+
+        private static func make(
+            _ kind: Relationship,
+            source: CKRecord,
+            property: String,
+            sourceIsToMany: Bool,
+            target: CKRecord,
+            inverse: String?,
+            inverseIsToMany: Bool,
+            sourceRule: DeleteRule,
+            targetRule: DeleteRule,
+            order: String?
+        ) throws -> CKRecord {
+            guard source.recordID.zoneID == target.recordID.zoneID else {
+                throw RecordLinkError.zoneMismatch
+            }
+
+            let relationship = signature(
+                sourceType: source.recordType,
+                property: property,
+                sourceIsToMany: sourceIsToMany,
+                targetType: target.recordType,
+                inverse: inverse,
+                inverseIsToMany: inverseIsToMany
+            )
+            // Parsing validates the identifiers and confirms the signature reads back as `kind`.
+            guard try Relationship(signature: relationship) == kind else {
+                throw RecordLinkError.invalidSignature(relationship)
+            }
+
+            let recordID = CKRecord.ID(
+                recordName: recordName(
+                    kind: kind,
+                    relationship: relationship,
+                    sourceName: source.recordID.recordName,
+                    targetName: target.recordID.recordName
+                ),
+                zoneID: source.recordID.zoneID
+            )
+
+            let record = CKRecord(recordType: CKRecord.linkRecordType, recordID: recordID)
+            record[CKRecord.LinkKey.relationship] = relationship
+            record[CKRecord.LinkKey.sourceName] = source.recordID.recordName
+            record[CKRecord.LinkKey.targetName] = target.recordID.recordName
+            record[CKRecord.LinkKey.sourceRule] = sourceRule.rawValue
+            record[CKRecord.LinkKey.targetRule] = targetRule.rawValue
+            record[CKRecord.LinkKey.version] = CKRecord.linkVersion
+            if let order {
+                record[CKRecord.LinkKey.order] = order
+            }
+            record.setParent(source.recordID)
+            return record
+        }
+
+        /// `link-` followed by the hex SHA-256 of the fields that identify the link.
+        ///
+        /// To-one links leave out the target, so pointing at a new target overwrites the same
+        /// record. One-to-many links leave out the source, so each target has one source.
+        static func recordName(
+            kind: Relationship,
+            relationship: String,
+            sourceName: String,
+            targetName: String
+        ) -> String {
+            let parts: [String] = switch kind {
+            case .oneToOne, .manyToOne: [relationship, sourceName]
+            case .oneToMany: [relationship, targetName]
+            case .manyToMany: [relationship, sourceName, targetName]
+            }
+            let digest = SHA256.hash(data: Data(parts.joined(separator: "|").utf8))
+            return "link-" + digest.map { String(format: "%02x", $0) }.joined()
+        }
     }
 }
