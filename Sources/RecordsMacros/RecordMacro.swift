@@ -98,7 +98,9 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         }
         // Links hold references, so a decoded record starts with none. `loadReference` fills them.
         for reference in references {
-            let empty = reference.isToMany ? "Records.ToMany(ids: [])" : "Records.ToOne(id: nil)"
+            let empty = reference.isToMany
+                ? "Records.ToMany(ids: []\(reference.sort == nil ? "" : ", sorted: true"))"
+                : "Records.ToOne(id: nil)"
             lines.append("        self.\(reference.storage) = \(empty)")
         }
         lines += [

@@ -28,7 +28,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         case (false, true): "Records.ToOne(id: initialValue)"
         case (false, false): "Records.ToOne(initialValue)"
         case (true, true): "Records.ToMany(ids: initialValue)"
-        case (true, false): "Records.ToMany(initialValue)"
+        case (true, false): reference.sort == nil ? "Records.ToMany(initialValue)" : "Records.ToMany(initialValue, sorted: true)"
         }
         let member = switch (reference.isToMany, reference.isID) {
         case (false, true): "id"
@@ -36,6 +36,8 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         case (true, true): "ids"
         case (true, false): "values"
         }
+        // A sorted reference sorts its records each time it is read.
+        let read = reference.sort.map { "\(storage).values.sorted(using: \($0))" } ?? "\(storage).\(member)"
         var accessors: [AccessorDeclSyntax] = [
             """
             @storageRestrictions(initializes: \(raw: storage))
@@ -45,7 +47,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             """,
             """
             get {
-                \(raw: storage).\(raw: member)
+                \(raw: read)
             }
             """,
         ]
@@ -118,6 +120,9 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         var isFrom: Bool { ownerProperty != nil }
         /// For `@Reference(from:deleteSelf:)`, whether the record is deleted with its owner.
         var deleteSelf = false
+        /// For `@Reference(sort:)`, an expression for the `[SortDescriptor]` that orders the
+        /// records each time the property is read.
+        var sort: String? = nil
 
         /// The generated storage property, such as `_author`.
         var storage: String { "_" + key }
@@ -178,7 +183,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         // macro-backed properties would make the compiler expand each macro to resolve the other.
         var typeArgument: ExprSyntax?
         var keyPath: (root: String, property: String)?
-        if let first = arguments.first {
+        if let first = arguments.first, first.label?.text != "sort" {
             let keyPathExpr = first.expression.as(KeyPathExprSyntax.self)
             switch first.label?.text {
             case nil:
@@ -199,14 +204,44 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         }
         let isFrom = keyPath != nil
         var deleteSelf = false
-        for argument in arguments.dropFirst() {
-            guard argument.label?.text == "deleteSelf", isFrom else {
-                throw MacroExpansionErrorMessage("Only @Reference(from:) takes 'deleteSelf:'")
+        var sortArgument: ExprSyntax?
+        var orderArgument: ExprSyntax?
+        let rest = arguments.first?.label?.text == "sort" ? arguments[...] : arguments.dropFirst()
+        for argument in rest {
+            switch argument.label?.text {
+            case "deleteSelf":
+                guard isFrom else {
+                    throw MacroExpansionErrorMessage("Only @Reference(from:) takes 'deleteSelf:'")
+                }
+                guard let literal = argument.expression.as(BooleanLiteralExprSyntax.self) else {
+                    throw MacroExpansionErrorMessage("'deleteSelf:' must be 'true' or 'false'")
+                }
+                deleteSelf = literal.literal.tokenKind == .keyword(.true)
+            case "sort":
+                sortArgument = argument.expression
+            case "order":
+                orderArgument = argument.expression
+            default:
+                throw MacroExpansionErrorMessage("@Reference doesn't take '\(argument.label?.text ?? "_"):'")
             }
-            guard let literal = argument.expression.as(BooleanLiteralExprSyntax.self) else {
-                throw MacroExpansionErrorMessage("'deleteSelf:' must be 'true' or 'false'")
+        }
+        // Sorting needs the records' fields, so only the owner's `[Target]` form can sort.
+        var sort: String?
+        if let sortArgument {
+            guard isToMany, !isID, !isFrom else {
+                throw MacroExpansionErrorMessage("'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'")
             }
-            deleteSelf = literal.literal.tokenKind == .keyword(.true)
+            if sortArgument.is(KeyPathExprSyntax.self) {
+                let order = orderArgument.map { ", order: \($0.trimmedDescription)" } ?? ""
+                sort = "[SortDescriptor(\(sortArgument.trimmedDescription)\(order))]"
+            } else {
+                guard orderArgument == nil else {
+                    throw MacroExpansionErrorMessage("'order:' goes with a key path, e.g. 'sort: \\Tag.name, order: .reverse'")
+                }
+                sort = sortArgument.trimmedDescription
+            }
+        } else if orderArgument != nil {
+            throw MacroExpansionErrorMessage("'order:' goes with 'sort:', e.g. 'sort: \\Tag.name, order: .reverse'")
         }
 
         // The side that writes the links holds records. The `from:` side is a back-pointer, so it
@@ -255,7 +290,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
 
         return Reference(
             name: name, key: key, target: target, isID: isID, isToMany: isToMany,
-            ownerProperty: keyPath?.property, deleteSelf: deleteSelf
+            ownerProperty: keyPath?.property, deleteSelf: deleteSelf, sort: sort
         )
     }
 

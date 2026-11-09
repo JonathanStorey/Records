@@ -213,14 +213,19 @@ public struct ToMany<Target: Record> {
     public private(set) var loaded: [ReferenceTarget] = []
     /// The loaded targets by ID. A class, so a record can refer to its own type.
     private var box: Box?
+    /// Whether the property sorts its records, so its links carry no order keys.
+    public let isSorted: Bool
 
-    /// A reference to `ids` that holds only the IDs.
-    public init(ids: [UUID]) {
+    /// A reference to `ids` that holds only the IDs. A sorted reference writes no order keys.
+    public init(ids: [UUID], sorted: Bool = false) {
+        isSorted = sorted
         self.ids = ids
     }
 
-    /// A reference to `values`, holding the records themselves.
-    public init(_ values: [Target]) {
+    /// A reference to `values`, holding the records themselves. A sorted reference writes no
+    /// order keys.
+    public init(_ values: [Target], sorted: Bool = false) {
+        isSorted = sorted
         self.values = values
     }
 
@@ -257,6 +262,9 @@ public struct ToMany<Target: Record> {
         ids = targets.map(\.id)
         var seen = Set<UUID>()
         loaded = targets.filter { seen.insert($0.id).inserted }
+        if isSorted {
+            loaded = Self.unordered(loaded.map { ReferenceTarget(id: $0.id) })
+        }
 
         var values: [UUID: Target] = [:]
         if depth > 0 {
@@ -287,14 +295,23 @@ public struct ToMany<Target: Record> {
     }
 
     /// The current targets with order keys: loaded keys where they still sort correctly, new
-    /// keys for added and moved targets.
+    /// keys for added and moved targets. A sorted reference keeps no order, so it has no keys.
     private var plannedTargets: [ReferenceTarget] {
+        if isSorted {
+            return Self.unordered(storedIDs.map { ReferenceTarget(id: $0) })
+        }
         var keys: [UUID: String] = [:]
         for target in loaded {
             if let order = target.order { keys[target.id] = order }
         }
         return zip(storedIDs, OrderKey.assign(storedIDs.map { keys[$0] }))
             .map { ReferenceTarget(id: $0, order: $1) }
+    }
+
+    /// A sorted reference's targets in a fixed order, so the order they were added or loaded in
+    /// never counts as a change.
+    private static func unordered(_ targets: [ReferenceTarget]) -> [ReferenceTarget] {
+        targets.sorted { $0.id.uuidString < $1.id.uuidString }
     }
 
     private final class Box {

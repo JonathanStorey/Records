@@ -119,6 +119,31 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 @attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
+/// Marks a to-many property whose records are sorted by their fields instead of kept in the order
+/// they were added, using the same parameters as SwiftData's `@Query`.
+///
+/// ```swift
+/// @Reference(sort: [SortDescriptor(\Tag.name)]) var tags: [Tag]
+/// ```
+///
+/// The records are sorted each time the property is read, so its links carry no order keys.
+/// `$tags` lists the IDs unsorted, because sorting needs the records.
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_), prefixed(`$`))
+public macro Reference<Element: Record>(sort descriptors: [SortDescriptor<Element>]) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+
+/// Marks a to-many property whose records are sorted by one field, as in
+/// `@Reference(sort: \Tag.name, order: .reverse) var tags: [Tag]`. See `Reference(sort:)`.
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_), prefixed(`$`))
+public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath<Element, Value>, order: SortOrder = .forward) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+
+/// Marks a to-many property whose records are sorted by one optional field, as in
+/// `@Reference(sort: \Album.year) var albums: [Album]` where `year` is an `Int?`.
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_), prefixed(`$`))
+public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath<Element, Value?>, order: SortOrder = .forward) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+
 /// Marks a property that holds only the IDs of other `Record`s, e.g.
 /// `@Reference(Person.self) var authorID: UUID?` or `@Reference(Tag.self) var tagIDs: [UUID]`.
 /// Records never loads the records themselves.
