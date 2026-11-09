@@ -70,13 +70,14 @@ public struct ToOne<Target: Record> {
     }
 
     /// Sets the reference as read from storage, so it starts out unchanged. Uses the first of
-    /// `targets`, and decodes its record when `records` holds it.
-    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord]) throws {
+    /// `targets`, and decodes its record when `records` holds it. The decoded record gets its
+    /// own references' IDs from `links`, but not their records.
+    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
         id = targets.first?.id
         loadedID = id
         box = try id
             .flatMap { id in records.first { Target.matches($0, id: id) } }
-            .map { Box(try CKRecordDecoder().decode(Target.self, from: $0)) }
+            .map { Box(try CKRecordDecoder().decode(Target.self, from: $0, links: links)) }
     }
 
     /// Records that the current target was saved.
@@ -166,8 +167,9 @@ public struct ToMany<Target: Record> {
     }
 
     /// Sets the reference as read from storage, so it starts out unchanged. `targets` must
-    /// already be in order. Decodes each target whose record `records` holds.
-    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord]) throws {
+    /// already be in order. Decodes each target whose record `records` holds, giving it its own
+    /// references' IDs from `links`, but not their records.
+    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
         ids = targets.map(\.id)
         var seen = Set<UUID>()
         loaded = targets.filter { seen.insert($0.id).inserted }
@@ -175,7 +177,7 @@ public struct ToMany<Target: Record> {
         var values: [UUID: Target] = [:]
         for id in storedIDs {
             if let record = records.first(where: { Target.matches($0, id: id) }) {
-                values[id] = try CKRecordDecoder().decode(Target.self, from: record)
+                values[id] = try CKRecordDecoder().decode(Target.self, from: record, links: links)
             }
         }
         box = values.isEmpty ? nil : Box(values)

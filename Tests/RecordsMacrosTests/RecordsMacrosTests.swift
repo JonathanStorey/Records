@@ -393,10 +393,10 @@ final class RecordMacroTests: XCTestCase {
                         self._author.state(property: "author"),
                     ]
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
                     switch property {
                     case "author":
-                        try self._author.load(targets, from: records)
+                        try self._author.load(targets, from: records, links: links)
                     default:
                         break
                     }
@@ -566,12 +566,12 @@ final class RecordMacroTests: XCTestCase {
                         self._pinnedIDs.state(property: "pinnedIDs"),
                     ]
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
                     switch property {
                     case "tags":
-                        try self._tags.load(targets, from: records)
+                        try self._tags.load(targets, from: records, links: links)
                     case "pinnedIDs":
-                        try self._pinnedIDs.load(targets, from: [])
+                        try self._pinnedIDs.load(targets, from: [], links: [])
                     default:
                         break
                     }
@@ -633,10 +633,10 @@ final class RecordMacroTests: XCTestCase {
                         self._authorID.state(property: "authorID"),
                     ]
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
                     switch property {
                     case "authorID":
-                        try self._authorID.load(targets, from: [])
+                        try self._authorID.load(targets, from: [], links: [])
                     default:
                         break
                     }

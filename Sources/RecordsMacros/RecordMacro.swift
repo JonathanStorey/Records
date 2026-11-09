@@ -7,7 +7,7 @@ import SwiftSyntaxMacros
 /// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
 /// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
 /// each stored property except `id` under its own name. A struct with `@Reference` properties
-/// also gets `referenceStates`, `loadReference(_:to:from:)`, and `markReferencesSaved()`.
+/// also gets `referenceStates`, `loadReference(_:to:from:links:)`, and `markReferencesSaved()`.
 public struct RecordMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -73,14 +73,14 @@ public struct RecordMacro: ExtensionMacro {
             lines += [
                 "        ]",
                 "    }",
-                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {",
+                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {",
                 "        switch property {",
             ]
             for reference in references {
                 // The ID form never holds the records, so it ignores them.
                 lines += [
                     "        case \"\(reference.key)\":",
-                    "            try self.\(reference.storage).load(targets, from: \(reference.isID ? "[]" : "records"))",
+                    "            try self.\(reference.storage).load(targets, \(reference.isID ? "from: [], links: []" : "from: records, links: links"))",
                 ]
             }
             lines += [
