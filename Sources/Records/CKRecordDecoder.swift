@@ -106,7 +106,8 @@ public struct CKRecordDecoder: Sendable {
     /// Pass `record.encryptedValues` for an `@Encrypted` field.
     public static func decodeIfPresent<T>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
         guard let value = record.object(forKey: key) else { return nil }
-        guard let typed = value as? T else {
+        // A raw-value enum is stored as its raw value, and another Codable value as JSON.
+        guard let typed = try? FieldCoding.decode(type, from: value) else {
             throw CKRecordDecodingError.typeMismatch(field: key)
         }
         return typed
