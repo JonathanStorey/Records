@@ -71,15 +71,27 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
-                    if self._title.isChanged { fields.insert("title") }
-                    if self._rating.isChanged { fields.insert("rating") }
-                    if self._tags.isChanged { fields.insert("tags") }
+                    if self._title.isChanged {
+                        fields.insert("title")
+                    }
+                    if self._rating.isChanged {
+                        fields.insert("rating")
+                    }
+                    if self._tags.isChanged {
+                        fields.insert("tags")
+                    }
                     return fields
                 }
                 func encodeChangedFields(into record: CKRecord) {
-                    if self._title.isChanged { record["title"] = self.title }
-                    if self._rating.isChanged { record["rating"] = self.rating }
-                    if self._tags.isChanged { record["tags"] = self.tags }
+                    if self._title.isChanged {
+                        record["title"] = self.title
+                    }
+                    if self._rating.isChanged {
+                        record["rating"] = self.rating
+                    }
+                    if self._tags.isChanged {
+                        record["tags"] = self.tags
+                    }
                 }
                 mutating func markFieldsSaved() {
                     self._title.markSaved()
@@ -125,11 +137,15 @@ final class RecordMacroTests: XCTestCase {
                 }
                 public var changedFields: Set<String> {
                     var fields: Set<String> = []
-                    if self._default.isChanged { fields.insert("default") }
+                    if self._default.isChanged {
+                        fields.insert("default")
+                    }
                     return fields
                 }
                 public func encodeChangedFields(into record: CKRecord) {
-                    if self._default.isChanged { record["default"] = self.`default` }
+                    if self._default.isChanged {
+                        record["default"] = self.`default`
+                    }
                 }
                 public mutating func markFieldsSaved() {
                     self._default.markSaved()
@@ -173,11 +189,15 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
-                    if self._value.isChanged { fields.insert("value") }
+                    if self._value.isChanged {
+                        fields.insert("value")
+                    }
                     return fields
                 }
                 func encodeChangedFields(into record: CKRecord) {
-                    if self._value.isChanged { record["value"] = self.value }
+                    if self._value.isChanged {
+                        record["value"] = self.value
+                    }
                 }
                 mutating func markFieldsSaved() {
                     self._value.markSaved()
@@ -431,11 +451,15 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
-                    if self._title.isChanged { fields.insert("title") }
+                    if self._title.isChanged {
+                        fields.insert("title")
+                    }
                     return fields
                 }
                 func encodeChangedFields(into record: CKRecord) {
-                    if self._title.isChanged { record["title"] = self.title }
+                    if self._title.isChanged {
+                        record["title"] = self.title
+                    }
                 }
                 mutating func markFieldsSaved() {
                     self._title.markSaved()

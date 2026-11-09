@@ -107,7 +107,11 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                 "        var fields: Set<String> = []",
             ]
             for field in tracked {
-                lines.append("        if self._\(field.key).isChanged { fields.insert(\"\(field.key)\") }")
+                lines += [
+                    "        if self._\(field.key).isChanged {",
+                    "            fields.insert(\"\(field.key)\")",
+                    "        }",
+                ]
             }
             lines += [
                 "        return fields",
@@ -115,7 +119,11 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                 "    \(access)func encodeChangedFields(into record: CKRecord) {",
             ]
             for field in tracked {
-                lines.append("        if self._\(field.key).isChanged { record[\"\(field.key)\"] = self.\(field.name) }")
+                lines += [
+                    "        if self._\(field.key).isChanged {",
+                    "            record[\"\(field.key)\"] = self.\(field.name)",
+                    "        }",
+                ]
             }
             lines += [
                 "    }",
