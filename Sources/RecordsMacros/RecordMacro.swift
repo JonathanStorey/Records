@@ -293,7 +293,12 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
 
         /// What the generated code writes: the asset for an `@Asset`, otherwise the value.
-        var written: String { isAsset ? "self._\(key).asset" : "Records.FieldCoding.value(self.\(name))" }
+        var written: String {
+            if isAsset { return "self._\(key).asset" }
+            // `nil` clears the field, so only a value goes through `FieldCoding`.
+            if wrappedType != nil { return "self.\(name).flatMap { Records.FieldCoding.value($0) }" }
+            return "Records.FieldCoding.value(self.\(name))"
+        }
     }
 
     /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
