@@ -103,6 +103,10 @@ public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(m
 /// // One-to-many, owned by the one side: ordered, and tracks are deleted with their album
 /// @Reference var tracks: [Track]                                     // on Album
 /// @Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID? // on Track
+///
+/// // Many-to-many: the note orders its tags, and each tag lists its notes
+/// @Reference var tags: [Tag]                                         // on Note
+/// @Reference(from: \Note.tags) var noteIDs: [UUID]                   // on Tag
 /// ```
 ///
 /// This side always holds IDs, `UUID?` or `[UUID]`. The owner holds records, because its code
@@ -113,8 +117,7 @@ public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(m
 /// `User.profile:Profile <-> Profile.userID:User`. This side never writes links. It is filled from
 /// the owner's links when the record is decoded, and can only be set when the record is made. A
 /// to-many side lists its owners in the order their links were created. With `deleteSelf: true`,
-/// which needs a to-one side, the record is deleted when its owner is deleted. Many-to-many isn't
-/// supported yet.
+/// which needs a to-one side, the record is deleted when its owner is deleted.
 @attached(accessor, names: named(init), named(get))
 @attached(peer, names: prefixed(_))
 public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, deleteSelf: Bool = false) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
