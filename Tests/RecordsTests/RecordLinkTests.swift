@@ -51,7 +51,7 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
         (CKRecord.Link.oneToOne(source: user, property: "profile", target: profile, inverse: "user"),
          "User.profile:Profile <-> Profile.user:User"),
         (CKRecord.Link.oneToMany(source: folder, property: "notes", target: note, inverse: "folder"),
-         "Note.folder:Folder <-> Folder.notes:[Note]"),
+         "Folder.notes:[Note] <-> Note.folder:Folder"),
         (CKRecord.Link.manyToOne(source: note, property: "folder", target: folder, inverse: "notes"),
          "Note.folder:Folder <-> Folder.notes:[Note]"),
         (CKRecord.Link.manyToOne(source: note, property: "author", target: person),
@@ -146,25 +146,17 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
     }
 }
 
-@Test func oneToManyIsStoredAsManyToOne() throws {
+@Test func oneToManyKeepsTheOwningSideAsSource() throws {
     let note = record("Note", "note-1"), folder = record("Folder", "folder-1")
-    let fromFolder = try CKRecord.Link.oneToMany(
+    let link = try CKRecord.Link.oneToMany(
         source: folder, property: "notes", target: note, inverse: "folder",
-        sourceRule: .cascade, targetRule: .nullify, order: "a0"
+        sourceRule: .cascade, order: "a0"
     )
-    let fromNote = try CKRecord.Link.manyToOne(
-        source: note, property: "folder", target: folder, inverse: "notes",
-        sourceRule: .nullify, targetRule: .cascade
-    )
-
-    #expect(fromFolder.recordID == fromNote.recordID)
-    #expect(fromFolder[CKRecord.LinkKey.sourceName] as? String == "note-1")
-    #expect(fromFolder[CKRecord.LinkKey.targetName] as? String == "folder-1")
-    // Deleting the folder cascades to the note, whichever side built the link.
-    #expect(fromFolder[CKRecord.LinkKey.targetRule] as? String == "cascade")
-    #expect(fromFolder[CKRecord.LinkKey.sourceRule] as? String == "nullify")
-    #expect(fromFolder[CKRecord.LinkKey.order] as? String == "a0")
-    #expect(fromFolder.parent?.recordID == note.recordID)
+    #expect(link[CKRecord.LinkKey.sourceName] as? String == "folder-1")
+    #expect(link[CKRecord.LinkKey.targetName] as? String == "note-1")
+    #expect(link[CKRecord.LinkKey.sourceRule] as? String == "cascade")
+    #expect(link[CKRecord.LinkKey.order] as? String == "a0")
+    #expect(link.parent?.recordID == folder.recordID)
 }
 
 @Test func addingAnInverseKeepsLinkNames() throws {
