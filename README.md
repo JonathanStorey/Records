@@ -25,7 +25,6 @@ lower versions.
 | --- | --- |
 | `Records` | Public library: macros, model protocols, SQLite storage, CKSyncEngine sync |
 | `RecordsMacros` | Compiler plugin built on swift-syntax |
-| `RecordsClient` | Small executable that exercises the API |
 | `RecordsTests` | Library tests (Swift Testing) |
 | `RecordsMacrosTests` | Macro expansion tests |
 

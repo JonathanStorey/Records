@@ -18,7 +18,6 @@ let package = Package(
     ],
     products: [
         .library(name: "Records", targets: ["Records"]),
-        .executable(name: "RecordsClient", targets: ["RecordsClient"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "600.0.0"..<"700.0.0"),
@@ -40,12 +39,6 @@ let package = Package(
             name: "Records",
             dependencies: ["RecordsMacros"],
             linkerSettings: [.linkedLibrary("sqlite3")]
-        ),
-
-        // Small executable that exercises the public API, handy for eyeballing macro output.
-        .executableTarget(
-            name: "RecordsClient",
-            dependencies: ["Records"]
         ),
 
         .testTarget(
