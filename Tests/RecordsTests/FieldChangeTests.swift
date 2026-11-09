@@ -90,3 +90,20 @@ private func saved<R: Record>(_ record: R) throws -> (R, CKRecord) {
     #expect(!decoded.hasChanges)
     #expect(decoded == note)
 }
+
+@Test func eachFieldRecordsWhenItChanged() throws {
+    var (note, _) = try saved(Note(id: UUID(), title: "A", isPinned: false, rating: 2, tags: [], created: .now))
+    #expect(note._title.changedAt == nil)
+
+    let before = Date()
+    note.title = "B"
+    let first = try #require(note._title.changedAt)
+    #expect(first >= before)
+    #expect(note._rating.changedAt == nil)
+
+    note.title = "C"
+    #expect(try #require(note._title.changedAt) >= first)
+
+    note.markSaved()
+    #expect(note._title.changedAt == nil)
+}
