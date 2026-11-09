@@ -29,8 +29,8 @@ public struct CKRecordDecoder: Sendable {
     /// Decodes `record` and fills its `@Reference` properties from `links`.
     ///
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
-    /// whose source is `record` are used, and links that can't be read or that come from a
-    /// newer link version are skipped. To-many targets are ordered by their order keys, then
+    /// whose source or, for `@Reference(from:)` properties, target is `record` are used, and links
+    /// that can't be read or that come from a newer link version are skipped. To-many targets are ordered by their order keys, then
     /// by when the link was created, then by the link's name. A reference that holds records is
     /// filled from the matching records in `targets`, one level deep: those records get their
     /// own references' IDs from `links`, but not their records. Every reference starts out
@@ -49,12 +49,20 @@ public struct CKRecordDecoder: Sendable {
             // Skip links this build can't read, rather than fail or delete them: they may come
             // from a newer version of the app.
             guard let link = try? decode(RecordLink.self, from: linkRecord),
-                  link.version <= RecordLink.currentVersion,
-                  link.sourceName == sourceName,
-                  let source = link.source, source.type == R.recordType,
-                  let targetID = UUID(uuidString: link.targetName)
+                  link.version <= RecordLink.currentVersion
             else { continue }
-            byProperty[source.property, default: []].append((ReferenceTarget(id: targetID, order: link.order), linkRecord))
+            // The owning side: this record is the link's source.
+            if link.sourceName == sourceName,
+               let source = link.source, source.type == R.recordType,
+               let targetID = UUID(uuidString: link.targetName) {
+                byProperty[source.property, default: []].append((ReferenceTarget(id: targetID, order: link.order), linkRecord))
+            }
+            // The `@Reference(from:)` side: this record is the link's target.
+            if link.targetName == sourceName,
+               let target = link.target, target.type == R.recordType,
+               let sourceID = UUID(uuidString: link.sourceName) {
+                byProperty[target.property, default: []].append((ReferenceTarget(id: sourceID), linkRecord))
+            }
         }
 
         for (property, entries) in byProperty {

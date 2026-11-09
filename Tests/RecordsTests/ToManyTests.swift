@@ -13,7 +13,7 @@ struct Page {
     var id: UUID
     var title: String
     @Reference var labels: [Label]
-    @Reference(to: Label.self) var pinnedIDs: [UUID]
+    @Reference(Label.self) var pinnedIDs: [UUID]
 }
 
 private let encoder = CKRecordEncoder()

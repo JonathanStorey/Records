@@ -390,7 +390,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
-                        self._author.state(property: "author"),
+                        self._author.state(property: "author", owner: Self.recordType),
                     ]
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
@@ -513,7 +513,7 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var id: UUID
                 @Reference var tags: [Tag]
-                @Reference(to: Tag.self) var pinnedIDs: [UUID]
+                @Reference(Tag.self) var pinnedIDs: [UUID]
             }
             """,
             expandedSource: """
@@ -562,8 +562,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
-                        self._tags.state(property: "tags"),
-                        self._pinnedIDs.state(property: "pinnedIDs"),
+                        self._tags.state(property: "tags", owner: Self.recordType),
+                        self._pinnedIDs.state(property: "pinnedIDs", owner: Self.recordType),
                     ]
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
@@ -596,7 +596,7 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct Article {
                 var id: UUID
-                @Reference(to: Person.self) var authorID: UUID?
+                @Reference(Person.self) var authorID: UUID?
             }
             """,
             expandedSource: """
@@ -630,7 +630,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     [
-                        self._authorID.state(property: "authorID"),
+                        self._authorID.state(property: "authorID", owner: Self.recordType),
                     ]
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
@@ -667,7 +667,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(to: Person.self)'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -681,7 +681,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(to: Person.self) var authorID: UUID
+                @Reference(Person.self) var authorID: UUID
             }
             """,
             expandedSource: """
@@ -704,7 +704,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(to: Person.self) var author: Person?
+                @Reference(Person.self) var author: Person?
             }
             """,
             expandedSource: """
@@ -775,7 +775,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Person {
-                @Reference(to: Person.self) var managerID: UUID?
+                @Reference(Person.self) var managerID: UUID?
             }
             """,
             expandedSource: """
@@ -808,7 +808,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(to: person) var authorID: UUID?
+                @Reference(person) var authorID: UUID?
             }
             """,
             expandedSource: """
@@ -817,7 +817,301 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference(to:) takes a record type, e.g. 'Person.self'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference takes a record type, e.g. 'Person.self'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testOneToOneOwningSide() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct User {
+                var id: UUID
+                @Reference var profile: Profile?
+            }
+            """,
+            expandedSource: """
+            struct User {
+                var id: UUID
+                var profile: Profile? {
+                    @storageRestrictions(initializes: _profile)
+                    init(initialValue) {
+                        _profile = Records.ToOne(initialValue)
+                    }
+                    get {
+                        _profile.value
+                    }
+                    set {
+                        _profile.value = newValue
+                    }
+                }
+
+                var _profile: Records.ToOne<Profile>
+            }
+
+            extension User: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "User"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._profile = Records.ToOne(id: nil)
+                }
+                func encodeFields(into record: CKRecord) {
+                }
+                var referenceStates: [Records.ReferenceState] {
+                    [
+                        self._profile.state(property: "profile", owner: Self.recordType),
+                    ]
+                }
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
+                    switch property {
+                    case "profile":
+                        try self._profile.load(targets, from: records, links: links)
+                    default:
+                        break
+                    }
+                }
+                mutating func markReferencesSaved() {
+                    self._profile.markSaved()
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testOneToOneFromSide() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Profile {
+                var id: UUID
+                @Reference(from: \\User.profile, deleteSelf: true) var user: User?
+                @Reference(from: \\Account.settingsID) var accountID: UUID?
+            }
+            """,
+            expandedSource: """
+            struct Profile {
+                var id: UUID
+                var user: User? {
+                    @storageRestrictions(initializes: _user)
+                    init(initialValue) {
+                        _user = Records.ToOne(initialValue)
+                    }
+                    get {
+                        _user.value
+                    }
+                }
+
+                var _user: Records.ToOne<User>
+                var accountID: UUID? {
+                    @storageRestrictions(initializes: _accountID)
+                    init(initialValue) {
+                        _accountID = Records.ToOne(id: initialValue)
+                    }
+                    get {
+                        _accountID.id
+                    }
+                }
+
+                var _accountID: Records.ToOne<Account>
+            }
+
+            extension Profile: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Profile"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._user = Records.ToOne(id: nil)
+                    self._accountID = Records.ToOne(id: nil)
+                }
+                func encodeFields(into record: CKRecord) {
+                }
+                static var deleteSelfReferences: Set<String> {
+                    ["user"]
+                }
+                static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {
+                    switch (owner, property) {
+                    case (User.recordType, "profile"):
+                        return Records.Inverse(\\User.profile, to: Self.self, property: "user", deleteSelf: true)
+                    case (Account.recordType, "settingsID"):
+                        return Records.Inverse(\\Account.settingsID, to: Self.self, property: "accountID")
+                    default:
+                        return nil
+                    }
+                }
+                var referenceStates: [Records.ReferenceState] {
+                    [
+                    ]
+                }
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
+                    switch property {
+                    case "user":
+                        try self._user.load(targets, from: records, links: links)
+                    case "accountID":
+                        try self._accountID.load(targets, from: [], links: [])
+                    default:
+                        break
+                    }
+                }
+                mutating func markReferencesSaved() {
+                    self._user.markSaved()
+                    self._accountID.markSaved()
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testFromNeedsAKeyPath() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Profile {
+                @Reference(from: User.self) var user: User?
+            }
+            """,
+            expandedSource: """
+            struct Profile {
+                var user: User?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference(from:) takes the owner's property, e.g. '\\User.profile'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testOwnerTakesNoKeyPath() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct User {
+                @Reference(\\Profile.user) var profile: Profile?
+            }
+            """,
+            expandedSource: """
+            struct User {
+                var profile: Profile?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(
+                    message: "@Reference takes a record type; name this property in the other side's '@Reference(from:)' instead",
+                    line: 2, column: 5
+                ),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testDeleteSelfOnlyOnFrom() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct User {
+                @Reference(Profile.self, deleteSelf: true) var profileID: UUID?
+            }
+            """,
+            expandedSource: """
+            struct User {
+                var profileID: UUID?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "Only @Reference(from:) takes 'deleteSelf:'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testInverseIsToOneForNow() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Folder {
+                @Reference(from: \\Note.folder) var notes: [Note]
+            }
+            """,
+            expandedSource: """
+            struct Folder {
+                var notes: [Note]
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference(from:) supports to-one properties for now", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testKeyPathTypeMustMatch() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct User {
+                @Reference(from: \\Avatar.profile) var user: User?
+            }
+            """,
+            expandedSource: """
+            struct User {
+                var user: User?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "The key path's type 'Avatar' does not match the property's type 'User'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testReferenceToItselfNotSupported() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Person {
+                @Reference(from: \\Person.spouse) var spouse: Person?
+            }
+            """,
+            expandedSource: """
+            struct Person {
+                var spouse: Person?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference to itself is not supported yet", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )

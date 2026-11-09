@@ -14,7 +14,7 @@ struct Member: Equatable {
     var id: UUID
     var name: String
     @Reference var mentor: Member?
-    @Reference(to: Member.self) var peerIDs: [UUID]
+    @Reference(Member.self) var peerIDs: [UUID]
 }
 
 @Record
@@ -32,8 +32,8 @@ struct Card: Equatable {
     var checklist: [String]
     @Reference var assignee: Member?
     @Reference var badges: [Badge]
-    @Reference(to: Card.self) var blockedByIDs: [UUID]
-    @Reference(to: Badge.self) var featuredBadgeID: UUID?
+    @Reference(Card.self) var blockedByIDs: [UUID]
+    @Reference(Badge.self) var featuredBadgeID: UUID?
 }
 
 @Record
@@ -42,7 +42,7 @@ struct Board: Equatable {
     var name: String
     @Reference var owner: Member?
     @Reference var cards: [Card]
-    @Reference(to: Board.self) var parentID: UUID?
+    @Reference(Board.self) var parentID: UUID?
     @Reference var subboards: [Board]
 }
 
@@ -53,7 +53,7 @@ struct Board: Equatable {
 public struct Owner: Equatable {
     public var id: UUID
     @Reference public var boss: Owner?
-    @Reference(to: Owner.self) public var reportIDs: [UUID]
+    @Reference(Owner.self) public var reportIDs: [UUID]
 }
 
 @Record("Bin")

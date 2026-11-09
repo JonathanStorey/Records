@@ -29,7 +29,7 @@ struct Box<Value: CKRecordValueProtocol & Equatable>: Equatable {
 struct Person: Equatable {
     var id: UUID
     var name: String
-    @Reference(to: Person.self) var managerID: UUID?
+    @Reference(Person.self) var managerID: UUID?
 }
 
 @Record
@@ -37,7 +37,7 @@ struct Article {
     var id: UUID
     var title: String
     @Reference var author: Person?
-    @Reference(to: Person.self) var editorID: UUID?
+    @Reference(Person.self) var editorID: UUID?
 }
 
 extension Zone {
