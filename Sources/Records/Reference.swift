@@ -54,8 +54,8 @@ public struct Inverse: Hashable, Sendable {
         self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
     }
 
-    /// A to-many `from:` side, such as `var bookIDs: [UUID]` for `\Book.shelf`. The owner must be
-    /// to-one, so the relationship is one-to-many. Many-to-many isn't supported yet.
+    /// A to-many `from:` side of a to-one owner, such as `var bookIDs: [UUID]` for `\Book.shelf`:
+    /// one-to-many.
     public init<Owner: Record, Target: Record>(
         many owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String
     ) {
@@ -65,6 +65,21 @@ public struct Inverse: Hashable, Sendable {
     /// A to-many `from:` side of an owner that holds only the ID, such as `\Book.shelfID`.
     public init<Owner: Record, Target: Record>(
         many owner: KeyPath<Owner, UUID?>, to target: Target.Type, property: String
+    ) {
+        self.init(property: property, isToMany: true, deleteSelf: false)
+    }
+
+    /// A to-many `from:` side of a to-many owner, such as `var noteIDs: [UUID]` for `\Note.tags`:
+    /// many-to-many.
+    public init<Owner: Record, Target: Record>(
+        many owner: KeyPath<Owner, [Target]>, to target: Target.Type, property: String
+    ) {
+        self.init(property: property, isToMany: true, deleteSelf: false)
+    }
+
+    /// A to-many `from:` side of a to-many owner that holds only IDs, such as `\Note.tagIDs`.
+    public init<Owner: Record, Target: Record>(
+        many owner: KeyPath<Owner, [UUID]>, to target: Target.Type, property: String
     ) {
         self.init(property: property, isToMany: true, deleteSelf: false)
     }
