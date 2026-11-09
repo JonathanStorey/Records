@@ -10,6 +10,7 @@ private var macroSpecs: [String: MacroSpec] {
     [
         "Record": MacroSpec(type: RecordMacro.self, conformances: ["Record"]),
         "Reference": MacroSpec(type: ReferenceMacro.self),
+        "Encrypted": MacroSpec(type: EncryptedMacro.self),
     ]
 }
 #endif
@@ -1453,6 +1454,143 @@ final class RecordMacroTests: XCTestCase {
                     line: 1,
                     column: 1
                 ),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    // MARK: - Encrypted fields
+
+    func testEncryptedFieldsUseEncryptedValues() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Account {
+                var id: UUID
+                var name: String
+                @Encrypted var note: String?
+                @Encrypted let pin: Int
+            }
+            """,
+            expandedSource: """
+            struct Account {
+                var id: UUID
+                @RecordField
+                var name: String
+                @RecordField
+                var note: String?
+                let pin: Int
+            }
+
+            extension Account: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Account"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._name = try Records.Field(saved: CKRecordDecoder.decode((String).self, forKey: "name", from: record))
+                    self._note = try Records.Field(saved: CKRecordDecoder.decodeIfPresent((String).self, forKey: "note", from: record.encryptedValues))
+                    self.pin = try CKRecordDecoder.decode((Int).self, forKey: "pin", from: record.encryptedValues)
+                }
+                func encodeFields(into record: CKRecord) {
+                    record["name"] = self.name
+                    record.encryptedValues["note"] = self.note
+                    record.encryptedValues["pin"] = self.pin
+                }
+                var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._name.isChanged {
+                        fields.insert("name")
+                    }
+                    if self._note.isChanged {
+                        fields.insert("note")
+                    }
+                    return fields
+                }
+                func encodeChangedFields(into record: CKRecord) {
+                    if self._name.isChanged {
+                        record["name"] = self.name
+                    }
+                    if self._note.isChanged {
+                        record.encryptedValues["note"] = self.note
+                    }
+                }
+                mutating func markFieldsSaved() {
+                    self._name.markSaved()
+                    self._note.markSaved()
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testEncryptedIDIsAnError() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Account {
+                @Encrypted var id: UUID
+            }
+            """,
+            expandedSource: """
+            struct Account {
+                var id: UUID
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'id' is the record name, which CloudKit can't encrypt", line: 1, column: 1),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testEncryptedReferenceIsAnError() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Account {
+                var id: UUID
+                @Encrypted @Reference var owner: Account?
+            }
+            """,
+            expandedSource: """
+            struct Account {
+                var id: UUID
+                var owner: Account? {
+                    @storageRestrictions(initializes: _owner)
+                    init(initialValue) {
+                        _owner = Records.ToOne(initialValue)
+                    }
+                    get {
+                        _owner.value
+                    }
+                    set {
+                        _owner.value = newValue
+                    }
+                }
+
+                var _owner: Records.ToOne<Account>
+
+                var $owner: UUID? {
+                    _owner.id
+                }
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Encrypted applies to fields, not to a @Reference", line: 1, column: 1),
             ],
             macroSpecs: macroSpecs
         )

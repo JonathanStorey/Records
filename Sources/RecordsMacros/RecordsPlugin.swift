@@ -7,5 +7,6 @@ struct RecordsPlugin: CompilerPlugin {
         RecordMacro.self,
         ReferenceMacro.self,
         RecordFieldMacro.self,
+        EncryptedMacro.self,
     ]
 }

@@ -11,6 +11,8 @@ import SwiftSyntaxMacros
 /// one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
 /// `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
 ///
+/// An `@Encrypted` field is read from and written to the record's `encryptedValues`.
+///
 /// Each stored `var` except `id` gets `@RecordField`, which notes when it is set. A struct with
 /// any gets `changedFields`, `encodeChangedFields(into:)`, and `markFieldsSaved()`.
 public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
@@ -71,14 +73,15 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             "        self.id = try CKRecordDecoder.decodeID(from: record)",
         ]
         for field in fields {
+            let source = field.isEncrypted ? "record.encryptedValues" : "record"
             let read: String
             if let wrapped = field.wrappedType {
-                read = "decodeIfPresent((\(wrapped)).self, forKey: \"\(field.key)\", from: record)"
+                read = "decodeIfPresent((\(wrapped)).self, forKey: \"\(field.key)\", from: \(source))"
             } else if field.isArray {
                 // CloudKit does not keep empty lists, so a missing array field means empty.
-                read = "decodeIfPresent((\(field.type)).self, forKey: \"\(field.key)\", from: record) ?? []"
+                read = "decodeIfPresent((\(field.type)).self, forKey: \"\(field.key)\", from: \(source)) ?? []"
             } else {
-                read = "decode((\(field.type)).self, forKey: \"\(field.key)\", from: record)"
+                read = "decode((\(field.type)).self, forKey: \"\(field.key)\", from: \(source))"
             }
             if field.isTracked {
                 // Read straight into the storage, so a decoded record starts unchanged.
@@ -97,7 +100,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             "    \(access)func encodeFields(into record: CKRecord) {",
         ]
         for field in fields {
-            lines.append("        record[\"\(field.key)\"] = self.\(field.name)")
+            lines.append("        \(field.destination)[\"\(field.key)\"] = self.\(field.name)")
         }
         lines.append("    }")
         let tracked = fields.filter(\.isTracked)
@@ -121,7 +124,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             for field in tracked {
                 lines += [
                     "        if self._\(field.key).isChanged {",
-                    "            record[\"\(field.key)\"] = self.\(field.name)",
+                    "            \(field.destination)[\"\(field.key)\"] = self.\(field.name)",
                     "        }",
                 ]
             }
@@ -272,6 +275,11 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         let isArray: Bool
         /// Whether `@RecordField` notes when it is set: every `var` except `id`.
         let isTracked: Bool
+        /// Whether it is marked `@Encrypted`, so it is stored in `encryptedValues`.
+        let isEncrypted: Bool
+
+        /// Where the generated code writes the field.
+        var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
     }
 
     /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
@@ -293,9 +301,16 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
 
         for member in members.members {
             guard let variable = member.decl.as(VariableDeclSyntax.self),
-                  !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) }),
-                  !ReferenceMacro.isReference(variable) // Links hold references, not fields.
+                  !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) })
             else { continue }
+            let isEncrypted = isEncrypted(variable)
+            if ReferenceMacro.isReference(variable) {
+                // Links hold references, not fields.
+                if isEncrypted {
+                    throw MacroExpansionErrorMessage("@Encrypted applies to fields, not to a @Reference")
+                }
+                continue
+            }
             let isLet = variable.bindingSpecifier.tokenKind == .keyword(.let)
             if !isLet {
                 try checkTrackable(variable)
@@ -324,6 +339,9 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                     }
                     continue // A constant: nothing to read or write.
                 }
+                if key == "id", isEncrypted {
+                    throw MacroExpansionErrorMessage("'id' is the record name, which CloudKit can't encrypt")
+                }
                 guard let type = binding.typeAnnotation?.type ?? carriedType else {
                     throw MacroExpansionErrorMessage("@Record property '\(key)' needs an explicit type annotation")
                 }
@@ -338,12 +356,21 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                     type: type.trimmedDescription,
                     wrappedType: wrapped?.trimmedDescription,
                     isArray: isArray(type),
-                    isTracked: !isLet && key != "id"
+                    isTracked: !isLet && key != "id",
+                    isEncrypted: isEncrypted
                 ))
             }
             properties += found.reversed()
         }
         return properties
+    }
+
+    /// Whether `variable` carries `@Encrypted` or `@Records.Encrypted`.
+    private static func isEncrypted(_ variable: VariableDeclSyntax) -> Bool {
+        variable.attributes.contains {
+            let name = $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription
+            return name == "Encrypted" || name == "Records.Encrypted"
+        }
     }
 
     /// `@RecordField` turns a `var` into a computed property, so it needs one name and no observers.

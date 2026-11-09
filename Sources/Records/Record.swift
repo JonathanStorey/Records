@@ -162,6 +162,23 @@ public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(m
 @attached(peer, names: prefixed(_))
 public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, deleteSelf: Bool = false) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
+/// Stores a field of a `@Record` in the record's `encryptedValues`, so CloudKit encrypts it with
+/// a key only the user's devices hold.
+///
+/// ```swift
+/// @Record struct Account {
+///     var id: UUID
+///     var name: String
+///     @Encrypted var note: String
+/// }
+/// ```
+///
+/// An encrypted field can hold strings, numbers, dates, data, locations, and arrays of them, but
+/// not a `CKAsset`. CloudKit can't index or query it on the server, and a field can't switch between
+/// encrypted and plain once its schema is deployed.
+@attached(peer)
+public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "EncryptedMacro")
+
 /// Backs a stored property of a `@Record` with a `Records.Field`, which notes when it is set.
 /// `@Record` adds it to each stored `var` except `id`, so you don't write it yourself.
 @attached(accessor, names: named(init), named(get), named(set))
