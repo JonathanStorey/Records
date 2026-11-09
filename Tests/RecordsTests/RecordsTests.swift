@@ -138,3 +138,34 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
         try CKRecordDecoder().decode(Note.self, from: record)
     }
 }
+
+// MARK: - Encoding into an existing record
+
+@Test func encodeIntoUpdatesTheSameRecord() throws {
+    var note = Note(id: UUID(), title: "Draft", isPinned: false, rating: 2, tags: [], created: .now)
+    let record = CKRecordEncoder().encode(note, in: zone())
+
+    note.title = "Final"
+    note.rating = nil
+    try CKRecordEncoder().encode(note, into: record)
+
+    #expect(record["title"] as? String == "Final")
+    #expect(record["rating"] == nil)
+    #expect(try CKRecordDecoder().decode(Note.self, from: record) == note)
+}
+
+@Test func encodeIntoWrongRecordTypeThrows() {
+    let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: .now)
+    let folder = CKRecord(recordType: "Folder", recordID: CKRecord.ID(recordName: note.id.uuidString, zoneID: zone()))
+    #expect(throws: CKRecordEncodingError.recordTypeMismatch(expected: "Note", found: "Folder")) {
+        try CKRecordEncoder().encode(note, into: folder)
+    }
+}
+
+@Test func encodeIntoWrongRecordNameThrows() {
+    let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: .now)
+    let other = CKRecord(recordType: "Note", recordID: CKRecord.ID(recordName: "other", zoneID: zone()))
+    #expect(throws: CKRecordEncodingError.recordNameMismatch(expected: note.id.uuidString, found: "other")) {
+        try CKRecordEncoder().encode(note, into: other)
+    }
+}
