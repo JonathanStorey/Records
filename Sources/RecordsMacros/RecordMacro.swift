@@ -69,7 +69,7 @@ public struct RecordMacro: ExtensionMacro {
             return false
         }
         return name.count <= 255 && name.unicodeScalars.allSatisfy {
-            $0.isASCII && ($0.properties.isAlphabetic || ("0" as Unicode.Scalar ... "9").contains($0) || $0 == "_")
+            $0.isASCII && ($0.properties.isAlphabetic || (48...57).contains($0.value) || $0 == "_")
         }
     }
 
