@@ -50,6 +50,7 @@ let package = Package(
             name: "RecordsMacrosTests",
             dependencies: [
                 "RecordsMacros",
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
             ]
         ),
