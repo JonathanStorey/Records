@@ -1,7 +1,8 @@
 import SwiftSyntax
 import SwiftSyntaxMacros
 
-/// `@Reference` on a to-one property, e.g. `@Reference var author: Person?`.
+/// `@Reference` on a to-one property, either the record itself, `@Reference var author: Person?`,
+/// or only its ID, `@Reference(Person.self) var authorID: UUID?`.
 ///
 /// For now it is a marker: it checks the property's shape and adds nothing. `@Record` skips
 /// properties marked with it, so they are never written as fields and decode as `nil`.
@@ -34,10 +35,24 @@ public struct ReferenceMacro: PeerMacro {
         if RecordMacro.isArray(type) || RecordMacro.wrappedType(of: type).map(RecordMacro.isArray) == true {
             throw MacroExpansionErrorMessage("@Reference does not support to-many properties yet")
         }
-        guard type.is(OptionalTypeSyntax.self) || RecordMacro.wrappedType(of: type) != nil,
+        guard let wrapped = RecordMacro.wrappedType(of: type),
               !type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self)
         else {
-            throw MacroExpansionErrorMessage("@Reference to one record must be optional, e.g. 'Person?'")
+            throw MacroExpansionErrorMessage("@Reference to one record must be optional")
+        }
+
+        // `UUID?` holds only the ID, so the target type has to be named: `@Reference(Person.self)`.
+        let hasTargetType = node.arguments?.as(LabeledExprListSyntax.self)?.isEmpty == false
+        let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
+        if isID, !hasTargetType {
+            throw MacroExpansionErrorMessage(
+                "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'"
+            )
+        }
+        if !isID, hasTargetType {
+            throw MacroExpansionErrorMessage(
+                "@Reference only takes a record type on a UUID property; '\(wrapped.trimmedDescription)' already names it"
+            )
         }
         return []
     }

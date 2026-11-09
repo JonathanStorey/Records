@@ -397,7 +397,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference to one record must be optional, e.g. 'Person?'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference to one record must be optional", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -467,6 +467,109 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(message: "@Reference does not support to-many properties yet", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRecordSkipsIDReferences() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Article {
+                var id: UUID
+                @Reference(Person.self) var authorID: UUID?
+            }
+            """,
+            expandedSource: """
+            struct Article {
+                var id: UUID
+                var authorID: UUID?
+            }
+
+            extension Article: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Article"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                }
+                func encodeFields(into record: CKRecord) {
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testIDReferenceNeedsTargetType() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference var authorID: UUID?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var authorID: UUID?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testIDReferenceMustBeOptional() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference(Person.self) var authorID: UUID
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var authorID: UUID
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference to one record must be optional", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRecordReferenceRejectsTargetType() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference(Person.self) var author: Person?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var author: Person?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference only takes a record type on a UUID property; 'Person' already names it", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )

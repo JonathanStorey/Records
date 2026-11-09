@@ -36,6 +36,7 @@ struct Article {
     var id: UUID
     var title: String
     @Reference var author: Person?
+    @Reference(Person.self) var editorID: UUID?
 }
 
 private func zone() -> CKRecordZone.ID {
@@ -209,19 +210,21 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 
 @Test func referenceIsNotWrittenAsAField() {
     let author = Person(id: UUID(), name: "Ada")
-    let article = Article(id: UUID(), title: "Notes", author: author)
+    let article = Article(id: UUID(), title: "Notes", author: author, editorID: UUID())
     let record = CKRecordEncoder().encode(article, in: zone())
     #expect(Set(record.allKeys()) == ["title"])
 }
 
 @Test func referenceDecodesAsNil() throws {
-    let article = Article(id: UUID(), title: "Notes", author: Person(id: UUID(), name: "Ada"))
+    let article = Article(id: UUID(), title: "Notes", author: Person(id: UUID(), name: "Ada"), editorID: UUID())
     let decoded = try CKRecordDecoder().decode(Article.self, from: CKRecordEncoder().encode(article, in: zone()))
     #expect(decoded.title == "Notes")
     #expect(decoded.author == nil)
+    #expect(decoded.editorID == nil)
 }
 
 @Test func referenceDefaultsToNilInMemberwiseInit() {
     let article = Article(id: UUID(), title: "Notes")
     #expect(article.author == nil)
+    #expect(article.editorID == nil)
 }
