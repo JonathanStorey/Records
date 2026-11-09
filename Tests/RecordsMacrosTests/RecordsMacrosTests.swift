@@ -360,7 +360,20 @@ final class RecordMacroTests: XCTestCase {
             struct Article {
                 var id: UUID
                 var title: String
-                var author: Person?
+                var author: Person? {
+                    @storageRestrictions(initializes: _author)
+                    init(initialValue) {
+                        _author = Records.ToOne(initialValue)
+                    }
+                    get {
+                        _author.value
+                    }
+                    set {
+                        _author.value = newValue
+                    }
+                }
+
+                var _author: Records.ToOne<Person>
             }
 
             extension Article: Records.Record {
@@ -370,9 +383,26 @@ final class RecordMacroTests: XCTestCase {
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
+                    self._author = Records.ToOne(id: nil)
                 }
                 func encodeFields(into record: CKRecord) {
                     record["title"] = self.title
+                }
+                var referenceStates: [Records.ReferenceState] {
+                    [
+                        self._author.state(property: "author"),
+                    ]
+                }
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
+                    switch property {
+                    case "author":
+                        try self._author.load(targets, from: records)
+                    default:
+                        break
+                    }
+                }
+                mutating func markReferencesSaved() {
+                    self._author.markSaved()
                 }
             }
             """,
@@ -452,22 +482,106 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testReferenceToManyNotSupportedYet() throws {
+    func testReferenceToManyMustNotBeOptional() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct Note {
-                @Reference var tags: [Tag]
+                @Reference var tags: [Tag]?
             }
             """,
             expandedSource: """
             struct Note {
-                var tags: [Tag]
+                var tags: [Tag]?
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference does not support to-many properties yet", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference to many records must be a non-optional array", line: 2, column: 5),
             ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRecordWithToManyReferences() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note {
+                var id: UUID
+                @Reference var tags: [Tag]
+                @Reference(to: Tag.self) var pinnedIDs: [UUID]
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+                var tags: [Tag] {
+                    @storageRestrictions(initializes: _tags)
+                    init(initialValue) {
+                        _tags = Records.ToMany(initialValue)
+                    }
+                    get {
+                        _tags.values
+                    }
+                    set {
+                        _tags.values = newValue
+                    }
+                }
+
+                var _tags: Records.ToMany<Tag>
+                var pinnedIDs: [UUID] {
+                    @storageRestrictions(initializes: _pinnedIDs)
+                    init(initialValue) {
+                        _pinnedIDs = Records.ToMany(ids: initialValue)
+                    }
+                    get {
+                        _pinnedIDs.ids
+                    }
+                    set {
+                        _pinnedIDs.ids = newValue
+                    }
+                }
+
+                var _pinnedIDs: Records.ToMany<Tag>
+            }
+
+            extension Note: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Note"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._tags = Records.ToMany(ids: [])
+                    self._pinnedIDs = Records.ToMany(ids: [])
+                }
+                func encodeFields(into record: CKRecord) {
+                }
+                var referenceStates: [Records.ReferenceState] {
+                    [
+                        self._tags.state(property: "tags"),
+                        self._pinnedIDs.state(property: "pinnedIDs"),
+                    ]
+                }
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
+                    switch property {
+                    case "tags":
+                        try self._tags.load(targets, from: records)
+                    case "pinnedIDs":
+                        try self._pinnedIDs.load(targets, from: [])
+                    default:
+                        break
+                    }
+                }
+                mutating func markReferencesSaved() {
+                    self._tags.markSaved()
+                    self._pinnedIDs.markSaved()
+                }
+            }
+            """,
             macroSpecs: macroSpecs
         )
         #else
@@ -488,7 +602,20 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Article {
                 var id: UUID
-                var authorID: UUID?
+                var authorID: UUID? {
+                    @storageRestrictions(initializes: _authorID)
+                    init(initialValue) {
+                        _authorID = Records.ToOne(id: initialValue)
+                    }
+                    get {
+                        _authorID.id
+                    }
+                    set {
+                        _authorID.id = newValue
+                    }
+                }
+
+                var _authorID: Records.ToOne<Person>
             }
 
             extension Article: Records.Record {
@@ -497,8 +624,25 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._authorID = Records.ToOne(id: nil)
                 }
                 func encodeFields(into record: CKRecord) {
+                }
+                var referenceStates: [Records.ReferenceState] {
+                    [
+                        self._authorID.state(property: "authorID"),
+                    ]
+                }
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
+                    switch property {
+                    case "authorID":
+                        try self._authorID.load(targets, from: [])
+                    default:
+                        break
+                    }
+                }
+                mutating func markReferencesSaved() {
+                    self._authorID.markSaved()
                 }
             }
             """,
@@ -578,26 +722,47 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testSelfReferenceSuggestsID() throws {
+    func testSelfReferenceByRecordIsAllowed() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct Person {
                 @Reference var manager: Person?
+                @Reference var mentor: Self?
             }
             """,
             expandedSource: """
             struct Person {
-                var manager: Person?
+                var manager: Person? {
+                    @storageRestrictions(initializes: _manager)
+                    init(initialValue) {
+                        _manager = Records.ToOne(initialValue)
+                    }
+                    get {
+                        _manager.value
+                    }
+                    set {
+                        _manager.value = newValue
+                    }
+                }
+
+                var _manager: Records.ToOne<Person>
+                var mentor: Self? {
+                    @storageRestrictions(initializes: _mentor)
+                    init(initialValue) {
+                        _mentor = Records.ToOne(initialValue)
+                    }
+                    get {
+                        _mentor.value
+                    }
+                    set {
+                        _mentor.value = newValue
+                    }
+                }
+
+                var _mentor: Records.ToOne<Person>
             }
             """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "@Reference to its own type is not supported yet; use '@Reference(to: Person.self) var managerID: UUID?'",
-                    line: 2,
-                    column: 5
-                ),
-            ],
             macroSpecs: macroSpecs
         )
         #else
@@ -615,9 +780,45 @@ final class RecordMacroTests: XCTestCase {
             """,
             expandedSource: """
             struct Person {
-                var managerID: UUID?
+                var managerID: UUID? {
+                    @storageRestrictions(initializes: _managerID)
+                    init(initialValue) {
+                        _managerID = Records.ToOne(id: initialValue)
+                    }
+                    get {
+                        _managerID.id
+                    }
+                    set {
+                        _managerID.id = newValue
+                    }
+                }
+
+                var _managerID: Records.ToOne<Person>
             }
             """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testReferenceTargetMustBeAType() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference(to: person) var authorID: UUID?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var authorID: UUID?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference(to:) takes a record type, e.g. 'Person.self'", line: 2, column: 5),
+            ],
             macroSpecs: macroSpecs
         )
         #else

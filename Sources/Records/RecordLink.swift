@@ -268,3 +268,50 @@ struct RecordLink: Equatable, Sendable {
         ))
     }
 }
+
+// MARK: - References
+
+extension RecordLink {
+    /// The link a `@Reference` writes to `target`: many-to-one or many-to-many with no inverse,
+    /// such as `Article.author:Person` or `Page.labels:[Label]`.
+    ///
+    /// Adding a `@Reference(from:)` inverse later keeps the same ID, because only the forward
+    /// side is hashed.
+    init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, target: ReferenceTarget) {
+        self.init(
+            id: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: target.id),
+            relationship: Self.forward(reference, sourceType: sourceType),
+            sourceName: sourceID.uuidString,
+            targetName: target.id.uuidString,
+            deleteSelf: false,
+            order: target.order,
+            version: Self.currentVersion
+        )
+    }
+
+    /// The ID of the link a `@Reference` writes. A to-one link leaves out the target, so it is
+    /// the same whatever the reference points at. A to-many link has one per target.
+    static func id(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, targetID: UUID) -> UUID {
+        id(
+            forward: forward(reference, sourceType: sourceType),
+            kind: reference.isToMany ? .manyToMany : .manyToOne,
+            sourceName: sourceID.uuidString,
+            targetName: targetID.uuidString
+        )
+    }
+
+    private static func forward(_ reference: ReferenceState, sourceType: CKRecord.RecordType) -> String {
+        signature(
+            sourceType: sourceType, property: reference.property, sourceIsToMany: reference.isToMany,
+            targetType: reference.targetType, inverse: nil, inverseIsToMany: true
+        )
+    }
+
+    /// The source's record type and property, read from the forward side of the signature,
+    /// or `nil` when the signature is invalid.
+    var source: (type: String, property: String)? {
+        let forward = relationship.components(separatedBy: " <-> ")[0]
+        guard let side = try? SignatureSide(forward, signature: relationship) else { return nil }
+        return (String(side.declaringType), String(side.property))
+    }
+}

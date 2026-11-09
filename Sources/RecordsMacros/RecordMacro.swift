@@ -6,7 +6,8 @@ import SwiftSyntaxMacros
 ///
 /// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
 /// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
-/// each stored property except `id` under its own name.
+/// each stored property except `id` under its own name. A struct with `@Reference` properties
+/// also gets `referenceStates`, `loadReference(_:to:from:)`, and `markReferencesSaved()`.
 public struct RecordMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -28,6 +29,7 @@ public struct RecordMacro: ExtensionMacro {
             throw MacroExpansionErrorMessage("@Record requires a stored 'id: UUID' property")
         }
         let fields = properties.filter { $0.key != "id" }
+        let references = references(in: structDecl.memberBlock, owner: structDecl.name.text)
 
         var lines = [
             "extension \(type.trimmedDescription)\(conformance) {",
@@ -49,6 +51,11 @@ public struct RecordMacro: ExtensionMacro {
             }
             lines.append("        self.\(field.name) = try CKRecordDecoder.\(read)")
         }
+        // Links hold references, so a decoded record starts with none. `loadReference` fills them.
+        for reference in references {
+            let empty = reference.isToMany ? "Records.ToMany(ids: [])" : "Records.ToOne(id: nil)"
+            lines.append("        self.\(reference.storage) = \(empty)")
+        }
         lines += [
             "    }",
             "    \(access)func encodeFields(into record: CKRecord) {",
@@ -56,7 +63,39 @@ public struct RecordMacro: ExtensionMacro {
         for field in fields {
             lines.append("        record[\"\(field.key)\"] = self.\(field.name)")
         }
-        lines += ["    }", "}"]
+        lines.append("    }")
+        if !references.isEmpty {
+            lines.append("    \(access)var referenceStates: [Records.ReferenceState] {")
+            lines.append("        [")
+            for reference in references {
+                lines.append("            self.\(reference.storage).state(property: \"\(reference.key)\"),")
+            }
+            lines += [
+                "        ]",
+                "    }",
+                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {",
+                "        switch property {",
+            ]
+            for reference in references {
+                // The ID form never holds the records, so it ignores them.
+                lines += [
+                    "        case \"\(reference.key)\":",
+                    "            try self.\(reference.storage).load(targets, from: \(reference.isID ? "[]" : "records"))",
+                ]
+            }
+            lines += [
+                "        default:",
+                "            break",
+                "        }",
+                "    }",
+                "    \(access)mutating func markReferencesSaved() {",
+            ]
+            for reference in references {
+                lines.append("        self.\(reference.storage).markSaved()")
+            }
+            lines.append("    }")
+        }
+        lines.append("}")
 
         let decl = DeclSyntax(stringLiteral: lines.joined(separator: "\n"))
         guard let extensionDecl = decl.as(ExtensionDeclSyntax.self) else { return [] }
@@ -121,6 +160,16 @@ public struct RecordMacro: ExtensionMacro {
         let wrappedType: String?
         /// Whether the declared type is `[T]` or `Array<T>`.
         let isArray: Bool
+    }
+
+    /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
+    private static func references(in members: MemberBlockSyntax, owner: String) -> [ReferenceMacro.Reference] {
+        members.members.compactMap { member in
+            guard let variable = member.decl.as(VariableDeclSyntax.self),
+                  let attribute = ReferenceMacro.attribute(on: variable)
+            else { return nil }
+            return try? ReferenceMacro.reference(variable, attribute: attribute, owner: owner)
+        }
     }
 
     /// Instance properties with storage that `init(record:)` can assign: not static, not lazy,

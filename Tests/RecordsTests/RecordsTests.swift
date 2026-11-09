@@ -228,8 +228,8 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
     #expect(decoded.editorID == nil)
 }
 
-@Test func referenceDefaultsToNilInMemberwiseInit() {
-    let article = Article(id: UUID(), title: "Notes")
+@Test func referenceCanBeNilInMemberwiseInit() {
+    let article = Article(id: UUID(), title: "Notes", author: nil, editorID: nil)
     #expect(article.author == nil)
     #expect(article.editorID == nil)
 }
