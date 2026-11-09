@@ -165,9 +165,8 @@ public struct RecordMacro: ExtensionMacro {
                 }
                 let wrapped = wrappedType(of: type)
                 if let wrapped, isArray(wrapped) {
-                    throw MacroExpansionErrorMessage(
-                        "@Record property '\(key)' cannot be an optional array, because CloudKit stores [] and nil the same way; use '\(wrapped.trimmedDescription)' instead"
-                    )
+                    // CloudKit stores an empty list and a missing field the same way.
+                    throw MacroExpansionErrorMessage("Record does not support an optional array")
                 }
                 found.append(StoredProperty(
                     name: name,

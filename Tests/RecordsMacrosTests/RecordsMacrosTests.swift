@@ -332,7 +332,7 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(
-                    message: "@Record property 'tags' cannot be an optional array, because CloudKit stores [] and nil the same way; use '[String]' instead",
+                    message: "Record does not support an optional array",
                     line: 1,
                     column: 1
                 ),
