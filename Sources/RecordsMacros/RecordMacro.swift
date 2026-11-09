@@ -10,7 +10,36 @@ import SwiftSyntaxMacros
 /// also gets `referenceStates`, `loadReference(_:to:from:links:depth:)`, and `markReferencesSaved()`,
 /// one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
 /// `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
-public struct RecordMacro: ExtensionMacro {
+///
+/// Each stored `var` except `id` gets `@RecordField`, which notes when it is set. A struct with
+/// any gets `changedFields`, `encodeChangedFields(into:)`, and `markFieldsSaved()`.
+public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
+    /// Adds `@RecordField` to each stored `var` that `@Record` tracks, so setting it is noted.
+    public static func expansion(
+        of node: AttributeSyntax,
+        attachedTo declaration: some DeclGroupSyntax,
+        providingAttributesFor member: some DeclSyntaxProtocol,
+        in context: some MacroExpansionContext
+    ) throws -> [AttributeSyntax] {
+        guard declaration.is(StructDeclSyntax.self),
+              let variable = member.as(VariableDeclSyntax.self),
+              variable.bindingSpecifier.tokenKind == .keyword(.var),
+              !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) }),
+              !ReferenceMacro.isReference(variable),
+              !variable.attributes.contains(where: { $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "RecordField" }),
+              variable.bindings.count == 1,
+              let binding = variable.bindings.first,
+              binding.accessorBlock == nil,
+              binding.typeAnnotation != nil,
+              let pattern = binding.pattern.as(IdentifierPatternSyntax.self),
+              unescaped(pattern.identifier.text) != "id"
+        else { return [] }
+        return ["@RecordField"]
+    }
+
+    /// Modifiers that mean a property isn't stored per record.
+    private static var skipped: [TokenKind] { [.keyword(.static), .keyword(.class), .keyword(.lazy)] }
+
     public static func expansion(
         of node: AttributeSyntax,
         attachedTo declaration: some DeclGroupSyntax,
@@ -51,7 +80,12 @@ public struct RecordMacro: ExtensionMacro {
             } else {
                 read = "decode((\(field.type)).self, forKey: \"\(field.key)\", from: record)"
             }
-            lines.append("        self.\(field.name) = try CKRecordDecoder.\(read)")
+            if field.isTracked {
+                // Read straight into the storage, so a decoded record starts unchanged.
+                lines.append("        self._\(field.key) = try Records.Field(saved: CKRecordDecoder.\(read))")
+            } else {
+                lines.append("        self.\(field.name) = try CKRecordDecoder.\(read)")
+            }
         }
         // Links hold references, so a decoded record starts with none. `loadReference` fills them.
         for reference in references {
@@ -66,6 +100,40 @@ public struct RecordMacro: ExtensionMacro {
             lines.append("        record[\"\(field.key)\"] = self.\(field.name)")
         }
         lines.append("    }")
+        let tracked = fields.filter(\.isTracked)
+        if !tracked.isEmpty {
+            lines += [
+                "    \(access)var changedFields: Set<String> {",
+                "        var fields: Set<String> = []",
+            ]
+            for field in tracked {
+                lines += [
+                    "        if self._\(field.key).isChanged {",
+                    "            fields.insert(\"\(field.key)\")",
+                    "        }",
+                ]
+            }
+            lines += [
+                "        return fields",
+                "    }",
+                "    \(access)func encodeChangedFields(into record: CKRecord) {",
+            ]
+            for field in tracked {
+                lines += [
+                    "        if self._\(field.key).isChanged {",
+                    "            record[\"\(field.key)\"] = self.\(field.name)",
+                    "        }",
+                ]
+            }
+            lines += [
+                "    }",
+                "    \(access)mutating func markFieldsSaved() {",
+            ]
+            for field in tracked {
+                lines.append("        self._\(field.key).markSaved()")
+            }
+            lines.append("    }")
+        }
         let deleteSelf = references.filter(\.deleteSelf).map { "\"\($0.key)\"" }
         if !deleteSelf.isEmpty {
             lines += [
@@ -202,6 +270,8 @@ public struct RecordMacro: ExtensionMacro {
         let wrappedType: String?
         /// Whether the declared type is `[T]` or `Array<T>`.
         let isArray: Bool
+        /// Whether `@RecordField` notes when it is set: every `var` except `id`.
+        let isTracked: Bool
     }
 
     /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
@@ -219,7 +289,6 @@ public struct RecordMacro: ExtensionMacro {
     /// `didSet` observers still have storage. Each one needs an explicit type, because the
     /// generated initializer decodes by type.
     private static func storedProperties(in members: MemberBlockSyntax) throws -> [StoredProperty] {
-        let skipped: [TokenKind] = [.keyword(.static), .keyword(.class), .keyword(.lazy)]
         var properties: [StoredProperty] = []
 
         for member in members.members {
@@ -228,6 +297,9 @@ public struct RecordMacro: ExtensionMacro {
                   !ReferenceMacro.isReference(variable) // Links hold references, not fields.
             else { continue }
             let isLet = variable.bindingSpecifier.tokenKind == .keyword(.let)
+            if !isLet {
+                try checkTrackable(variable)
+            }
 
             // In `var a, b: String`, only `b` spells the type, so walk backwards and carry it.
             var carriedType: TypeSyntax?
@@ -265,12 +337,31 @@ public struct RecordMacro: ExtensionMacro {
                     key: key,
                     type: type.trimmedDescription,
                     wrappedType: wrapped?.trimmedDescription,
-                    isArray: isArray(type)
+                    isArray: isArray(type),
+                    isTracked: !isLet && key != "id"
                 ))
             }
             properties += found.reversed()
         }
         return properties
+    }
+
+    /// `@RecordField` turns a `var` into a computed property, so it needs one name and no observers.
+    private static func checkTrackable(_ variable: VariableDeclSyntax) throws {
+        let names = variable.bindings.compactMap { $0.pattern.as(IdentifierPatternSyntax.self)?.identifier.text }
+        if variable.bindings.count > 1, !names.allSatisfy({ unescaped($0) == "id" }) {
+            let list = names.map { "'\(unescaped($0))'" }.joined(separator: " and ")
+            throw MacroExpansionErrorMessage("@Record tracks each field's changes, so declare \(list) separately")
+        }
+        for binding in variable.bindings {
+            guard let accessors = binding.accessorBlock, hasStorage(accessors),
+                  let name = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
+                  unescaped(name) != "id"
+            else { continue }
+            throw MacroExpansionErrorMessage(
+                "@Record tracks changes to '\(unescaped(name))', so it can't have 'willSet' or 'didSet'"
+            )
+        }
     }
 
     /// `Int` for `Int?`, `Int!`, or `Optional<Int>`; `nil` for any other type.
