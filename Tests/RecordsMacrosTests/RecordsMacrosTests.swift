@@ -482,7 +482,7 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct Article {
                 var id: UUID
-                @Reference(Person.self) var authorID: UUID?
+                @Reference(to: Person.self) var authorID: UUID?
             }
             """,
             expandedSource: """
@@ -523,7 +523,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(to: Person.self)'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -537,7 +537,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(Person.self) var authorID: UUID
+                @Reference(to: Person.self) var authorID: UUID
             }
             """,
             expandedSource: """
@@ -560,7 +560,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(Person.self) var author: Person?
+                @Reference(to: Person.self) var author: Person?
             }
             """,
             expandedSource: """

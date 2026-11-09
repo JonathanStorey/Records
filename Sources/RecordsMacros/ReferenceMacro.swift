@@ -2,7 +2,7 @@ import SwiftSyntax
 import SwiftSyntaxMacros
 
 /// `@Reference` on a to-one property, either the record itself, `@Reference var author: Person?`,
-/// or only its ID, `@Reference(Person.self) var authorID: UUID?`.
+/// or only its ID, `@Reference(to: Person.self) var authorID: UUID?`.
 ///
 /// For now it is a marker: it checks the property's shape and adds nothing. `@Record` skips
 /// properties marked with it, so they are never written as fields and decode as `nil`.
@@ -41,12 +41,12 @@ public struct ReferenceMacro: PeerMacro {
             throw MacroExpansionErrorMessage("@Reference to one record must be optional")
         }
 
-        // `UUID?` holds only the ID, so the target type has to be named: `@Reference(Person.self)`.
+        // `UUID?` holds only the ID, so the target type has to be named: `@Reference(to: Person.self)`.
         let hasTargetType = node.arguments?.as(LabeledExprListSyntax.self)?.isEmpty == false
         let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
         if isID, !hasTargetType {
             throw MacroExpansionErrorMessage(
-                "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'"
+                "@Reference on a UUID needs the record type it points at, e.g. '@Reference(to: Person.self)'"
             )
         }
         if !isID, hasTargetType {

@@ -36,7 +36,7 @@ struct Article {
     var id: UUID
     var title: String
     @Reference var author: Person?
-    @Reference(Person.self) var editorID: UUID?
+    @Reference(to: Person.self) var editorID: UUID?
 }
 
 private func zone() -> CKRecordZone.ID {

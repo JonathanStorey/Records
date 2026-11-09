@@ -47,9 +47,9 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a property that holds only the ID of another `Record`, e.g.
-/// `@Reference(Person.self) var authorID: UUID?`. Records never loads the record itself.
+/// `@Reference(to: Person.self) var authorID: UUID?`. Records never loads the record itself.
 ///
 /// The property is never written as a field, and a freshly decoded record has `nil` here until
 /// its references are loaded. It must be an optional `UUID` with no initial value.
 @attached(peer)
-public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+public macro Reference<Target: Record>(to target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
