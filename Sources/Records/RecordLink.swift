@@ -268,3 +268,46 @@ struct RecordLink: Equatable, Sendable {
         ))
     }
 }
+
+// MARK: - References
+
+extension RecordLink {
+    /// The link a to-one `@Reference` writes: many-to-one with no inverse, such as
+    /// `Article.author:Person`.
+    ///
+    /// Adding a `@Reference(from:)` inverse later keeps the same ID, because only the forward
+    /// side is hashed.
+    init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, targetID: UUID) {
+        let relationship = Self.signature(
+            sourceType: sourceType, property: reference.property, sourceIsToMany: false,
+            targetType: reference.targetType, inverse: nil, inverseIsToMany: true
+        )
+        self.init(
+            id: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID),
+            relationship: relationship,
+            sourceName: sourceID.uuidString,
+            targetName: targetID.uuidString,
+            deleteSelf: false,
+            order: nil,
+            version: Self.currentVersion
+        )
+    }
+
+    /// The ID of the link a to-one `@Reference` writes. It leaves out the target, so it is the
+    /// same whatever the reference points at.
+    static func id(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID) -> UUID {
+        let forward = signature(
+            sourceType: sourceType, property: reference.property, sourceIsToMany: false,
+            targetType: reference.targetType, inverse: nil, inverseIsToMany: true
+        )
+        return id(forward: forward, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: "")
+    }
+
+    /// The source's record type and property, read from the forward side of the signature,
+    /// or `nil` when the signature is invalid.
+    var source: (type: String, property: String)? {
+        let forward = relationship.components(separatedBy: " <-> ")[0]
+        guard let side = try? SignatureSide(forward, signature: relationship) else { return nil }
+        return (String(side.declaringType), String(side.property))
+    }
+}

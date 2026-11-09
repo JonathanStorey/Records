@@ -26,6 +26,32 @@ public struct CKRecordDecoder: Sendable {
         return try R(record: record)
     }
 
+    /// Decodes `record` and fills its `@Reference` properties from `links`.
+    ///
+    /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
+    /// whose source is `record` are used. A reference that holds the record itself is filled from
+    /// the matching record in `targets` when there is one, one level deep. Every reference
+    /// starts out unchanged, so the encoder writes no links for it until it changes.
+    public func decode<R: Record>(
+        _ type: R.Type,
+        from record: CKRecord,
+        links: [CKRecord],
+        targets: [CKRecord] = []
+    ) throws -> R {
+        var decoded = try decode(type, from: record)
+        let sourceName = record.recordID.recordName
+        for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
+            let link = try decode(RecordLink.self, from: linkRecord)
+            guard link.sourceName == sourceName,
+                  let source = link.source, source.type == R.recordType,
+                  let targetID = UUID(uuidString: link.targetName)
+            else { continue }
+            let target = targets.first { $0.recordID.recordName == link.targetName }
+            try decoded.loadReference(source.property, id: targetID, from: target)
+        }
+        return decoded
+    }
+
     /// The record's `id`, parsed from its record name. Used by the code `@Record` generates.
     public static func decodeID(from record: CKRecord) throws -> UUID {
         let name = record.recordID.recordName

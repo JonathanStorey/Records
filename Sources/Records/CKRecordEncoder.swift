@@ -41,4 +41,29 @@ public struct CKRecordEncoder: Sendable {
         }
         record.encodeFields(into: ckRecord)
     }
+
+    // MARK: Links
+
+    /// The links to save for `record`'s references that changed since it was loaded or saved.
+    /// A reference that now points somewhere writes its link, which overwrites any link it
+    /// had before.
+    ///
+    /// Save these along with the record, then call `markReferencesSaved()` on it.
+    public func linksToSave<R: Record>(for record: R, in zone: Zone) -> [CKRecord] {
+        record.referenceStates.compactMap { reference in
+            guard reference.hasChanges, let targetID = reference.id else { return nil }
+            let link = RecordLink(reference: reference, sourceType: R.recordType, sourceID: record.id, targetID: targetID)
+            return encode(link, in: zone)
+        }
+    }
+
+    /// The IDs of links to delete for `record`'s references that were cleared since it was
+    /// loaded or saved.
+    public func linkIDsToDelete<R: Record>(for record: R, in zone: Zone) -> [CKRecord.ID] {
+        record.referenceStates.compactMap { reference in
+            guard reference.hasChanges, reference.id == nil else { return nil }
+            let id = RecordLink.id(reference: reference, sourceType: R.recordType, sourceID: record.id)
+            return CKRecord.ID(recordName: id.uuidString, zoneID: zone.zoneID)
+        }
+    }
 }
