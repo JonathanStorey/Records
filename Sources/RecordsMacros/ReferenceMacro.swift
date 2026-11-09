@@ -185,8 +185,17 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             deleteSelf = literal.literal.tokenKind == .keyword(.true)
         }
 
-        if isFrom, isToMany {
-            throw MacroExpansionErrorMessage("@Reference(from:) supports to-one properties for now")
+        // The side that writes the links holds records. The `from:` side is a back-pointer, so it
+        // holds IDs: anything can point at a record, and loading every owner would have no limit.
+        if isFrom, !isID {
+            let suggestion = isToMany
+                ? "var \(key.hasSuffix("s") ? String(key.dropLast()) : key)IDs: [UUID]"
+                : "var \(key)ID: UUID?"
+            throw MacroExpansionErrorMessage("@Reference(from:) holds IDs, e.g. '\(suggestion)'")
+        }
+        // Deleting one of many owners can't mean deleting this record.
+        if deleteSelf, isToMany {
+            throw MacroExpansionErrorMessage("'deleteSelf:' needs a to-one @Reference(from:) property")
         }
         // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named.
         if isID, !isFrom, typeArgument == nil {
@@ -214,11 +223,6 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             target = resolved(base.trimmedDescription)
         }
         if let keyPath {
-            if !isID, keyPath.root != target {
-                throw MacroExpansionErrorMessage(
-                    "The key path's type '\(keyPath.root)' does not match the property's type '\(target)'"
-                )
-            }
             if keyPath.root == owner, keyPath.property == key {
                 throw MacroExpansionErrorMessage("@Reference to itself is not supported yet")
             }

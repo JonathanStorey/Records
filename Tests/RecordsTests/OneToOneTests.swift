@@ -13,7 +13,7 @@ struct User: Equatable {
 struct Profile: Equatable {
     var id: UUID
     var bio: String
-    @Reference(from: \User.profile, deleteSelf: true) var user: User?
+    @Reference(from: \User.profile, deleteSelf: true) var userID: UUID?
 }
 
 @Record
@@ -41,19 +41,6 @@ struct Crest: Equatable {
     @Reference(from: \Team.crest, deleteSelf: true) var teamID: UUID?
 }
 
-/// An ID-only owner with a record `from:` side.
-@Record
-struct Desk: Equatable {
-    var id: UUID
-    @Reference(Seat.self) var seatID: UUID?
-}
-
-@Record
-struct Seat: Equatable {
-    var id: UUID
-    @Reference(from: \Desk.seatID) var desk: Desk?
-}
-
 private let encoder = CKRecordEncoder()
 private let decoder = CKRecordDecoder()
 
@@ -66,7 +53,7 @@ private func makeUser(with profile: Profile?) -> User {
 }
 
 private func makeProfile() -> Profile {
-    Profile(id: UUID(), bio: "Engineer", user: nil)
+    Profile(id: UUID(), bio: "Engineer", userID: nil)
 }
 
 // MARK: - Links
@@ -78,42 +65,42 @@ private func makeProfile() -> Profile {
     let links = try encoder.linksToSave(for: user, in: .records).map(link)
     #expect(links.count == 1)
     let written = try #require(links.first)
-    #expect(written.relationship == "User.profile:Profile <-> Profile.user:User")
+    #expect(written.relationship == "User.profile:Profile <-> Profile.userID:User")
     #expect(try written.kind == .oneToOne)
     #expect(written.deleteSelf)
     #expect(written.sourceName == user.id.uuidString)
     #expect(written.targetName == profile.id.uuidString)
 
     let built = try RecordLink.oneToOne(
-        from: user, property: "profile", to: Profile.self, id: profile.id, inverse: "user", deleteSelf: true
+        from: user, property: "profile", to: Profile.self, id: profile.id, inverse: "userID", deleteSelf: true
     )
     #expect(written == built)
 }
 
 @Test func fromSideWritesNoLinks() {
     let owner = makeUser(with: nil)
-    let profile = Profile(id: UUID(), bio: "Engineer", user: owner)
-    #expect(profile.user == owner)
+    let profile = Profile(id: UUID(), bio: "Engineer", userID: owner.id)
+    #expect(profile.userID == owner.id)
     #expect(encoder.linksToSave(for: profile, in: .records).isEmpty)
     #expect(encoder.linkIDsToDelete(for: profile, in: .records).isEmpty)
 }
 
 @Test func deleteSelfIsDeclaredByTheFromSide() {
-    #expect(Profile.deleteSelfReferences == ["user"])
+    #expect(Profile.deleteSelfReferences == ["userID"])
     #expect(User.deleteSelfReferences.isEmpty)
     #expect(Settings.deleteSelfReferences.isEmpty)
 }
 
 @Test func theOwnerFindsItsInverseOnTheTarget() {
-    #expect(Profile.inverse(of: "profile", in: "User") == Inverse(\User.profile, to: Profile.self, property: "user", deleteSelf: true))
+    #expect(Profile.inverse(of: "profile", in: "User") == Inverse(\User.profile, to: Profile.self, property: "userID", deleteSelf: true))
     #expect(Settings.inverse(of: "settingsID", in: "Account")?.property == "accountID")
     #expect(Settings.inverse(of: "settingsID", in: "Account")?.deleteSelf == false)
     #expect(Profile.inverse(of: "bio", in: "User") == nil)
     #expect(Profile.inverse(of: "profile", in: "Account") == nil)
-    #expect(User.inverse(of: "user", in: "Profile") == nil)
+    #expect(User.inverse(of: "userID", in: "Profile") == nil)
 
     let state = makeUser(with: nil).referenceStates.first
-    #expect(state?.inverse?.property == "user")
+    #expect(state?.inverse?.property == "userID")
     #expect(state?.inverse?.deleteSelf == true)
 }
 
@@ -124,7 +111,7 @@ private func makeProfile() -> Profile {
     )
     let twoWay = ReferenceState(
         property: "profile", targetType: "Profile", isToMany: false,
-        inverse: Inverse(\User.profile, to: Profile.self, property: "user"), targets: [], loaded: []
+        inverse: Inverse(\User.profile, to: Profile.self, property: "userID"), targets: [], loaded: []
     )
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "User", sourceID: sourceID, targetID: UUID())
@@ -142,12 +129,10 @@ private func makeProfile() -> Profile {
 
     let userAgain = try decoder.decode(User.self, from: records[0], links: links, targets: records)
     #expect(userAgain.profile?.bio == "Engineer")
-    #expect(userAgain.profile?.user == nil) // one level deep
-    #expect(userAgain.profile?._user.id == user.id)
+    #expect(userAgain.profile?.userID == user.id)
 
     let profileAgain = try decoder.decode(Profile.self, from: records[1], links: links, targets: records)
-    #expect(profileAgain.user?.name == "Ada")
-    #expect(profileAgain.user?._profile.id == profile.id)
+    #expect(profileAgain.userID == user.id)
     #expect(encoder.linksToSave(for: profileAgain, in: .records).isEmpty)
 }
 
@@ -178,8 +163,8 @@ private func makeProfile() -> Profile {
 
     let firstAgain = try decoder.decode(Profile.self, from: encoder.encode(first, in: .records), links: moved)
     let secondAgain = try decoder.decode(Profile.self, from: encoder.encode(second, in: .records), links: moved)
-    #expect(firstAgain.user == nil)
-    #expect(secondAgain._user.id == user.id)
+    #expect(firstAgain.userID == nil)
+    #expect(secondAgain.userID == user.id)
 }
 
 @Test func clearingTheOwnerDeletesTheLink() throws {
@@ -193,7 +178,7 @@ private func makeProfile() -> Profile {
     #expect(encoder.linkIDsToDelete(for: user, in: .records) == original.map(\.recordID))
 }
 
-@Test func mixedFormsDecodeOnBothSides() throws {
+@Test func recordOwnerWithIDFromSide() throws {
     let crest = Crest(id: UUID(), teamID: nil)
     let team = Team(id: UUID(), crest: crest)
     let teamLinks = encoder.linksToSave(for: team, in: .records)
@@ -201,14 +186,4 @@ private func makeProfile() -> Profile {
     #expect(try teamLinks.map { try link($0).deleteSelf } == [true])
     let crestAgain = try decoder.decode(Crest.self, from: encoder.encode(crest, in: .records), links: teamLinks)
     #expect(crestAgain.teamID == team.id)
-
-    let seat = Seat(id: UUID(), desk: nil)
-    let desk = Desk(id: UUID(), seatID: seat.id)
-    let deskLinks = encoder.linksToSave(for: desk, in: .records)
-    #expect(try deskLinks.map { try link($0).relationship } == ["Desk.seatID:Seat <-> Seat.desk:Desk"])
-    let seatAgain = try decoder.decode(
-        Seat.self, from: encoder.encode(seat, in: .records),
-        links: deskLinks, targets: [encoder.encode(desk, in: .records)]
-    )
-    #expect(seatAgain.desk == desk)
 }

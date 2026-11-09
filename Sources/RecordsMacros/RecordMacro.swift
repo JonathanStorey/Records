@@ -82,12 +82,20 @@ public struct RecordMacro: ExtensionMacro {
                 "    \(access)static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {",
                 "        switch (owner, property) {",
             ]
+            var named = Set<String>()
             for reference in inverses {
                 let ownerProperty = reference.ownerProperty ?? ""
+                // The owner's links name one inverse, so two can't share an owner's property.
+                guard named.insert("\(reference.target).\(ownerProperty)").inserted else {
+                    throw MacroExpansionErrorMessage(
+                        "Only one @Reference(from:) can name '\(reference.target).\(ownerProperty)'"
+                    )
+                }
+                let label = reference.isToMany ? "many: " : ""
                 let deleteSelf = reference.deleteSelf ? ", deleteSelf: true" : ""
                 lines += [
                     "        case (\(reference.target).recordType, \"\(ownerProperty)\"):",
-                    "            return Records.Inverse(\\\(reference.target).\(ownerProperty), to: Self.self, property: \"\(reference.key)\"\(deleteSelf))",
+                    "            return Records.Inverse(\(label)\\\(reference.target).\(ownerProperty), to: Self.self, property: \"\(reference.key)\"\(deleteSelf))",
                 ]
             }
             lines += [

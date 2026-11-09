@@ -89,17 +89,32 @@ public macro Reference() = #externalMacro(module: "RecordsMacros", type: "Refere
 @attached(peer, names: prefixed(_))
 public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
-/// Marks the read-only side of a two-way relationship, naming the owner's property, e.g.
-/// `@Reference(from: \User.profile, deleteSelf: true) var user: User?` or
-/// `@Reference(from: \Account.settingsID) var accountID: UUID?`.
+/// Marks the read-only side of a two-way relationship, naming the owner's property.
 ///
-/// The owner is a plain `@Reference var profile: Profile?` or
-/// `@Reference(Settings.self) var settingsID: UUID?`, and it writes the links. Their
-/// signature includes this side, such as `User.profile:Profile <-> Profile.user:User`, so a
-/// profile belongs to one user. This side never writes links. It is filled from the owner's links
-/// when the record is decoded, and can only be set when the record is made. With
-/// `deleteSelf: true`, the record is deleted when its owner is deleted. Supports to-one
-/// properties for now.
+/// ```swift
+/// // One-to-one
+/// @Reference var profile: Profile?                                      // on User
+/// @Reference(from: \User.profile, deleteSelf: true) var userID: UUID?  // on Profile
+///
+/// // One-to-many, owned by the many side: links are written per book, unordered
+/// @Reference var shelf: Shelf?                                       // on Book
+/// @Reference(from: \Book.shelf) var bookIDs: [UUID]                  // on Shelf
+///
+/// // One-to-many, owned by the one side: ordered, and tracks are deleted with their album
+/// @Reference var tracks: [Track]                                     // on Album
+/// @Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID? // on Track
+/// ```
+///
+/// This side always holds IDs, `UUID?` or `[UUID]`. The owner holds records, because its code
+/// chose them. This side is a back-pointer: anything can point at a record, so loading every
+/// owner would have no limit. To show an owner's fields, fetch it by ID, or make this side the
+/// owner instead.
+/// The owner writes the links, and their signature includes this side, such as
+/// `User.profile:Profile <-> Profile.userID:User`. This side never writes links. It is filled from
+/// the owner's links when the record is decoded, and can only be set when the record is made. A
+/// to-many side lists its owners in the order their links were created. With `deleteSelf: true`,
+/// which needs a to-one side, the record is deleted when its owner is deleted. Many-to-many isn't
+/// supported yet.
 @attached(accessor, names: named(init), named(get))
 @attached(peer, names: prefixed(_))
 public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, deleteSelf: Bool = false) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
