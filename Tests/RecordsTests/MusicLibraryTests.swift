@@ -413,7 +413,7 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
 
 // MARK: - Edits
 
-@Test func editsRoundTrip() throws {
+@Test func libraryEditsRoundTrip() throws {
     let library = Library()
     var saved = library.saved()
     let linkCount = saved.links.count
