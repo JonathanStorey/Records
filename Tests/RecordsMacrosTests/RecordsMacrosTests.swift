@@ -577,4 +577,51 @@ final class RecordMacroTests: XCTestCase {
         throw XCTSkip("macros are only supported when running tests for the host platform")
         #endif
     }
+
+    func testSelfReferenceSuggestsID() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Person {
+                @Reference var manager: Person?
+            }
+            """,
+            expandedSource: """
+            struct Person {
+                var manager: Person?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(
+                    message: "@Reference to its own type is not supported yet; use '@Reference(to: Person.self) var managerID: UUID?'",
+                    line: 2,
+                    column: 5
+                ),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testSelfReferenceByIDIsAllowed() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Person {
+                @Reference(to: Person.self) var managerID: UUID?
+            }
+            """,
+            expandedSource: """
+            struct Person {
+                var managerID: UUID?
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
 }

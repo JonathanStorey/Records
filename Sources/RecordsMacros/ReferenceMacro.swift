@@ -41,6 +41,16 @@ public struct ReferenceMacro: PeerMacro {
             throw MacroExpansionErrorMessage("@Reference to one record must be optional")
         }
 
+        // A struct cannot store an optional of itself. Until references get boxed storage,
+        // point at the same type by ID instead.
+        if let owner = context.lexicalContext.first?.as(StructDeclSyntax.self)?.name.text,
+           [owner, "Self"].contains(wrapped.trimmedDescription) {
+            let property = binding.pattern.trimmedDescription
+            throw MacroExpansionErrorMessage(
+                "@Reference to its own type is not supported yet; use '@Reference(to: \(owner).self) var \(property)ID: UUID?'"
+            )
+        }
+
         // `UUID?` holds only the ID, so the target type has to be named: `@Reference(to: Person.self)`.
         let hasTargetType = node.arguments?.as(LabeledExprListSyntax.self)?.isEmpty == false
         let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)

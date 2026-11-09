@@ -29,6 +29,7 @@ struct Box<Value: CKRecordValueProtocol & Equatable>: Equatable {
 struct Person: Equatable {
     var id: UUID
     var name: String
+    @Reference(to: Person.self) var managerID: UUID?
 }
 
 @Record
@@ -227,4 +228,11 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
     let article = Article(id: UUID(), title: "Notes")
     #expect(article.author == nil)
     #expect(article.editorID == nil)
+}
+
+@Test func selfReferenceByIDIsSkipped() throws {
+    let person = Person(id: UUID(), name: "Ada", managerID: UUID())
+    let record = CKRecordEncoder().encode(person, in: zone())
+    #expect(Set(record.allKeys()) == ["name"])
+    #expect(try CKRecordDecoder().decode(Person.self, from: record).managerID == nil)
 }
