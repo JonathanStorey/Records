@@ -7,7 +7,7 @@ import SwiftSyntaxMacros
 /// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
 /// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
 /// each stored property except `id` under its own name. A struct with `@Reference` properties
-/// also gets `referenceStates`, `loadReference(_:id:from:)`, and `markReferencesSaved()`.
+/// also gets `referenceStates`, `loadReference(_:to:from:)`, and `markReferencesSaved()`.
 public struct RecordMacro: ExtensionMacro {
     public static func expansion(
         of node: AttributeSyntax,
@@ -53,7 +53,8 @@ public struct RecordMacro: ExtensionMacro {
         }
         // Links hold references, so a decoded record starts with none. `loadReference` fills them.
         for reference in references {
-            lines.append("        self.\(reference.storage) = Records.ToOne(id: nil)")
+            let empty = reference.isToMany ? "Records.ToMany(ids: [])" : "Records.ToOne(id: nil)"
+            lines.append("        self.\(reference.storage) = \(empty)")
         }
         lines += [
             "    }",
@@ -72,14 +73,14 @@ public struct RecordMacro: ExtensionMacro {
             lines += [
                 "        ]",
                 "    }",
-                "    \(access)mutating func loadReference(_ property: String, id: UUID?, from target: CKRecord?) throws {",
+                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {",
                 "        switch property {",
             ]
             for reference in references {
-                // The ID form never holds the record, so it ignores the target.
+                // The ID form never holds the records, so it ignores them.
                 lines += [
                     "        case \"\(reference.key)\":",
-                    "            try self.\(reference.storage).load(id: id, from: \(reference.isID ? "nil" : "target"))",
+                    "            try self.\(reference.storage).load(targets, from: \(reference.isID ? "[]" : "records"))",
                 ]
             }
             lines += [

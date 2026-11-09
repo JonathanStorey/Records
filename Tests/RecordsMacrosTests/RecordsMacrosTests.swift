@@ -393,10 +393,10 @@ final class RecordMacroTests: XCTestCase {
                         self._author.state(property: "author"),
                     ]
                 }
-                mutating func loadReference(_ property: String, id: UUID?, from target: CKRecord?) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
                     switch property {
                     case "author":
-                        try self._author.load(id: id, from: target)
+                        try self._author.load(targets, from: records)
                     default:
                         break
                     }
@@ -482,22 +482,106 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testReferenceToManyNotSupportedYet() throws {
+    func testReferenceToManyMustNotBeOptional() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct Note {
-                @Reference var tags: [Tag]
+                @Reference var tags: [Tag]?
             }
             """,
             expandedSource: """
             struct Note {
-                var tags: [Tag]
+                var tags: [Tag]?
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference does not support to-many properties yet", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference to many records must be a non-optional array", line: 2, column: 5),
             ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRecordWithToManyReferences() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note {
+                var id: UUID
+                @Reference var tags: [Tag]
+                @Reference(to: Tag.self) var pinnedIDs: [UUID]
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+                var tags: [Tag] {
+                    @storageRestrictions(initializes: _tags)
+                    init(initialValue) {
+                        _tags = Records.ToMany(initialValue)
+                    }
+                    get {
+                        _tags.values
+                    }
+                    set {
+                        _tags.values = newValue
+                    }
+                }
+
+                var _tags: Records.ToMany<Tag>
+                var pinnedIDs: [UUID] {
+                    @storageRestrictions(initializes: _pinnedIDs)
+                    init(initialValue) {
+                        _pinnedIDs = Records.ToMany(ids: initialValue)
+                    }
+                    get {
+                        _pinnedIDs.ids
+                    }
+                    set {
+                        _pinnedIDs.ids = newValue
+                    }
+                }
+
+                var _pinnedIDs: Records.ToMany<Tag>
+            }
+
+            extension Note: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Note"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._tags = Records.ToMany(ids: [])
+                    self._pinnedIDs = Records.ToMany(ids: [])
+                }
+                func encodeFields(into record: CKRecord) {
+                }
+                var referenceStates: [Records.ReferenceState] {
+                    [
+                        self._tags.state(property: "tags"),
+                        self._pinnedIDs.state(property: "pinnedIDs"),
+                    ]
+                }
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
+                    switch property {
+                    case "tags":
+                        try self._tags.load(targets, from: records)
+                    case "pinnedIDs":
+                        try self._pinnedIDs.load(targets, from: [])
+                    default:
+                        break
+                    }
+                }
+                mutating func markReferencesSaved() {
+                    self._tags.markSaved()
+                    self._pinnedIDs.markSaved()
+                }
+            }
+            """,
             macroSpecs: macroSpecs
         )
         #else
@@ -549,10 +633,10 @@ final class RecordMacroTests: XCTestCase {
                         self._authorID.state(property: "authorID"),
                     ]
                 }
-                mutating func loadReference(_ property: String, id: UUID?, from target: CKRecord?) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord]) throws {
                     switch property {
                     case "authorID":
-                        try self._authorID.load(id: id, from: nil)
+                        try self._authorID.load(targets, from: [])
                     default:
                         break
                     }

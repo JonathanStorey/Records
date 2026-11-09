@@ -29,9 +29,10 @@ public struct CKRecordDecoder: Sendable {
     /// Decodes `record` and fills its `@Reference` properties from `links`.
     ///
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
-    /// whose source is `record` are used. A reference that holds the record itself is filled from
-    /// the matching record in `targets` when there is one, one level deep. Every reference
-    /// starts out unchanged, so the encoder writes no links for it until it changes.
+    /// whose source is `record` are used. To-many targets are ordered by their order keys, then
+    /// by when the link was created, then by the link's name. A reference that holds records is
+    /// filled from the matching records in `targets`, one level deep. Every reference starts out
+    /// unchanged, so the encoder writes no links for it until it changes.
     public func decode<R: Record>(
         _ type: R.Type,
         from record: CKRecord,
@@ -40,14 +41,26 @@ public struct CKRecordDecoder: Sendable {
     ) throws -> R {
         var decoded = try decode(type, from: record)
         let sourceName = record.recordID.recordName
+
+        var byProperty: [String: [(target: ReferenceTarget, link: CKRecord)]] = [:]
         for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
             let link = try decode(RecordLink.self, from: linkRecord)
             guard link.sourceName == sourceName,
                   let source = link.source, source.type == R.recordType,
                   let targetID = UUID(uuidString: link.targetName)
             else { continue }
-            let target = targets.first { $0.recordID.recordName == link.targetName }
-            try decoded.loadReference(source.property, id: targetID, from: target)
+            byProperty[source.property, default: []].append((ReferenceTarget(id: targetID, order: link.order), linkRecord))
+        }
+
+        for (property, entries) in byProperty {
+            let ordered = entries.sorted { lhs, rhs in
+                let (a, b) = (lhs.target.order ?? "", rhs.target.order ?? "")
+                if a != b { return OrderKey.precedes(a, b) }
+                let (dateA, dateB) = (lhs.link.creationDate ?? .distantPast, rhs.link.creationDate ?? .distantPast)
+                if dateA != dateB { return dateA < dateB }
+                return lhs.link.recordID.recordName < rhs.link.recordID.recordName
+            }
+            try decoded.loadReference(property, to: ordered.map(\.target), from: targets)
         }
         return decoded
     }

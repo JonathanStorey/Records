@@ -2,12 +2,13 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// `@Reference` on a to-one property, either the record itself, `@Reference var author: Person?`,
-/// or only its ID, `@Reference(to: Person.self) var authorID: UUID?`.
+/// `@Reference` on a property that points at other records: one record, `@Reference var author: Person?`,
+/// or many, `@Reference var tags: [Tag]`. With `(to:)` it holds only IDs, as in
+/// `@Reference(to: Person.self) var authorID: UUID?` or `@Reference(to: Tag.self) var tagIDs: [UUID]`.
 ///
-/// Turns the property into a computed one backed by a `Records.ToOne` named with a leading
-/// underscore. The storage keeps the current target ID, the ID last loaded or saved, and, for the
-/// record form, the loaded record. An init accessor keeps the property in the memberwise
+/// Turns the property into a computed one backed by a `Records.ToOne` or `Records.ToMany` named
+/// with a leading underscore. The storage keeps the current targets, the targets last loaded or
+/// saved, and, for the record form, the loaded records. An init accessor keeps the property in the memberwise
 /// initializer.
 ///
 /// Only the peer role reports problems, so each one is reported once. The accessor role adds
@@ -23,8 +24,18 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         else { return [] }
 
         let storage = reference.storage
-        let initial = reference.isID ? "Records.ToOne(id: initialValue)" : "Records.ToOne(initialValue)"
-        let member = reference.isID ? "id" : "value"
+        let initial = switch (reference.isToMany, reference.isID) {
+        case (false, true): "Records.ToOne(id: initialValue)"
+        case (false, false): "Records.ToOne(initialValue)"
+        case (true, true): "Records.ToMany(ids: initialValue)"
+        case (true, false): "Records.ToMany(initialValue)"
+        }
+        let member = switch (reference.isToMany, reference.isID) {
+        case (false, true): "id"
+        case (false, false): "value"
+        case (true, true): "ids"
+        case (true, false): "values"
+        }
         return [
             """
             @storageRestrictions(initializes: \(raw: storage))
@@ -54,7 +65,8 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             throw MacroExpansionErrorMessage("@Reference can only be applied to a property")
         }
         let reference = try reference(variable, attribute: node, owner: owner(in: context))
-        return ["var \(raw: reference.storage): Records.ToOne<\(raw: reference.target)>"]
+        let storageType = reference.isToMany ? "ToMany" : "ToOne"
+        return ["var \(raw: reference.storage): Records.\(raw: storageType)<\(raw: reference.target)>"]
     }
 
     /// A valid to-one `@Reference` property.
@@ -65,8 +77,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         let key: String
         /// The target record type as written, such as `Person`.
         let target: String
-        /// Whether the property holds only the target's ID.
+        /// Whether the property holds only the target IDs.
         let isID: Bool
+        /// Whether the property holds many targets, `[Target]` or `[UUID]`.
+        let isToMany: Bool
 
         /// The generated storage property, such as `_author`.
         var storage: String { "_" + key }
@@ -97,16 +111,27 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         guard let type = binding.typeAnnotation?.type else {
             throw MacroExpansionErrorMessage("@Reference property needs an explicit type annotation")
         }
-        if RecordMacro.isArray(type) || RecordMacro.wrappedType(of: type).map(RecordMacro.isArray) == true {
-            throw MacroExpansionErrorMessage("@Reference does not support to-many properties yet")
+        if RecordMacro.wrappedType(of: type).map(RecordMacro.isArray) == true {
+            throw MacroExpansionErrorMessage("@Reference to many records must be a non-optional array")
         }
-        guard let wrapped = RecordMacro.wrappedType(of: type),
-              !type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self)
-        else {
-            throw MacroExpansionErrorMessage("@Reference to one record must be optional")
+        // `[Tag]` points at many records, `Person?` at one. `wrapped` is the record or ID type.
+        let isToMany = RecordMacro.isArray(type)
+        let wrapped: TypeSyntax
+        if isToMany {
+            guard let element = elementType(of: type) else {
+                throw MacroExpansionErrorMessage("@Reference to many records must be a non-optional array")
+            }
+            wrapped = element
+        } else {
+            guard let optional = RecordMacro.wrappedType(of: type),
+                  !type.is(ImplicitlyUnwrappedOptionalTypeSyntax.self)
+            else {
+                throw MacroExpansionErrorMessage("@Reference to one record must be optional")
+            }
+            wrapped = optional
         }
 
-        // `UUID?` holds only the ID, so the target type has to be named: `@Reference(to: Person.self)`.
+        // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named: `@Reference(to: Person.self)`.
         let argument = node.arguments?.as(LabeledExprListSyntax.self)?.first
         let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
         if isID, argument == nil {
@@ -136,7 +161,17 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         }
 
         let name = pattern.identifier.text
-        return Reference(name: name, key: name.filter { $0 != "`" }, target: target, isID: isID)
+        return Reference(name: name, key: name.filter { $0 != "`" }, target: target, isID: isID, isToMany: isToMany)
+    }
+
+    /// `Tag` for `[Tag]` or `Array<Tag>`.
+    private static func elementType(of type: TypeSyntax) -> TypeSyntax? {
+        if let array = type.as(ArrayTypeSyntax.self) { return array.element }
+        if let identifier = type.as(IdentifierTypeSyntax.self),
+           let arguments = identifier.genericArgumentClause?.arguments, arguments.count == 1 {
+            return arguments.first?.argument.as(TypeSyntax.self)
+        }
+        return nil
     }
 
     /// The `@Reference` or `@Records.Reference` attribute on `variable`, if any.

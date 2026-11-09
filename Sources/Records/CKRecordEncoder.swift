@@ -45,25 +45,38 @@ public struct CKRecordEncoder: Sendable {
     // MARK: Links
 
     /// The links to save for `record`'s references that changed since it was loaded or saved.
-    /// A reference that now points somewhere writes its link, which overwrites any link it
-    /// had before.
+    ///
+    /// A to-one reference that now points somewhere writes its link, which overwrites the link
+    /// it had before. A to-many reference writes a link for each added target and each target
+    /// whose order key changed, so moving one target rewrites only that target's link.
     ///
     /// Save these along with the record, then call `markReferencesSaved()` on it.
     public func linksToSave<R: Record>(for record: R, in zone: Zone) -> [CKRecord] {
-        record.referenceStates.compactMap { reference in
-            guard reference.hasChanges, let targetID = reference.id else { return nil }
-            let link = RecordLink(reference: reference, sourceType: R.recordType, sourceID: record.id, targetID: targetID)
-            return encode(link, in: zone)
+        record.referenceStates.flatMap { reference -> [CKRecord] in
+            guard reference.hasChanges else { return [] }
+            let unchanged = Set(reference.loaded)
+            return reference.targets
+                .filter { reference.isToMany ? !unchanged.contains($0) : true }
+                .map { target in
+                    let link = RecordLink(reference: reference, sourceType: R.recordType, sourceID: record.id, target: target)
+                    return encode(link, in: zone)
+                }
         }
     }
 
-    /// The IDs of links to delete for `record`'s references that were cleared since it was
-    /// loaded or saved.
+    /// The IDs of links to delete for `record`'s references: a to-one reference that was
+    /// cleared, and each target removed from a to-many reference.
     public func linkIDsToDelete<R: Record>(for record: R, in zone: Zone) -> [CKRecord.ID] {
-        record.referenceStates.compactMap { reference in
-            guard reference.hasChanges, reference.id == nil else { return nil }
-            let id = RecordLink.id(reference: reference, sourceType: R.recordType, sourceID: record.id)
-            return CKRecord.ID(recordName: id.uuidString, zoneID: zone.zoneID)
+        record.referenceStates.flatMap { reference -> [CKRecord.ID] in
+            guard reference.hasChanges else { return [] }
+            let current = Set(reference.targets.map(\.id))
+            let removed = reference.isToMany
+                ? reference.loaded.filter { !current.contains($0.id) }
+                : (current.isEmpty ? Array(reference.loaded.prefix(1)) : [])
+            return removed.map { target in
+                let id = RecordLink.id(reference: reference, sourceType: R.recordType, sourceID: record.id, targetID: target.id)
+                return CKRecord.ID(recordName: id.uuidString, zoneID: zone.zoneID)
+            }
         }
     }
 }
