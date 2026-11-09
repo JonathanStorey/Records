@@ -25,6 +25,21 @@ struct Box<Value: CKRecordValueProtocol & Equatable>: Equatable {
     var value: Value
 }
 
+@Record
+struct Person: Equatable {
+    var id: UUID
+    var name: String
+    @Reference(to: Person.self) var managerID: UUID?
+}
+
+@Record
+struct Article {
+    var id: UUID
+    var title: String
+    @Reference var author: Person?
+    @Reference(to: Person.self) var editorID: UUID?
+}
+
 extension Zone {
     static let records: Zone = "Records"
 }
@@ -194,6 +209,36 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
     let note = Note(id: UUID(), title: "A", isPinned: false, rating: nil, tags: [], created: Date(timeIntervalSince1970: 0))
     let record = CKRecordEncoder().encode(note, in: .records)
     #expect(try CKRecordDecoder().decode(Note.self, from: record) == note)
+}
+
+// MARK: - References
+
+@Test func referenceIsNotWrittenAsAField() {
+    let author = Person(id: UUID(), name: "Ada")
+    let article = Article(id: UUID(), title: "Notes", author: author, editorID: UUID())
+    let record = CKRecordEncoder().encode(article, in: .records)
+    #expect(Set(record.allKeys()) == ["title"])
+}
+
+@Test func referenceDecodesAsNil() throws {
+    let article = Article(id: UUID(), title: "Notes", author: Person(id: UUID(), name: "Ada"), editorID: UUID())
+    let decoded = try CKRecordDecoder().decode(Article.self, from: CKRecordEncoder().encode(article, in: .records))
+    #expect(decoded.title == "Notes")
+    #expect(decoded.author == nil)
+    #expect(decoded.editorID == nil)
+}
+
+@Test func referenceDefaultsToNilInMemberwiseInit() {
+    let article = Article(id: UUID(), title: "Notes")
+    #expect(article.author == nil)
+    #expect(article.editorID == nil)
+}
+
+@Test func selfReferenceByIDIsSkipped() throws {
+    let person = Person(id: UUID(), name: "Ada", managerID: UUID())
+    let record = CKRecordEncoder().encode(person, in: .records)
+    #expect(Set(record.allKeys()) == ["name"])
+    #expect(try CKRecordDecoder().decode(Person.self, from: record).managerID == nil)
 }
 
 // MARK: - Zone

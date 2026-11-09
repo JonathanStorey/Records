@@ -37,3 +37,19 @@ public macro Record() = #externalMacro(module: "RecordsMacros", type: "RecordMac
 /// ```
 @attached(extension, conformances: Record, names: named(recordType), named(init(record:)), named(encodeFields))
 public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacros", type: "RecordMacro")
+
+/// Marks a property that points at another `Record`, e.g. `@Reference var author: Person?`.
+///
+/// The property is never written as a field. Records stores the relationship separately, so a
+/// freshly decoded record has `nil` here until its references are loaded. A to-one reference
+/// must be an optional `var` with no initial value.
+@attached(peer)
+public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+
+/// Marks a property that holds only the ID of another `Record`, e.g.
+/// `@Reference(to: Person.self) var authorID: UUID?`. Records never loads the record itself.
+///
+/// The property is never written as a field, and a freshly decoded record has `nil` here until
+/// its references are loaded. It must be an optional `UUID` with no initial value.
+@attached(peer)
+public macro Reference<Target: Record>(to target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
