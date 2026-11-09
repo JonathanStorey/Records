@@ -150,14 +150,15 @@ public struct ToOne<Target: Record> {
     }
 
     /// Sets the reference as read from storage, so it starts out unchanged. Uses the first of
-    /// `targets`, and decodes its record when `records` holds it. The decoded record gets its
-    /// own references' IDs from `links`, but not their records.
-    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
+    /// `targets`. When `depth` is at least 1 and `records` holds the target, decodes it with
+    /// `depth - 1`, so its own references hold records `depth - 1` levels further.
+    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int = 1) throws {
         id = targets.first?.id
         loadedID = id
+        guard depth > 0 else { box = nil; return }
         box = try id
             .flatMap { id in records.first { Target.matches($0, id: id) } }
-            .map { Box(try CKRecordDecoder().decode(Target.self, from: $0, links: links)) }
+            .map { Box(try CKRecordDecoder().decode(Target.self, from: $0, links: links, targets: records, depth: depth - 1)) }
     }
 
     /// Records that the current target was saved.
@@ -249,17 +250,22 @@ public struct ToMany<Target: Record> {
     }
 
     /// Sets the reference as read from storage, so it starts out unchanged. `targets` must
-    /// already be in order. Decodes each target whose record `records` holds, giving it its own
-    /// references' IDs from `links`, but not their records.
-    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
+    /// already be in order. When `depth` is at least 1, decodes each target whose record
+    /// `records` holds with `depth - 1`, so its own references hold records `depth - 1` levels
+    /// further.
+    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int = 1) throws {
         ids = targets.map(\.id)
         var seen = Set<UUID>()
         loaded = targets.filter { seen.insert($0.id).inserted }
 
         var values: [UUID: Target] = [:]
-        for id in storedIDs {
-            if let record = records.first(where: { Target.matches($0, id: id) }) {
-                values[id] = try CKRecordDecoder().decode(Target.self, from: record, links: links)
+        if depth > 0 {
+            for id in storedIDs {
+                if let record = records.first(where: { Target.matches($0, id: id) }) {
+                    values[id] = try CKRecordDecoder().decode(
+                        Target.self, from: record, links: links, targets: records, depth: depth - 1
+                    )
+                }
             }
         }
         box = values.isEmpty ? nil : Box(values)

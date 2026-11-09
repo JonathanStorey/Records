@@ -122,9 +122,9 @@ private struct Saved {
         record.markReferencesSaved()
     }
 
-    func load<R: Record>(_ type: R.Type, _ id: UUID) throws -> R {
+    func load<R: Record>(_ type: R.Type, _ id: UUID, depth: Int = 1) throws -> R {
         let record = try #require(records[CKRecord.ID(recordName: id.uuidString, zoneID: Zone.records.zoneID)])
-        return try CKRecordDecoder().decode(type, from: record, links: links, targets: Array(records.values))
+        return try CKRecordDecoder().decode(type, from: record, links: links, targets: Array(records.values), depth: depth)
     }
 }
 
@@ -353,6 +353,38 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
     #expect(road.tracks.map(\.title) == ["Low Orbit", "Ignition", "Harbor Lights"])
     #expect(road.curator?.name == "Sam")
     #expect(road.curator.map { sameIDs($0.playlistIDs, [library.road.id, library.evening.id]) } == true)
+}
+
+@Test func depthControlsHowFarRecordsLoad() throws {
+    let library = Library()
+    let saved = library.saved()
+
+    // Depth 0: every reference holds only IDs.
+    let flat = try saved.load(Album.self, library.signal.id, depth: 0)
+    #expect(flat.tracks.isEmpty && flat.artist == nil && flat.cover == nil)
+    #expect(flat._tracks.ids == [library.ignition.id, library.bloom.id, library.afterglow.id])
+    #expect(flat._artist.id == library.nova.id)
+    #expect(flat == library.signal)
+    #expect(hasNoChanges(flat))
+
+    // Depth 2: the tracks' own references hold records too.
+    let deep = try saved.load(Album.self, library.signal.id, depth: 2)
+    #expect(deep.tracks[0].tags.map(\.name) == ["energetic", "live"])
+    #expect(deep.tracks[1].featuring.map(\.name) == ["Juno Vale"])
+    #expect(deep.tracks[1].featuring.first.map { sameIDs($0.albumIDs, []) } == true)
+    #expect(deep == library.signal)
+    #expect(hasNoChanges(deep))
+
+    // Deeper still, and through a reference to the same type.
+    let riley = try saved.load(Listener.self, library.riley.id, depth: 3)
+    #expect(riley.favorite?.title == "Afterglow")
+    let remix = try saved.load(Track.self, library.orbitMix.id, depth: 2)
+    #expect(remix.remixOf?.tags.map(\.name) == ["energetic", "live"])
+
+    // Saving an edit made at depth 2 writes only that edit.
+    var edited = deep
+    edited.tracks = [library.bloom, library.ignition, library.afterglow]
+    #expect(CKRecordEncoder().linksToSave(for: edited, in: .records).count == 1)
 }
 
 /// Walks the whole library from one listener by following IDs, as an app would, one fetch at a time.

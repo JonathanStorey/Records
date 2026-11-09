@@ -92,10 +92,10 @@ private struct SavedRecords {
         record.markReferencesSaved()
     }
 
-    func load<R: Record>(_ type: R.Type, _ id: UUID) throws -> R {
+    func load<R: Record>(_ type: R.Type, _ id: UUID, depth: Int = 1) throws -> R {
         let recordID = CKRecord.ID(recordName: id.uuidString, zoneID: zone.zoneID)
         let record = try #require(records[recordID])
-        return try CKRecordDecoder().decode(type, from: record, links: links, targets: Array(records.values))
+        return try CKRecordDecoder().decode(type, from: record, links: links, targets: Array(records.values), depth: depth)
     }
 }
 
@@ -211,6 +211,18 @@ private struct Graph {
     #expect(mentor._mentor.id == graph.ada.id)
     #expect(mentor.mentor == nil)
     #expect(ada.peerIDs == [graph.grace.id])
+}
+
+@Test func deeperLoadsFollowCyclesUntilTheDepthRunsOut() throws {
+    let graph = Graph()
+    let ada = try graph.saved.load(Member.self, graph.ada.id, depth: 4)
+
+    // Ada → Grace → Ada → Grace, then only Grace's mentor's ID.
+    let last = try #require(ada.mentor?.mentor?.mentor?.mentor)
+    #expect(last.name == "Grace")
+    #expect(last.mentor == nil)
+    #expect(last._mentor.id == graph.ada.id)
+    #expect(hasNoChanges(ada))
 }
 
 // MARK: - Edit and round trip again
