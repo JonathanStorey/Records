@@ -65,6 +65,11 @@ private func venue() -> Venue {
     #expect(changed.changedFields == ["name", "rating"])
 }
 
+@Test func stringsStayStringsEvenThoughTheyAreCodable() {
+    let record = CKRecordEncoder().encode(venue(), in: .records)
+    #expect(record["title"] is String)
+}
+
 @Test func anUnknownRawValueIsATypeMismatch() {
     let record = CKRecordEncoder().encode(venue(), in: .records)
     record["mood"] = "sleepy"

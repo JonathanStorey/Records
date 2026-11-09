@@ -4,51 +4,76 @@ import Foundation
 /// Converts field values to and from what a `CKRecord` stores. Used by the code `@Record`
 /// generates.
 ///
-/// A value CloudKit stores directly, such as a `String`, `Int`, `Date`, `Data`, or an array of
-/// them, is stored as is. An enum with such a raw value is stored as its raw value. Any other
-/// `Codable` value is stored as JSON `Data`.
+/// A value CloudKit stores directly, such as a `String`, `Int`, `Date`, `Data`, `CLLocation`, or
+/// an array of them, is stored as is. An enum whose raw value CloudKit stores is stored as its raw
+/// value. Any other `Codable` value is stored as JSON `Data`. A type that is none of these is a
+/// compile error.
+///
+/// A type can match more than one rule: `String` is Codable, and so is `enum Mood: String, Codable`.
+/// Each such pair has its own overload, which Swift prefers because it is more specific, so the
+/// most direct storage always wins.
 public enum FieldCoding {
-    /// What to store for `value`, or `nil` to clear the field when it is `nil`.
-    public static func value<T>(_ value: T) -> (any CKRecordValueProtocol)? {
-        // An optional field that is `nil` clears the field.
-        if case Optional<Any>.none = value as Any {
+    // MARK: Writing
+
+    /// A value CloudKit stores directly.
+    public static func value<T: CKRecordValueProtocol>(_ value: T) -> (any CKRecordValueProtocol)? {
+        value
+    }
+
+    /// A value CloudKit stores directly that is also Codable, such as `String`. Stored directly.
+    public static func value<T: CKRecordValueProtocol & Encodable>(_ value: T) -> (any CKRecordValueProtocol)? {
+        value
+    }
+
+    /// An enum whose raw value CloudKit stores. Stored as its raw value.
+    public static func value<T: RawRepresentable>(_ value: T) -> (any CKRecordValueProtocol)?
+    where T.RawValue: CKRecordValueProtocol {
+        value.rawValue
+    }
+
+    /// A Codable enum whose raw value CloudKit stores. Stored as its raw value.
+    public static func value<T: RawRepresentable & Encodable>(_ value: T) -> (any CKRecordValueProtocol)?
+    where T.RawValue: CKRecordValueProtocol {
+        value.rawValue
+    }
+
+    /// Any other Codable value. Stored as JSON.
+    public static func value<T: Encodable>(_ value: T) -> (any CKRecordValueProtocol)? {
+        do {
+            return try JSONEncoder.sortedKeys.encode(value)
+        } catch {
+            assertionFailure("Records couldn't encode '\(T.self)' as JSON: \(error)")
             return nil
         }
-        if let native = value as? any CKRecordValueProtocol {
-            return native
-        }
-        if let enumValue = value as? any RawRepresentable,
-           let raw = enumValue.rawValue as? any CKRecordValueProtocol {
-            return raw
-        }
-        if let encodable = value as? any Encodable {
-            do {
-                return try JSONEncoder.sortedKeys.encode(encodable)
-            } catch {
-                assertionFailure("Records couldn't encode '\(T.self)' as JSON: \(error)")
-                return nil
-            }
-        }
-        assertionFailure("Records can't store '\(T.self)'; make it Codable or use a type CloudKit stores")
-        return nil
     }
 
-    /// `stored` read back as `T`, or `nil` when it can't be.
-    static func decode<T>(_ type: T.Type, from stored: Any) throws -> T? {
-        if let typed = stored as? T {
-            return typed
-        }
-        if let rawType = T.self as? any RawRepresentable.Type, let value = enumValue(rawType, from: stored) {
-            return value as? T
-        }
-        if let decodable = T.self as? any Decodable.Type, let data = stored as? Data {
-            return try JSONDecoder().decode(decodable, from: data) as? T
-        }
-        return nil
+    // MARK: Reading
+
+    /// Reads a value CloudKit stores directly.
+    public static func reader<T: CKRecordValueProtocol>(_ type: T.Type) -> (Any) throws -> T? {
+        { $0 as? T }
     }
 
-    private static func enumValue<R: RawRepresentable>(_ type: R.Type, from stored: Any) -> R? {
-        (stored as? R.RawValue).flatMap(R.init(rawValue:))
+    /// Reads a value CloudKit stores directly that is also Codable.
+    public static func reader<T: CKRecordValueProtocol & Decodable>(_ type: T.Type) -> (Any) throws -> T? {
+        { $0 as? T }
+    }
+
+    /// Reads an enum from its raw value.
+    public static func reader<T: RawRepresentable>(_ type: T.Type) -> (Any) throws -> T?
+    where T.RawValue: CKRecordValueProtocol {
+        { ($0 as? T.RawValue).flatMap(T.init(rawValue:)) }
+    }
+
+    /// Reads a Codable enum from its raw value.
+    public static func reader<T: RawRepresentable & Decodable>(_ type: T.Type) -> (Any) throws -> T?
+    where T.RawValue: CKRecordValueProtocol {
+        { ($0 as? T.RawValue).flatMap(T.init(rawValue:)) }
+    }
+
+    /// Reads any other Codable value from JSON.
+    public static func reader<T: Decodable>(_ type: T.Type) -> (Any) throws -> T? {
+        { stored in try (stored as? Data).map { try JSONDecoder().decode(T.self, from: $0) } }
     }
 }
 
@@ -60,4 +85,3 @@ private extension JSONEncoder {
         return encoder
     }
 }
-
