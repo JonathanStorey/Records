@@ -132,6 +132,12 @@ public macro Reference() = #externalMacro(module: "RecordsMacros", type: "Refere
 @attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference<Element: Record>(sort descriptors: [SortDescriptor<Element>]) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
+/// Marks a to-many property whose records are sorted by one descriptor, as in
+/// `@Reference(sort: SortDescriptor(\Tag.name)) var tags: [Tag]`. See `Reference(sort:)`.
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_), prefixed(`$`))
+public macro Reference<Element: Record>(sort descriptor: SortDescriptor<Element>) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+
 /// Marks a to-many property whose records are sorted by one field, as in
 /// `@Reference(sort: \Tag.name, order: .reverse) var tags: [Tag]`. See `Reference(sort:)`.
 @attached(accessor, names: named(init), named(get), named(set))

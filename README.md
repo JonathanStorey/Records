@@ -133,7 +133,8 @@ with the same parameters as SwiftData's `@Query`:
 ```swift
 @Reference(sort: \Tag.name) var tags: [Tag]
 @Reference(sort: \Album.year, order: .reverse) var albums: [Album]
-@Reference(sort: [SortDescriptor(\Track.title)]) var tracks: [Track]
+@Reference(sort: SortDescriptor(\Track.title)) var tracks: [Track]
+@Reference(sort: [SortDescriptor(\Track.disc), SortDescriptor(\Track.number)]) var all: [Track]
 ```
 
 A sorted reference sorts each time it's read, and its links carry no order keys, so reordering it

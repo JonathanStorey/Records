@@ -120,8 +120,8 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         var isFrom: Bool { ownerProperty != nil }
         /// For `@Reference(from:deleteSelf:)`, whether the record is deleted with its owner.
         var deleteSelf = false
-        /// For `@Reference(sort:)`, an expression for the `[SortDescriptor]` that orders the
-        /// records each time the property is read.
+        /// For `@Reference(sort:)`, an expression for the `SortDescriptor` or `[SortDescriptor]`
+        /// that orders the records each time the property is read.
         var sort: String? = nil
 
         /// The generated storage property, such as `_author`.

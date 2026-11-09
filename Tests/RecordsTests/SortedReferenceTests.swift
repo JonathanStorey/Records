@@ -10,6 +10,7 @@ struct Crate {
     @Reference(sort: \Disc.title) var discs: [Disc]
     @Reference(sort: [SortDescriptor(\Disc.year, order: .reverse)]) var newest: [Disc]
     @Reference(sort: \Disc.rating, order: .reverse) var rated: [Disc]
+    @Reference(sort: SortDescriptor(\Disc.year)) var oldest: [Disc]
 }
 
 @Record
@@ -31,22 +32,23 @@ private let abbey = disc("Abbey Road", 1969)
 private let kid = disc("Kid A", 2000, 4)
 
 @Test func sortedReferencesReadInSortOrder() {
-    let crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid, abbey], newest: [blue, abbey, kid], rated: [abbey, kid, blue])
+    let crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid, abbey], newest: [blue, abbey, kid], rated: [abbey, kid, blue], oldest: [kid, abbey, blue])
     #expect(crate.discs.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
     #expect(crate.newest.map(\.title) == ["Kid A", "Blue", "Abbey Road"])
     #expect(crate.rated.map(\.title).prefix(2) == ["Blue", "Kid A"])
+    #expect(crate.oldest.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
     #expect(crate.$discs == [blue.id, kid.id, abbey.id]) // IDs aren't sorted
 }
 
 @Test func sortedReferencesWriteNoOrderKeys() {
-    let crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [])
+    let crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
     let links = CKRecordEncoder().linksToSave(for: crate, in: .records)
     #expect(links.count == 2)
     #expect(links.allSatisfy { $0["order"] == nil })
 }
 
 @Test func reorderingASortedReferenceChangesNothing() {
-    var crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [])
+    var crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
     crate.markSaved()
     crate.discs = [kid, blue]
     #expect(!crate.hasChanges)
@@ -54,7 +56,7 @@ private let kid = disc("Kid A", 2000, 4)
 }
 
 @Test func sortedReferencesRoundTrip() throws {
-    let crate = Crate(id: UUID(), name: "Vinyl", discs: [kid, blue, abbey], newest: [], rated: [])
+    let crate = Crate(id: UUID(), name: "Vinyl", discs: [kid, blue, abbey], newest: [], rated: [], oldest: [])
     let encoder = CKRecordEncoder()
     let links = encoder.linksToSave(for: crate, in: .records)
     let targets = [kid, blue, abbey].map { encoder.encode($0, in: .records) }
