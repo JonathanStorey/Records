@@ -4,12 +4,12 @@ import Testing
 
 // Two-way one-to-many, owned by either side.
 
-/// Owned by the many side: each book writes its own link.
+/// Owned by the many side: each book writes its own link. A to-many `from:` side holds IDs.
 @Record
 struct Shelf: Equatable {
     var id: UUID
     var name: String
-    @Reference(from: \Book.shelf) var books: [Book]
+    @Reference(from: \Book.shelf) var bookIDs: [UUID]
 }
 
 @Record
@@ -50,7 +50,7 @@ private func link(_ record: CKRecord) throws -> RecordLink {
 }
 
 private func makeShelf(_ name: String = "Fiction") -> Shelf {
-    Shelf(id: UUID(), name: name, books: [])
+    Shelf(id: UUID(), name: name, bookIDs: [])
 }
 
 // MARK: - Owned by the many side
@@ -61,7 +61,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     let links = try books.flatMap { encoder.linksToSave(for: $0, in: .records) }.map(link)
 
     #expect(links.count == 2)
-    #expect(links.allSatisfy { $0.relationship == "Book.shelf:Shelf <-> Shelf.books:[Book]" })
+    #expect(links.allSatisfy { $0.relationship == "Book.shelf:Shelf <-> Shelf.bookIDs:[Book]" })
     #expect(try links.allSatisfy { try $0.kind == .manyToOne })
     #expect(links.allSatisfy { !$0.deleteSelf && $0.targetName == shelf.id.uuidString })
     #expect(encoder.linksToSave(for: shelf, in: .records).isEmpty)
@@ -74,7 +74,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     )
     let twoWay = ReferenceState(
         property: "shelf", targetType: "Shelf", isToMany: false,
-        inverse: Inverse(many: \Book.shelf, to: Shelf.self, property: "books"), targets: [], loaded: []
+        inverse: Inverse(many: \Book.shelf, to: Shelf.self, property: "bookIDs"), targets: [], loaded: []
     )
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "Book", sourceID: sourceID, targetID: targetID)
@@ -90,13 +90,12 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     let shelfRecord = encoder.encode(shelf, in: .records)
 
     let shelfAgain = try decoder.decode(Shelf.self, from: shelfRecord, links: links, targets: bookRecords)
-    #expect(Set(shelfAgain.books.map(\.title)) == ["Dune", "Emma"])
-    #expect(shelfAgain.books.allSatisfy { $0._shelf.id == shelf.id }) // one level deep
+    #expect(Set(shelfAgain.bookIDs) == Set(books.map(\.id)))
     #expect(encoder.linksToSave(for: shelfAgain, in: .records).isEmpty)
 
     let bookAgain = try decoder.decode(Book.self, from: bookRecords[0], links: links, targets: [shelfRecord])
     #expect(bookAgain.shelf?.name == "Fiction")
-    #expect(Set(bookAgain.shelf?._books.ids ?? []) == Set(books.map(\.id)))
+    #expect(Set(bookAgain.shelf?.bookIDs ?? []) == Set(books.map(\.id)))
 }
 
 @Test func movingABookMovesItBetweenShelves() throws {
@@ -112,8 +111,8 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 
     let firstAgain = try decoder.decode(Shelf.self, from: encoder.encode(first, in: .records), links: moved)
     let secondAgain = try decoder.decode(Shelf.self, from: encoder.encode(second, in: .records), links: moved)
-    #expect(firstAgain._books.ids.isEmpty)
-    #expect(secondAgain._books.ids == [book.id])
+    #expect(firstAgain.bookIDs.isEmpty)
+    #expect(secondAgain.bookIDs == [book.id])
 }
 
 // MARK: - Owned by the one side

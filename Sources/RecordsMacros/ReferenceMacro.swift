@@ -185,6 +185,13 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             deleteSelf = literal.literal.tokenKind == .keyword(.true)
         }
 
+        // Anything can point at a record, so a to-many inverse has no natural size limit. It
+        // holds IDs, so loading the record never loads every owner.
+        if isFrom, isToMany, !isID {
+            throw MacroExpansionErrorMessage(
+                "A to-many @Reference(from:) holds IDs, e.g. 'var \(key.hasSuffix("s") ? String(key.dropLast()) : key)IDs: [UUID]'"
+            )
+        }
         // Deleting one of many owners can't mean deleting this record.
         if deleteSelf, isToMany {
             throw MacroExpansionErrorMessage("'deleteSelf:' needs a to-one @Reference(from:) property")

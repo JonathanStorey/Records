@@ -98,14 +98,16 @@ public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(m
 ///
 /// // One-to-many, owned by the many side: links are written per book, unordered
 /// @Reference var shelf: Shelf?                                       // on Book
-/// @Reference(from: \Book.shelf) var books: [Book]                    // on Shelf
+/// @Reference(from: \Book.shelf) var bookIDs: [UUID]                  // on Shelf
 ///
 /// // One-to-many, owned by the one side: ordered, and tracks are deleted with their album
 /// @Reference var tracks: [Track]                                     // on Album
 /// @Reference(from: \Album.tracks, deleteSelf: true) var album: Album? // on Track
 /// ```
 ///
-/// Either side can hold IDs instead, as in `@Reference(from: \Book.shelf) var bookIDs: [UUID]`.
+/// A to-one side can hold the ID instead, as in `@Reference(from: \User.profile) var userID: UUID?`.
+/// A to-many side always holds IDs: anything can point at a record, so loading every owner
+/// would have no limit.
 /// The owner writes the links, and their signature includes this side, such as
 /// `User.profile:Profile <-> Profile.user:User`. This side never writes links. It is filled from
 /// the owner's links when the record is decoded, and can only be set when the record is made. A
