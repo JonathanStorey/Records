@@ -311,7 +311,7 @@ album.tracks[0].tags.map(\.name)   // ["energetic", "live"]: level two holds rec
 
 let bare = try decoder.decode(Album.self, from: record, links: links, depth: 0)
 bare.tracks                        // []: depth 0 loads no records
-bare._tracks.ids                   // but every ID is there
+bare.genreID                       // ID-form references are filled at every depth
 ```
 
 Depth also makes cycles safe. A mentor who mentors their mentor loads back and forth until the
