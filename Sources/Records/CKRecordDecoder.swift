@@ -29,7 +29,8 @@ public struct CKRecordDecoder: Sendable {
     /// Decodes `record` and fills its `@Reference` properties from `links`.
     ///
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
-    /// whose source is `record` are used. To-many targets are ordered by their order keys, then
+    /// whose source is `record` are used, and links that can't be read or that come from a
+    /// newer link version are skipped. To-many targets are ordered by their order keys, then
     /// by when the link was created, then by the link's name. A reference that holds records is
     /// filled from the matching records in `targets`, one level deep: those records get their
     /// own references' IDs from `links`, but not their records. Every reference starts out
@@ -45,8 +46,11 @@ public struct CKRecordDecoder: Sendable {
 
         var byProperty: [String: [(target: ReferenceTarget, link: CKRecord)]] = [:]
         for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
-            let link = try decode(RecordLink.self, from: linkRecord)
-            guard link.sourceName == sourceName,
+            // Skip links this build can't read, rather than fail or delete them: they may come
+            // from a newer version of the app.
+            guard let link = try? decode(RecordLink.self, from: linkRecord),
+                  link.version <= RecordLink.currentVersion,
+                  link.sourceName == sourceName,
                   let source = link.source, source.type == R.recordType,
                   let targetID = UUID(uuidString: link.targetName)
             else { continue }
