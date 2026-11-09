@@ -163,11 +163,17 @@ public struct RecordMacro: ExtensionMacro {
                 guard let type = binding.typeAnnotation?.type ?? carriedType else {
                     throw MacroExpansionErrorMessage("@Record property '\(key)' needs an explicit type annotation")
                 }
+                let wrapped = wrappedType(of: type)
+                if let wrapped, isArray(wrapped) {
+                    throw MacroExpansionErrorMessage(
+                        "@Record property '\(key)' cannot be an optional array, because CloudKit stores [] and nil the same way; use '\(wrapped.trimmedDescription)' instead"
+                    )
+                }
                 found.append(StoredProperty(
                     name: name,
                     key: key,
                     type: type.trimmedDescription,
-                    wrappedType: wrappedType(of: type)?.trimmedDescription,
+                    wrappedType: wrapped?.trimmedDescription,
                     isArray: isArray(type)
                 ))
             }

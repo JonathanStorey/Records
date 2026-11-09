@@ -313,4 +313,34 @@ final class RecordMacroTests: XCTestCase {
         throw XCTSkip("macros are only supported when running tests for the host platform")
         #endif
     }
+
+    func testOptionalArrayIsAnError() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note {
+                var id: UUID
+                var tags: [String]?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+                var tags: [String]?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(
+                    message: "@Record property 'tags' cannot be an optional array, because CloudKit stores [] and nil the same way; use '[String]' instead",
+                    line: 1,
+                    column: 1
+                ),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
 }
