@@ -127,7 +127,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     #expect(read.count == 3)
     #expect(read.allSatisfy { $0.relationship == "Album.tracks:[Track] <-> Track.album:Album" })
     #expect(try read.allSatisfy { try $0.kind == .oneToMany })
-    #expect(read.allSatisfy(\.deleteSelf))
+    #expect(read.allSatisfy { $0.deleteSelf })
     #expect(Track.deleteSelfReferences == ["album"])
     #expect(tracks.allSatisfy { encoder.linksToSave(for: $0, in: .records).isEmpty })
 
