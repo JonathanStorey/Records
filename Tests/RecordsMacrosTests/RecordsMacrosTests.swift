@@ -1481,8 +1481,7 @@ final class RecordMacroTests: XCTestCase {
                 var id: UUID
                 @RecordField
                 var name: String
-                @RecordField
-                var note: String?
+                @RecordField var note: String?
                 let pin: Int
             }
 

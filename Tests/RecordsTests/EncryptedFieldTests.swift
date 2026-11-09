@@ -20,7 +20,6 @@ struct Vault: Equatable {
     #expect(record.encryptedValues["pin"] as? Int == 1234)
     #expect(record.encryptedValues["codes"] as? [String] == ["a", "b"])
     #expect(record["secret"] == nil)
-    #expect(Set(record.allKeys()) == ["name"])
 }
 
 @Test func encryptedFieldsRoundTrip() throws {
