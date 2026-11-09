@@ -374,6 +374,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _author: Records.ToOne<Person>
+
                 var $author: UUID? {
                     _author.id
                 }
@@ -536,6 +537,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _tags: Records.ToMany<Tag>
+
                 var $tags: [UUID] {
                     _tags.ids
                 }
@@ -753,6 +755,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _manager: Records.ToOne<Person>
+
                 var $manager: UUID? {
                     _manager.id
                 }
@@ -770,6 +773,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _mentor: Records.ToOne<Person>
+
                 var $mentor: UUID? {
                     _mentor.id
                 }
@@ -865,6 +869,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _profile: Records.ToOne<Profile>
+
                 var $profile: UUID? {
                     _profile.id
                 }
