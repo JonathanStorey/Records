@@ -77,3 +77,11 @@ public macro Reference() = #externalMacro(module: "RecordsMacros", type: "Refere
 @attached(accessor, names: named(init), named(get), named(set))
 @attached(peer, names: prefixed(_))
 public macro Reference<Target: Record>(to target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
+
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_))
+public macro Probe<Root, Value>(_ keyPath: KeyPath<Root, Value>) = #externalMacro(module: "RecordsMacros", type: "ProbeMacro")
+
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_))
+public macro ProbeGet<Root, Value>(_ keyPath: KeyPath<Root, Value>) = #externalMacro(module: "RecordsMacros", type: "ProbeMacro")
