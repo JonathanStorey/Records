@@ -31,15 +31,20 @@ public struct CKRecordDecoder: Sendable {
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
     /// whose source or, for `@Reference(from:)` properties, target is `record` are used, and links
     /// that can't be read or that come from a newer link version are skipped. To-many targets are ordered by their order keys, then
-    /// by when the link was created, then by the link's name. A reference that holds records is
-    /// filled from the matching records in `targets`, one level deep: those records get their
-    /// own references' IDs from `links`, but not their records. Every reference starts out
-    /// unchanged, so the encoder writes no links for it until it changes.
+    /// by when the link was created, then by the link's name.
+    ///
+    /// A reference that holds records is filled from the matching records in `targets`, `depth`
+    /// levels deep. With the default of 1, the targets are records and their own references
+    /// hold only IDs. With 2, those references hold records too, and so on. With 0, every
+    /// reference holds only IDs. A reference that holds IDs is always filled, at every level.
+    /// Every reference starts out unchanged, so the encoder writes no links for it until it
+    /// changes.
     public func decode<R: Record>(
         _ type: R.Type,
         from record: CKRecord,
         links: [CKRecord],
-        targets: [CKRecord] = []
+        targets: [CKRecord] = [],
+        depth: Int = 1
     ) throws -> R {
         var decoded = try decode(type, from: record)
         let sourceName = record.recordID.recordName
@@ -73,7 +78,7 @@ public struct CKRecordDecoder: Sendable {
                 if dateA != dateB { return dateA < dateB }
                 return lhs.link.recordID.recordName < rhs.link.recordID.recordName
             }
-            try decoded.loadReference(property, to: ordered.map(\.target), from: targets, links: links)
+            try decoded.loadReference(property, to: ordered.map(\.target), from: targets, links: links, depth: depth)
         }
         return decoded
     }

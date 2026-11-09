@@ -300,8 +300,22 @@ track.tags                   // []: level two doesn't load records
 ```
 
 A record-form reference at level two reads as `nil` or `[]` even when it has targets. Saving it
-never deletes those targets, because only links the record was loaded with can be deleted. To go
-deeper, fetch the next record by ID, and it loads the same way.
+never deletes those targets, because only links the record was loaded with can be deleted.
+
+To load further, pass `depth:`. Each level multiplies what's loaded, so ask for depth only where a
+screen shows it.
+
+```swift
+let album = try decoder.decode(Album.self, from: record, links: links, targets: targets, depth: 2)
+album.tracks[0].tags.map(\.name)   // ["energetic", "live"]: level two holds records too
+
+let bare = try decoder.decode(Album.self, from: record, links: links, depth: 0)
+bare.tracks                        // []: depth 0 loads no records
+bare.genreID                       // ID-form references are filled at every depth
+```
+
+Depth also makes cycles safe. A mentor who mentors their mentor loads back and forth until the
+depth runs out, then holds only an ID.
 
 ## Not built yet
 
