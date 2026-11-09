@@ -9,21 +9,14 @@ public enum Relationship: String, Sendable, CaseIterable {
     case manyToMany
 }
 
-/// What happens to the record at the other end of a link when one end is deleted.
-/// Stored as intent on the link and enforced by Records, never by CloudKit.
-public enum DeleteRule: String, Sendable, CaseIterable {
-    case cascade
-    case nullify
-    case deny
-    case noAction
-}
-
 public enum RecordLinkError: Error, Equatable {
     /// The signature does not match `Type.property:Type` or `Type.property:[Type]`,
     /// optionally followed by ` <-> ` and the inverse side.
     case invalidSignature(String)
     /// Source and target must live in the same record zone.
     case zoneMismatch
+    /// `deleteSelf` needs an inverse, because only a two-way relationship can delete.
+    case deleteSelfRequiresInverse
 }
 
 extension Relationship {
@@ -97,12 +90,11 @@ extension CKRecord {
 
     /// Field keys on a `RecordLink` record.
     public enum LinkKey {
+        public static let deleteSelf = "deleteSelf"
         public static let order = "order"
         public static let relationship = "relationship"
         public static let sourceName = "sourceName"
-        public static let sourceRule = "sourceRule"
         public static let targetName = "targetName"
-        public static let targetRule = "targetRule"
         public static let version = "version"
     }
 
@@ -119,11 +111,14 @@ extension CKRecord {
     /// identity, so creating the same link twice, on any device, produces the same record.
     /// The parent is set to `source` so the link travels with shares.
     ///
+    /// `deleteSelf` belongs to the inverse side: when true, deleting the source also deletes the
+    /// target, like `CKRecord.Reference.Action.deleteSelf` on a child. It needs an inverse, because
+    /// a one-way reference never deletes anything. Records enforces it, never CloudKit.
+    ///
     /// ```swift
     /// let link = try CKRecord.Link.manyToOne(
     ///     source: note, property: "folder",
-    ///     target: folder, inverse: "notes",
-    ///     targetRule: .cascade)
+    ///     target: folder, inverse: "notes")
     /// // relationship == "Note.folder:Folder <-> Folder.notes:[Note]"
     /// ```
     public enum Link {
@@ -134,14 +129,13 @@ extension CKRecord {
             property: String,
             target: CKRecord,
             inverse: String,
-            sourceRule: DeleteRule = .nullify,
-            targetRule: DeleteRule = .nullify
+            deleteSelf: Bool = false
         ) throws -> CKRecord {
             try make(
                 .oneToOne,
                 source: source, property: property, sourceIsToMany: false,
                 target: target, inverse: inverse, inverseIsToMany: false,
-                sourceRule: sourceRule, targetRule: targetRule, order: nil
+                deleteSelf: deleteSelf, order: nil
             )
         }
 
@@ -153,15 +147,14 @@ extension CKRecord {
             property: String,
             target: CKRecord,
             inverse: String,
-            sourceRule: DeleteRule = .nullify,
-            targetRule: DeleteRule = .nullify,
+            deleteSelf: Bool = false,
             order: String
         ) throws -> CKRecord {
             try make(
                 .oneToMany,
                 source: source, property: property, sourceIsToMany: true,
                 target: target, inverse: inverse, inverseIsToMany: false,
-                sourceRule: sourceRule, targetRule: targetRule, order: order
+                deleteSelf: deleteSelf, order: order
             )
         }
 
@@ -172,14 +165,13 @@ extension CKRecord {
             property: String,
             target: CKRecord,
             inverse: String? = nil,
-            sourceRule: DeleteRule = .nullify,
-            targetRule: DeleteRule = .nullify
+            deleteSelf: Bool = false
         ) throws -> CKRecord {
             try make(
                 .manyToOne,
                 source: source, property: property, sourceIsToMany: false,
                 target: target, inverse: inverse, inverseIsToMany: true,
-                sourceRule: sourceRule, targetRule: targetRule, order: nil
+                deleteSelf: deleteSelf, order: nil
             )
         }
 
@@ -191,15 +183,14 @@ extension CKRecord {
             property: String,
             target: CKRecord,
             inverse: String? = nil,
-            sourceRule: DeleteRule = .nullify,
-            targetRule: DeleteRule = .nullify,
+            deleteSelf: Bool = false,
             order: String
         ) throws -> CKRecord {
             try make(
                 .manyToMany,
                 source: source, property: property, sourceIsToMany: true,
                 target: target, inverse: inverse, inverseIsToMany: true,
-                sourceRule: sourceRule, targetRule: targetRule, order: order
+                deleteSelf: deleteSelf, order: order
             )
         }
 
@@ -226,12 +217,14 @@ extension CKRecord {
             target: CKRecord,
             inverse: String?,
             inverseIsToMany: Bool,
-            sourceRule: DeleteRule,
-            targetRule: DeleteRule,
+            deleteSelf: Bool,
             order: String?
         ) throws -> CKRecord {
             guard source.recordID.zoneID == target.recordID.zoneID else {
                 throw RecordLinkError.zoneMismatch
+            }
+            guard !deleteSelf || inverse != nil else {
+                throw RecordLinkError.deleteSelfRequiresInverse
             }
 
             let relationship = signature(
@@ -269,8 +262,7 @@ extension CKRecord {
             record[CKRecord.LinkKey.relationship] = relationship
             record[CKRecord.LinkKey.sourceName] = source.recordID.recordName
             record[CKRecord.LinkKey.targetName] = target.recordID.recordName
-            record[CKRecord.LinkKey.sourceRule] = sourceRule.rawValue
-            record[CKRecord.LinkKey.targetRule] = targetRule.rawValue
+            record[CKRecord.LinkKey.deleteSelf] = deleteSelf
             record[CKRecord.LinkKey.version] = CKRecord.linkVersion
             if let order {
                 record[CKRecord.LinkKey.order] = order

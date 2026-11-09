@@ -72,8 +72,7 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
         property: "folder",
         target: record("Folder", "folder-1"),
         inverse: "notes",
-        sourceRule: .nullify,
-        targetRule: .cascade
+        deleteSelf: true
     )
 
     #expect(link.recordType == CKRecord.linkRecordType)
@@ -82,8 +81,7 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
     #expect(link.recordID.recordName.count == 69)
     #expect(link[CKRecord.LinkKey.sourceName] as? String == "note-1")
     #expect(link[CKRecord.LinkKey.targetName] as? String == "folder-1")
-    #expect(link[CKRecord.LinkKey.sourceRule] as? String == "nullify")
-    #expect(link[CKRecord.LinkKey.targetRule] as? String == "cascade")
+    #expect(link[CKRecord.LinkKey.deleteSelf] as? Bool == true)
     #expect(link[CKRecord.LinkKey.version] as? Int64 == 1)
     #expect(link[CKRecord.LinkKey.order] == nil)
     #expect(link.parent?.recordID == recordID("note-1"))
@@ -152,11 +150,11 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
     let note = record("Note", "note-1"), folder = record("Folder", "folder-1")
     let link = try CKRecord.Link.oneToMany(
         source: folder, property: "notes", target: note, inverse: "folder",
-        sourceRule: .cascade, order: "a0"
+        deleteSelf: true, order: "a0"
     )
     #expect(link[CKRecord.LinkKey.sourceName] as? String == "folder-1")
     #expect(link[CKRecord.LinkKey.targetName] as? String == "note-1")
-    #expect(link[CKRecord.LinkKey.sourceRule] as? String == "cascade")
+    #expect(link[CKRecord.LinkKey.deleteSelf] as? Bool == true)
     #expect(link[CKRecord.LinkKey.order] as? String == "a0")
     #expect(link.parent?.recordID == folder.recordID)
 }
@@ -171,4 +169,18 @@ private func record(_ type: String, _ name: String, in zoneID: CKRecordZone.ID =
     let authorBefore = try CKRecord.Link.manyToOne(source: note, property: "author", target: person)
     let authorAfter = try CKRecord.Link.manyToOne(source: note, property: "author", target: person, inverse: "notes")
     #expect(authorBefore.recordID == authorAfter.recordID)
+}
+
+@Test func deleteSelfDefaultsToFalse() throws {
+    let link = try CKRecord.Link.manyToOne(source: record("Note", "note-1"), property: "author", target: record("Person", "person-1"))
+    #expect(link[CKRecord.LinkKey.deleteSelf] as? Bool == false)
+}
+
+@Test func deleteSelfWithoutInverseThrows() {
+    #expect(throws: RecordLinkError.deleteSelfRequiresInverse) {
+        try CKRecord.Link.manyToMany(
+            source: record("Note", "note-1"), property: "tags", target: record("Tag", "tag-1"),
+            deleteSelf: true, order: "a0"
+        )
+    }
 }
