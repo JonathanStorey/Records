@@ -11,7 +11,7 @@ import SwiftSyntaxMacros
 /// one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
 /// `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
 ///
-/// An `@Encrypted` field is read from and written to the record's `encryptedValues`.
+/// An `@Asset` field is stored as a `CKAsset`. An `@Encrypted` field is read from and written to the record's `encryptedValues`.
 ///
 /// Each stored `var` except `id` gets `@RecordField`, which notes when it is set. A struct with
 /// any gets `changedFields`, `encodeChangedFields(into:)`, and `markFieldsSaved()`.
@@ -28,6 +28,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
               variable.bindingSpecifier.tokenKind == .keyword(.var),
               !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) }),
               !ReferenceMacro.isReference(variable),
+              !AssetMacro.isAsset(variable),
               !variable.attributes.contains(where: { $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "RecordField" }),
               variable.bindings.count == 1,
               let binding = variable.bindings.first,
@@ -73,6 +74,11 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             "        self.id = try CKRecordDecoder.decodeID(from: record)",
         ]
         for field in fields {
+            if field.isAsset {
+                // A record holds the asset's file, which `cover` reads only when it is used.
+                lines.append("        self._\(field.key) = try Records.AssetField(saved: CKRecordDecoder.decodeIfPresent((CKAsset).self, forKey: \"\(field.key)\", from: record))")
+                continue
+            }
             let source = field.isEncrypted ? "record.encryptedValues" : "record"
             let read: String
             if let wrapped = field.wrappedType {
@@ -100,7 +106,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             "    \(access)func encodeFields(into record: CKRecord) {",
         ]
         for field in fields {
-            lines.append("        \(field.destination)[\"\(field.key)\"] = self.\(field.name)")
+            lines.append("        \(field.destination)[\"\(field.key)\"] = \(field.written)")
         }
         lines.append("    }")
         let tracked = fields.filter(\.isTracked)
@@ -124,7 +130,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             for field in tracked {
                 lines += [
                     "        if self._\(field.key).isChanged {",
-                    "            \(field.destination)[\"\(field.key)\"] = self.\(field.name)",
+                    "            \(field.destination)[\"\(field.key)\"] = \(field.written)",
                     "        }",
                 ]
             }
@@ -278,8 +284,14 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         /// Whether it is marked `@Encrypted`, so it is stored in `encryptedValues`.
         let isEncrypted: Bool
 
+        /// Whether it is marked `@Asset`, so it is stored as a `CKAsset`.
+        let isAsset: Bool
+
         /// Where the generated code writes the field.
         var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
+
+        /// What the generated code writes: the asset for an `@Asset`, otherwise the value.
+        var written: String { isAsset ? "self._\(key).asset" : "self.\(name)" }
     }
 
     /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
@@ -304,6 +316,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                   !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) })
             else { continue }
             let isEncrypted = isEncrypted(variable)
+            let isAsset = AssetMacro.isAsset(variable)
             if ReferenceMacro.isReference(variable) {
                 // Links hold references, not fields.
                 if isEncrypted {
@@ -357,7 +370,8 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                     wrappedType: wrapped?.trimmedDescription,
                     isArray: isArray(type),
                     isTracked: !isLet && key != "id",
-                    isEncrypted: isEncrypted
+                    isEncrypted: isEncrypted,
+                    isAsset: isAsset
                 ))
             }
             properties += found.reversed()
