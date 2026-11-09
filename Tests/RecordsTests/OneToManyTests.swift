@@ -21,16 +21,16 @@ struct Book: Equatable {
 
 /// Owned by the one side: the album orders its tracks, and a track is deleted with its album.
 @Record
-struct Album: Equatable {
+struct Release: Equatable {
     var id: UUID
-    @Reference var tracks: [Track]
+    @Reference var tracks: [Song]
 }
 
 @Record
-struct Track: Equatable {
+struct Song: Equatable {
     var id: UUID
     var title: String
-    @Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID?
+    @Reference(from: \Release.tracks, deleteSelf: true) var albumID: UUID?
 }
 
 /// Pointing at its own type, with IDs on the `from:` side.
@@ -118,32 +118,32 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 // MARK: - Owned by the one side
 
 @Test func oneSideWritesOrderedLinks() throws {
-    let tracks = ["Intro", "Song", "Outro"].map { Track(id: UUID(), title: $0, albumID: nil) }
-    let album = Album(id: UUID(), tracks: tracks)
+    let tracks = ["Intro", "Song", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
+    let album = Release(id: UUID(), tracks: tracks)
     let links = encoder.linksToSave(for: album, in: .records)
     let read = try links.map(link)
 
     #expect(read.count == 3)
-    #expect(read.allSatisfy { $0.relationship == "Album.tracks:[Track] <-> Track.albumID:Album" })
+    #expect(read.allSatisfy { $0.relationship == "Release.tracks:[Song] <-> Song.albumID:Release" })
     #expect(try read.allSatisfy { try $0.kind == .oneToMany })
     #expect(read.allSatisfy { $0.deleteSelf })
-    #expect(Track.deleteSelfReferences == ["albumID"])
+    #expect(Song.deleteSelfReferences == ["albumID"])
     #expect(tracks.allSatisfy { encoder.linksToSave(for: $0, in: .records).isEmpty })
 
     let trackRecords = tracks.map { encoder.encode($0, in: .records) }
     let albumRecord = encoder.encode(album, in: .records)
-    let albumAgain = try decoder.decode(Album.self, from: albumRecord, links: links, targets: trackRecords)
+    let albumAgain = try decoder.decode(Release.self, from: albumRecord, links: links, targets: trackRecords)
     #expect(albumAgain.tracks.map(\.title) == ["Intro", "Song", "Outro"])
     #expect(albumAgain.tracks.allSatisfy { $0.albumID == album.id })
 
-    let trackAgain = try decoder.decode(Track.self, from: trackRecords[1], links: links, targets: [albumRecord])
+    let trackAgain = try decoder.decode(Song.self, from: trackRecords[1], links: links, targets: [albumRecord])
     #expect(trackAgain.albumID == album.id)
 }
 
 @Test func aTrackBelongsToOneAlbum() {
-    let track = Track(id: UUID(), title: "Song", albumID: nil)
-    let first = Album(id: UUID(), tracks: [track])
-    let second = Album(id: UUID(), tracks: [track])
+    let track = Song(id: UUID(), title: "Song", albumID: nil)
+    let first = Release(id: UUID(), tracks: [track])
+    let second = Release(id: UUID(), tracks: [track])
 
     // One-to-many links leave out the owner, so adding the track to a second album
     // overwrites its link to the first.
