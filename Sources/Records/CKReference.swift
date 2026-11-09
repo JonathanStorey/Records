@@ -1,7 +1,8 @@
 import CloudKit
 
-extension CKRecord.Reference {
-    /// The ID of the record this reference points to.
+// `@retroactive` acknowledges that both the type and the protocol come from other modules.
+extension CKRecord.Reference: @retroactive Identifiable {
+    /// The ID of the record this reference points to. Satisfies `Identifiable`.
     public var id: CKRecord.ID { recordID }
 
     /// `true` when deleting the referenced record also deletes the record that owns this reference.
