@@ -2,13 +2,14 @@ import CloudKit
 
 /// A record zone, named by a string literal: `let zone: Zone = "Notes"`.
 ///
-/// The owner defaults to the current user. Records in a zone shared with you use the
-/// sharer's owner name.
+/// A literal always names a zone the current user owns. A zone shared with you comes from
+/// CloudKit as a `CKRecordZone.ID` and is wrapped with `Zone(_:)`, so owner names never
+/// appear in app code.
 public struct Zone: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
     public let name: String
     public let ownerName: String
 
-    public init(_ name: String, ownerName: String = CKCurrentUserDefaultName) {
+    init(_ name: String, ownerName: String = CKCurrentUserDefaultName) {
         self.name = name
         self.ownerName = ownerName
     }
