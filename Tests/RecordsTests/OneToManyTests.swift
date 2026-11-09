@@ -4,7 +4,7 @@ import Testing
 
 // Two-way one-to-many, owned by either side.
 
-/// Owned by the many side: each book writes its own link. A to-many `from:` side holds IDs.
+/// Owned by the many side: each book writes its own link. The `from:` side holds IDs.
 @Record
 struct Shelf: Equatable {
     var id: UUID
@@ -30,7 +30,7 @@ struct Album: Equatable {
 struct Track: Equatable {
     var id: UUID
     var title: String
-    @Reference(from: \Album.tracks, deleteSelf: true) var album: Album?
+    @Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID?
 }
 
 /// Pointing at its own type, with IDs on the `from:` side.
@@ -118,31 +118,30 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 // MARK: - Owned by the one side
 
 @Test func oneSideWritesOrderedLinks() throws {
-    let tracks = ["Intro", "Song", "Outro"].map { Track(id: UUID(), title: $0, album: nil) }
+    let tracks = ["Intro", "Song", "Outro"].map { Track(id: UUID(), title: $0, albumID: nil) }
     let album = Album(id: UUID(), tracks: tracks)
     let links = encoder.linksToSave(for: album, in: .records)
     let read = try links.map(link)
 
     #expect(read.count == 3)
-    #expect(read.allSatisfy { $0.relationship == "Album.tracks:[Track] <-> Track.album:Album" })
+    #expect(read.allSatisfy { $0.relationship == "Album.tracks:[Track] <-> Track.albumID:Album" })
     #expect(try read.allSatisfy { try $0.kind == .oneToMany })
     #expect(read.allSatisfy { $0.deleteSelf })
-    #expect(Track.deleteSelfReferences == ["album"])
+    #expect(Track.deleteSelfReferences == ["albumID"])
     #expect(tracks.allSatisfy { encoder.linksToSave(for: $0, in: .records).isEmpty })
 
     let trackRecords = tracks.map { encoder.encode($0, in: .records) }
     let albumRecord = encoder.encode(album, in: .records)
     let albumAgain = try decoder.decode(Album.self, from: albumRecord, links: links, targets: trackRecords)
     #expect(albumAgain.tracks.map(\.title) == ["Intro", "Song", "Outro"])
-    #expect(albumAgain.tracks.allSatisfy { $0._album.id == album.id })
+    #expect(albumAgain.tracks.allSatisfy { $0.albumID == album.id })
 
     let trackAgain = try decoder.decode(Track.self, from: trackRecords[1], links: links, targets: [albumRecord])
-    #expect(trackAgain.album?.id == album.id)
-    #expect(trackAgain.album?._tracks.ids == tracks.map(\.id))
+    #expect(trackAgain.albumID == album.id)
 }
 
 @Test func aTrackBelongsToOneAlbum() {
-    let track = Track(id: UUID(), title: "Song", album: nil)
+    let track = Track(id: UUID(), title: "Song", albumID: nil)
     let first = Album(id: UUID(), tracks: [track])
     let second = Album(id: UUID(), tracks: [track])
 

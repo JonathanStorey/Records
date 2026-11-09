@@ -25,9 +25,8 @@ public struct Inverse: Hashable, Sendable {
     /// Whether the target is deleted with its owner.
     public let deleteSelf: Bool
 
-    /// A to-one `from:` side, such as `var user: User?` for `\User.profile`, or
-    /// `var album: Album?` for `\Album.tracks`. The key path's value type must hold the `from:`
-    /// side's type: `Profile?`, `UUID?`, `[Track]`, or `[UUID]`.
+    /// A to-one `from:` side, such as `var userID: UUID?` for `\User.profile`. The key path's
+    /// value type must hold the `from:` side's type, here `Profile?`.
     public init<Owner: Record, Target: Record>(
         _ owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String, deleteSelf: Bool = false
     ) {
@@ -41,7 +40,7 @@ public struct Inverse: Hashable, Sendable {
         self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
     }
 
-    /// A to-one `from:` side of a to-many owner, such as `var album: Album?` for `\Album.tracks`.
+    /// A to-one `from:` side of a to-many owner, such as `var albumID: UUID?` for `\Album.tracks`.
     public init<Owner: Record, Target: Record>(
         _ owner: KeyPath<Owner, [Target]>, to target: Target.Type, property: String, deleteSelf: Bool = false
     ) {
@@ -55,7 +54,7 @@ public struct Inverse: Hashable, Sendable {
         self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
     }
 
-    /// A to-many `from:` side, such as `var books: [Book]` for `\Book.shelf`. The owner must be
+    /// A to-many `from:` side, such as `var bookIDs: [UUID]` for `\Book.shelf`. The owner must be
     /// to-one, so the relationship is one-to-many. Many-to-many isn't supported yet.
     public init<Owner: Record, Target: Record>(
         many owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String

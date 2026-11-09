@@ -93,8 +93,8 @@ public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(m
 ///
 /// ```swift
 /// // One-to-one
-/// @Reference var profile: Profile?                                   // on User
-/// @Reference(from: \User.profile, deleteSelf: true) var user: User?  // on Profile
+/// @Reference var profile: Profile?                                      // on User
+/// @Reference(from: \User.profile, deleteSelf: true) var userID: UUID?  // on Profile
 ///
 /// // One-to-many, owned by the many side: links are written per book, unordered
 /// @Reference var shelf: Shelf?                                       // on Book
@@ -102,14 +102,15 @@ public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(m
 ///
 /// // One-to-many, owned by the one side: ordered, and tracks are deleted with their album
 /// @Reference var tracks: [Track]                                     // on Album
-/// @Reference(from: \Album.tracks, deleteSelf: true) var album: Album? // on Track
+/// @Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID? // on Track
 /// ```
 ///
-/// A to-one side can hold the ID instead, as in `@Reference(from: \User.profile) var userID: UUID?`.
-/// A to-many side always holds IDs: anything can point at a record, so loading every owner
-/// would have no limit.
+/// This side always holds IDs, `UUID?` or `[UUID]`. The owner holds records, because its code
+/// chose them. This side is a back-pointer: anything can point at a record, so loading every
+/// owner would have no limit. To show an owner's fields, fetch it by ID, or make this side the
+/// owner instead.
 /// The owner writes the links, and their signature includes this side, such as
-/// `User.profile:Profile <-> Profile.user:User`. This side never writes links. It is filled from
+/// `User.profile:Profile <-> Profile.userID:User`. This side never writes links. It is filled from
 /// the owner's links when the record is decoded, and can only be set when the record is made. A
 /// to-many side lists its owners in the order their links were created. With `deleteSelf: true`,
 /// which needs a to-one side, the record is deleted when its owner is deleted. Many-to-many isn't
