@@ -71,8 +71,31 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             throw MacroExpansionErrorMessage("@Reference can only be applied to a property")
         }
         let reference = try reference(variable, attribute: node, owner: owner(in: context))
-        let storageType = reference.isToMany ? "ToMany" : "ToOne"
-        return ["var \(raw: reference.storage): Records.\(raw: storageType)<\(raw: reference.target)>"]
+        let storageType = "Records.\(reference.isToMany ? "ToMany" : "ToOne")<\(reference.target)>"
+        var peers: [DeclSyntax] = ["var \(raw: reference.storage): \(raw: storageType)"]
+        // The record form reads `nil` or `[]` where loading stopped, so `$name` exposes the IDs and
+        // whether the records are loaded. It is a read-only copy, as visible as the property.
+        if !reference.isID {
+            peers.append(
+                """
+                \(raw: accessLevel(of: variable))var $\(raw: reference.key): \(raw: storageType) {
+                    \(raw: reference.storage)
+                }
+                """
+            )
+        }
+        return peers
+    }
+
+    /// `public `, `package `, `fileprivate `, or `private ` when the property has it.
+    private static func accessLevel(of variable: VariableDeclSyntax) -> String {
+        let levels: [Keyword] = [.public, .package, .internal, .fileprivate, .private]
+        for modifier in variable.modifiers where modifier.detail == nil {
+            if case .keyword(let keyword) = modifier.name.tokenKind, levels.contains(keyword) {
+                return keyword == .internal ? "" : "\(modifier.name.text) "
+            }
+        }
+        return ""
     }
 
     /// A valid to-one `@Reference` property.

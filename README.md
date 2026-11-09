@@ -300,7 +300,19 @@ track.tags                   // []: level two doesn't load records
 ```
 
 A record-form reference at level two reads as `nil` or `[]` even when it has targets. Saving it
-never deletes those targets, because only links the record was loaded with can be deleted.
+never deletes those targets, because only links the record was loaded with can be deleted. To
+tell "empty" from "not loaded", read the reference's `$` projection, which holds the IDs either
+way:
+
+```swift
+track.$tags.ids          // every tag's ID, loaded or not
+track.$tags.count        // 2
+track.$tags.isLoaded     // false: the records weren't loaded at this level
+album.$cover.id          // nil only when the album truly has no cover
+```
+
+`$name` is read-only and as visible as the property, so a public record exposes it too. ID-form
+and `from:` references don't have one, because they are always complete.
 
 To load further, pass `depth:`. Each level multiplies what's loaded, so ask for depth only where a
 screen shows it.
@@ -311,7 +323,7 @@ album.tracks[0].tags.map(\.name)   // ["energetic", "live"]: level two holds rec
 
 let bare = try decoder.decode(Album.self, from: record, links: links, depth: 0)
 bare.tracks                        // []: depth 0 loads no records
-bare.genreID                       // ID-form references are filled at every depth
+bare.$tracks.ids                   // but every ID is there
 ```
 
 Depth also makes cycles safe. A mentor who mentors their mentor loads back and forth until the

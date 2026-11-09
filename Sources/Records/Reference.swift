@@ -149,6 +149,12 @@ public struct ToOne<Target: Record> {
         }
     }
 
+    /// Whether `value` holds the target: true when the reference is empty or its record was
+    /// loaded, false where loading stopped.
+    public var isLoaded: Bool {
+        id == nil || value != nil
+    }
+
     /// Sets the reference as read from storage, so it starts out unchanged. Uses the first of
     /// `targets`. When `depth` is at least 1 and `records` holds the target, decodes it with
     /// `depth - 1`, so its own references hold records `depth - 1` levels further.
@@ -247,6 +253,15 @@ public struct ToMany<Target: Record> {
             self.ids = ids
             box = Box(Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
         }
+    }
+
+    /// How many targets the reference points at, loaded or not.
+    public var count: Int { storedIDs.count }
+
+    /// Whether `values` holds every target: true when the reference is empty or all its records
+    /// were loaded, false where loading stopped.
+    public var isLoaded: Bool {
+        storedIDs.allSatisfy { box?.values[$0] != nil }
     }
 
     /// Sets the reference as read from storage, so it starts out unchanged. `targets` must

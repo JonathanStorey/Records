@@ -76,8 +76,11 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 /// which `CKRecordEncoder.linksToSave(for:in:)` writes. A decoded record has `nil` or `[]` here
 /// until its links are loaded. A to-one reference must be optional and a to-many reference a
 /// non-optional array, in a `var` with no initial value. Either may point at its own type.
+///
+/// Where loading stopped, the property reads `nil` or `[]` even when it has targets. `$name`
+/// holds the IDs either way: `album.$tracks.ids`, `album.$tracks.isLoaded`, `album.$artist.id`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
+@attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a property that holds only the IDs of other `Record`s, e.g.
