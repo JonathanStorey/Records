@@ -25,23 +25,54 @@ public struct Inverse: Hashable, Sendable {
     /// Whether the target is deleted with its owner.
     public let deleteSelf: Bool
 
-    /// The `from:` side of a to-one owner that holds the record, such as `\User.profile` for
-    /// `var profile: Profile?`. The key path's value type must be the `from:` side's type.
+    /// A to-one `from:` side, such as `var user: User?` for `\User.profile`, or
+    /// `var album: Album?` for `\Album.tracks`. The key path's value type must hold the `from:`
+    /// side's type: `Profile?`, `UUID?`, `[Track]`, or `[UUID]`.
     public init<Owner: Record, Target: Record>(
         _ owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String, deleteSelf: Bool = false
     ) {
-        self.property = property
-        self.isToMany = false
-        self.deleteSelf = deleteSelf
+        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
     }
 
-    /// The `from:` side of a to-one owner that holds only the ID, such as `\Account.settingsID`
-    /// for `var settingsID: UUID?`.
+    /// A to-one `from:` side of an owner that holds only the ID, such as `\Account.settingsID`.
     public init<Owner: Record, Target: Record>(
         _ owner: KeyPath<Owner, UUID?>, to target: Target.Type, property: String, deleteSelf: Bool = false
     ) {
+        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
+    }
+
+    /// A to-one `from:` side of a to-many owner, such as `var album: Album?` for `\Album.tracks`.
+    public init<Owner: Record, Target: Record>(
+        _ owner: KeyPath<Owner, [Target]>, to target: Target.Type, property: String, deleteSelf: Bool = false
+    ) {
+        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
+    }
+
+    /// A to-one `from:` side of a to-many owner that holds only IDs, such as `\Album.trackIDs`.
+    public init<Owner: Record, Target: Record>(
+        _ owner: KeyPath<Owner, [UUID]>, to target: Target.Type, property: String, deleteSelf: Bool = false
+    ) {
+        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
+    }
+
+    /// A to-many `from:` side, such as `var books: [Book]` for `\Book.shelf`. The owner must be
+    /// to-one, so the relationship is one-to-many. Many-to-many isn't supported yet.
+    public init<Owner: Record, Target: Record>(
+        many owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String
+    ) {
+        self.init(property: property, isToMany: true, deleteSelf: false)
+    }
+
+    /// A to-many `from:` side of an owner that holds only the ID, such as `\Book.shelfID`.
+    public init<Owner: Record, Target: Record>(
+        many owner: KeyPath<Owner, UUID?>, to target: Target.Type, property: String
+    ) {
+        self.init(property: property, isToMany: true, deleteSelf: false)
+    }
+
+    private init(property: String, isToMany: Bool, deleteSelf: Bool) {
         self.property = property
-        self.isToMany = false
+        self.isToMany = isToMany
         self.deleteSelf = deleteSelf
     }
 }

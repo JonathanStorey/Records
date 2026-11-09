@@ -1051,21 +1051,155 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testInverseIsToOneForNow() throws {
+    func testOneToManyFromSide() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
-            struct Folder {
-                @Reference(from: \\Note.folder) var notes: [Note]
+            @Record
+            struct Shelf {
+                var id: UUID
+                @Reference(from: \\Book.shelf) var books: [Book]
+                @Reference(from: \\Crate.shelf) var crateIDs: [UUID]
             }
             """,
             expandedSource: """
-            struct Folder {
-                var notes: [Note]
+            struct Shelf {
+                var id: UUID
+                var books: [Book] {
+                    @storageRestrictions(initializes: _books)
+                    init(initialValue) {
+                        _books = Records.ToMany(initialValue)
+                    }
+                    get {
+                        _books.values
+                    }
+                }
+
+                var _books: Records.ToMany<Book>
+                var crateIDs: [UUID] {
+                    @storageRestrictions(initializes: _crateIDs)
+                    init(initialValue) {
+                        _crateIDs = Records.ToMany(ids: initialValue)
+                    }
+                    get {
+                        _crateIDs.ids
+                    }
+                }
+
+                var _crateIDs: Records.ToMany<Crate>
+            }
+
+            extension Shelf: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Shelf"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._books = Records.ToMany(ids: [])
+                    self._crateIDs = Records.ToMany(ids: [])
+                }
+                func encodeFields(into record: CKRecord) {
+                }
+                static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {
+                    switch (owner, property) {
+                    case (Book.recordType, "shelf"):
+                        return Records.Inverse(many: \\Book.shelf, to: Self.self, property: "books")
+                    case (Crate.recordType, "shelf"):
+                        return Records.Inverse(many: \\Crate.shelf, to: Self.self, property: "crateIDs")
+                    default:
+                        return nil
+                    }
+                }
+                var referenceStates: [Records.ReferenceState] {
+                    [
+                    ]
+                }
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord]) throws {
+                    switch property {
+                    case "books":
+                        try self._books.load(targets, from: records, links: links)
+                    case "crateIDs":
+                        try self._crateIDs.load(targets, from: [], links: [])
+                    default:
+                        break
+                    }
+                }
+                mutating func markReferencesSaved() {
+                    self._books.markSaved()
+                    self._crateIDs.markSaved()
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testDeleteSelfNeedsAToOneFromSide() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Shelf {
+                @Reference(from: \\Book.shelf, deleteSelf: true) var books: [Book]
+            }
+            """,
+            expandedSource: """
+            struct Shelf {
+                var books: [Book]
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference(from:) supports to-one properties for now", line: 2, column: 5),
+                DiagnosticSpec(message: "'deleteSelf:' needs a to-one @Reference(from:) property", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testOneFromSidePerOwnerProperty() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Shelf {
+                var id: UUID
+                @Reference(from: \\Book.shelf) var bookIDs: [UUID]
+                @Reference(from: \\Book.shelf) var books: [Book]
+            }
+            """,
+            expandedSource: """
+            struct Shelf {
+                var id: UUID
+                var bookIDs: [UUID] {
+                    @storageRestrictions(initializes: _bookIDs)
+                    init(initialValue) {
+                        _bookIDs = Records.ToMany(ids: initialValue)
+                    }
+                    get {
+                        _bookIDs.ids
+                    }
+                }
+
+                var _bookIDs: Records.ToMany<Book>
+                var books: [Book] {
+                    @storageRestrictions(initializes: _books)
+                    init(initialValue) {
+                        _books = Records.ToMany(initialValue)
+                    }
+                    get {
+                        _books.values
+                    }
+                }
+
+                var _books: Records.ToMany<Book>
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "Only one @Reference(from:) can name 'Book.shelf'", line: 1, column: 1),
             ],
             macroSpecs: macroSpecs
         )

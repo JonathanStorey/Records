@@ -185,8 +185,9 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             deleteSelf = literal.literal.tokenKind == .keyword(.true)
         }
 
-        if isFrom, isToMany {
-            throw MacroExpansionErrorMessage("@Reference(from:) supports to-one properties for now")
+        // Deleting one of many owners can't mean deleting this record.
+        if deleteSelf, isToMany {
+            throw MacroExpansionErrorMessage("'deleteSelf:' needs a to-one @Reference(from:) property")
         }
         // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named.
         if isID, !isFrom, typeArgument == nil {
