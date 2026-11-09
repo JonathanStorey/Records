@@ -16,8 +16,8 @@ public struct CKRecordEncoder: Sendable {
     public init() {}
 
     /// A new `CKRecord` for `record` in `zone`. CloudKit treats it as a record it has never seen.
-    public func encode(_ record: some Record, in zone: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: record.id.uuidString, zoneID: zone)
+    public func encode(_ record: some Record, in zone: Zone) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: record.id.uuidString, zoneID: zone.zoneID)
         let ckRecord = CKRecord(recordType: type(of: record).recordType, recordID: recordID)
         record.encodeFields(into: ckRecord)
         return ckRecord
