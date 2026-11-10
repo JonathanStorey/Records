@@ -72,26 +72,12 @@ func invalidSignatureThrows(signature: String) {
 @Test func linkStoresItsFields() throws {
     let note = F.Note(id: UUID()), folderID = UUID()
     let link = try RecordLink.manyToOne(
-        from: note, property: "folder", to: F.Folder.self, id: folderID, inverse: "notes", deleteSelf: true
+        from: note, property: "folder", to: F.Folder.self, id: folderID, inverse: "notes"
     )
     #expect(link.sourceName == note.id.uuidString)
     #expect(link.targetName == folderID.uuidString)
-    #expect(link.deleteSelf)
     #expect(link.order == nil)
     #expect(try link.kind == .manyToOne)
-}
-
-@Test func deleteSelfDefaultsToFalse() throws {
-    let link = try RecordLink.manyToOne(from: F.Note(id: UUID()), property: "author", to: F.Person.self, id: UUID())
-    #expect(!link.deleteSelf)
-}
-
-@Test func deleteSelfWithoutInverseThrows() {
-    #expect(throws: RecordLinkError.deleteSelfRequiresInverse) {
-        try RecordLink.manyToMany(
-            from: F.Note(id: UUID()), property: "tags", to: F.Tag.self, id: UUID(), deleteSelf: true, order: "a0"
-        )
-    }
 }
 
 @Test func invalidPropertyNameThrows() {
@@ -103,7 +89,7 @@ func invalidSignatureThrows(signature: String) {
 @Test func oneToManyKeepsTheOwningSideAsSource() throws {
     let folder = F.Folder(id: UUID()), noteID = UUID()
     let link = try RecordLink.oneToMany(
-        from: folder, property: "notes", to: F.Note.self, id: noteID, inverse: "folder", deleteSelf: true, order: "a0"
+        from: folder, property: "notes", to: F.Note.self, id: noteID, inverse: "folder", order: "a0"
     )
     #expect(link.sourceName == folder.id.uuidString)
     #expect(link.targetName == noteID.uuidString)
@@ -182,7 +168,7 @@ func invalidSignatureThrows(signature: String) {
     #expect(record.recordID.recordName == link.id.uuidString)
     #expect(record.recordID.zoneID.zoneName == "Notes")
     #expect(record["relationship"] as? String == "Note.tags:[Tag] <-> Tag.notes:[Note]")
-    #expect(record["deleteSelf"] as? Bool == false)
+    #expect(record["deleteSelf"] == nil)
     #expect(record["order"] as? String == "a0")
     #expect(record.parent == nil)
     #expect(try CKRecordDecoder().decode(RecordLink.self, from: record) == link)

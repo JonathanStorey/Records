@@ -443,8 +443,8 @@ depth runs out, then holds only an ID.
 
 - The SQLite store and `CKSyncEngine` sync. The store keeps the last synced copy of each record,
   so it finds the fields and links that changed by comparing against it, and uploads only those.
-- Deletion with `deleteSelf`. The flag is stored on each link, and the store will delete the
-  targets.
+- Deletion with `deleteSelf`. The container knows the flag from each type's `@Reference(from:)`
+  declaration, and the store will delete the targets.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store
   enforces it.
 

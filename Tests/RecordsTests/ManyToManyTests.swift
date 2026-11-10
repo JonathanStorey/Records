@@ -50,7 +50,6 @@ private struct Fixture {
     #expect(links.count == 3)
     #expect(links.allSatisfy { $0.relationship == "Post.topics:[Topic] <-> Topic.postIDs:[Post]" })
     #expect(try links.allSatisfy { try $0.kind == .manyToMany })
-    #expect(links.allSatisfy { !$0.deleteSelf })
     #expect(encoder.links(for: fixture.swift, in: .records).isEmpty)
 }
 
