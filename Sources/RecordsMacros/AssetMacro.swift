@@ -2,7 +2,7 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// `@Asset` on a `Data?` property of a `@Record`, stored as a `CKAsset`.
+/// `@Asset` on a `Data?` property of a `@Record`, stored as a `CKAsset` on its own link.
 ///
 /// Turns the property into a computed one backed by a `Records.AssetField` named with a leading
 /// underscore, which keeps the file and reads it only when the property is read. `$name` gives the

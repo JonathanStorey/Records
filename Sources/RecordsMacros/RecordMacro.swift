@@ -10,7 +10,9 @@ import SwiftSyntaxMacros
 /// also gets `referenceStates` and `loadReference(_:to:from:links:depth:)`, one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
 /// `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
 ///
-/// An `@Asset` field is stored as a `CKAsset`. An `@Encrypted` field is read from and written to the record's `encryptedValues`.
+/// An `@Asset` field is stored on its own link, so a struct with one gets `assetStates` and
+/// `loadAsset(_:id:file:)`. An `@Encrypted` field is read from and written to the record's
+/// `encryptedValues`.
 public struct RecordMacro: ExtensionMacro {
     /// Modifiers that mean a property isn't stored per record.
     private static var skipped: [TokenKind] { [.keyword(.static), .keyword(.class), .keyword(.lazy)] }
@@ -47,8 +49,8 @@ public struct RecordMacro: ExtensionMacro {
         ]
         for field in fields {
             if field.isAsset {
-                // A record holds the asset's file, which `cover` reads only when it is used.
-                lines.append("        self._\(field.key) = try Records.AssetField(saved: CKRecordDecoder.decodeIfPresent((CKAsset).self, forKey: \"\(field.fieldKey)\", from: record))")
+                // The asset is on its own link, so a decoded record has none until links load.
+                lines.append("        self._\(field.key) = Records.AssetField(id: nil, file: nil)")
                 continue
             }
             let source = field.isEncrypted ? "record.encryptedValues" : "record"
@@ -82,10 +84,37 @@ public struct RecordMacro: ExtensionMacro {
             "    }",
             "    \(access)func encodeFields(into record: CKRecord) {",
         ]
-        for field in fields {
+        for field in fields where !field.isAsset {
             lines.append("        \(field.destination)[\"\(field.fieldKey)\"] = \(field.written)")
         }
         lines.append("    }")
+        let assets = fields.filter(\.isAsset)
+        if !assets.isEmpty {
+            // Each asset is stored on a link named by its field key, so `@Renamed` keeps it.
+            lines.append("    \(access)var assetStates: [Records.AssetState] {")
+            lines.append("        [")
+            for field in assets {
+                lines.append("            self._\(field.key).state(property: \"\(field.fieldKey)\"),")
+            }
+            lines += [
+                "        ]",
+                "    }",
+                "    \(access)mutating func loadAsset(_ property: String, id: UUID?, file: URL?) {",
+                "        switch property {",
+            ]
+            for field in assets {
+                lines += [
+                    "        case \"\(field.fieldKey)\":",
+                    "            self._\(field.key) = Records.AssetField(id: id, file: file)",
+                ]
+            }
+            lines += [
+                "        default:",
+                "            break",
+                "        }",
+                "    }",
+            ]
+        }
         let deleteSelf = references.filter(\.deleteSelf).map { "\"\($0.key)\"" }
         if !deleteSelf.isEmpty {
             lines += [
@@ -222,7 +251,7 @@ public struct RecordMacro: ExtensionMacro {
         /// Whether it is marked `@Encrypted`, so it is stored in `encryptedValues`.
         let isEncrypted: Bool
 
-        /// Whether it is marked `@Asset`, so it is stored as a `CKAsset`.
+        /// Whether it is marked `@Asset`, so it is stored on its own link.
         let isAsset: Bool
 
         /// Whether it is marked `@Location`, so it is stored as an encrypted `CLLocation`.
@@ -231,10 +260,9 @@ public struct RecordMacro: ExtensionMacro {
         /// Where the generated code writes the field.
         var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
 
-        /// What the generated code writes: the asset for an `@Asset`, the `CLLocation` for a
-        /// `@Location`, otherwise the value.
+        /// What the generated code writes: the `CLLocation` for a `@Location`, otherwise the value.
+        /// An `@Asset` is written to its link instead.
         var written: String {
-            if isAsset { return "self._\(key).asset" }
             if isLocation { return "self._\(key).location" }
             // `nil` clears the field, so only a value goes through `FieldCoding`.
             if wrappedType != nil { return "self.\(name).flatMap { Records.FieldCoding.value($0) }" }

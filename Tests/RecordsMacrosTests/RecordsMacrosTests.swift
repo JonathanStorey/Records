@@ -1435,7 +1435,7 @@ final class RecordMacroTests: XCTestCase {
 
     // MARK: - Assets
 
-    func testAssetIsBackedByAFile() throws {
+    func testAssetIsStoredOnItsLink() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
@@ -1443,6 +1443,7 @@ final class RecordMacroTests: XCTestCase {
             struct Poster {
                 var id: UUID
                 @Asset var image: Data?
+                @Asset @Renamed("thumb") var thumbnail: Data?
             }
             """,
             expandedSource: """
@@ -1466,6 +1467,24 @@ final class RecordMacroTests: XCTestCase {
                 var $image: URL? {
                     _image.fileURL
                 }
+                var thumbnail: Data? {
+                    @storageRestrictions(initializes: _thumbnail)
+                    init(initialValue) {
+                        _thumbnail = Records.AssetField(initialValue)
+                    }
+                    get {
+                        _thumbnail.data
+                    }
+                    set {
+                        _thumbnail.data = newValue
+                    }
+                }
+
+                var _thumbnail: Records.AssetField
+
+                var $thumbnail: URL? {
+                    _thumbnail.fileURL
+                }
             }
 
             extension Poster: Records.Record {
@@ -1474,10 +1493,26 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self._image = try Records.AssetField(saved: CKRecordDecoder.decodeIfPresent((CKAsset).self, forKey: "image", from: record))
+                    self._image = Records.AssetField(id: nil, file: nil)
+                    self._thumbnail = Records.AssetField(id: nil, file: nil)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["image"] = self._image.asset
+                }
+                var assetStates: [Records.AssetState] {
+                    [
+                        self._image.state(property: "image"),
+                        self._thumbnail.state(property: "thumb"),
+                    ]
+                }
+                mutating func loadAsset(_ property: String, id: UUID?, file: URL?) {
+                    switch property {
+                    case "image":
+                        self._image = Records.AssetField(id: id, file: file)
+                    case "thumb":
+                        self._thumbnail = Records.AssetField(id: id, file: file)
+                    default:
+                        break
+                    }
                 }
             }
             """,
