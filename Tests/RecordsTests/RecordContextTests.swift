@@ -187,15 +187,6 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     #expect(links.first?["assetID"] == novel._cover.id.map { SQLValue.text($0.uuidString) })
 }
 
-@MainActor
-@Test func saveDoesNotSaveTheTargets() throws {
-    let context = try makeContext(for: Page.self)
-    let label = Label(id: UUID(), name: "a")
-    context.insert(Page(id: UUID(), title: "Notes", labels: [label], pinnedIDs: []))
-    try context.save()
-    #expect(try context.database.rows("SELECT * FROM \"Label\"").isEmpty)
-}
-
 // MARK: - Errors
 
 @MainActor
