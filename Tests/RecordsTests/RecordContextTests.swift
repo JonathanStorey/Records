@@ -32,13 +32,13 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 // MARK: - The record's row
 
 @MainActor
-@Test func insertWritesTheFields() throws {
+@Test func saveWritesTheFields() throws {
     let context = try makeContext(for: Venue.self)
     let venue = Venue(
         id: UUID(), name: "Hall", mood: .calm, rating: .two,
         address: Address(street: "1 Main", city: "Springfield"), previous: nil, moods: [.calm]
     )
-    try context.insert(venue)
+    try context.save(venue)
 
     let row = try currentRow("Venue", venue.id, in: context)
     #expect(row["title"] == .text("Hall")) // its @Renamed name
@@ -50,10 +50,10 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 }
 
 @MainActor
-@Test func insertedRecordsWaitToUpload() throws {
+@Test func savedRecordsWaitToUpload() throws {
     let context = try makeContext(for: Page.self)
     let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: [])
-    try context.insert(page)
+    try context.save(page)
 
     let row = try currentRow("Page", page.id, in: context)
     #expect(row["_systemFields"] == .null)
@@ -66,21 +66,21 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 }
 
 @MainActor
-@Test func insertUsesTheContextsZone() throws {
+@Test func saveUsesTheContextsZone() throws {
     let context = try makeContext(for: Page.self)
     let first = Page(id: UUID(), title: "One", labels: [], pinnedIDs: [])
-    try context.insert(first)
+    try context.save(first)
     context.zone = "Work"
     let second = Page(id: UUID(), title: "Two", labels: [], pinnedIDs: [])
-    try context.insert(second)
+    try context.save(second)
 
     #expect(try currentRow("Page", first.id, in: context)["_zoneName"] == .text("Records"))
     #expect(try currentRow("Page", second.id, in: context)["_zoneName"] == .text("Work"))
     #expect(try currentRow("Page", second.id, in: context)["_zoneOwner"] == .text(CKCurrentUserDefaultName))
 }
 
-/// One main context writes to several zones by switching `zone` between inserts. Each record
-/// and its links land in the zone that was set when it was inserted.
+/// One main context writes to several zones by switching `zone` between saves. Each record
+/// and its links land in the zone that was set when it was saved.
 @MainActor
 @Test func mainContextSwitchesBetweenZones() throws {
     let container = try RecordContainer(for: [Page.self], url: nil)
@@ -90,7 +90,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     for zone in zones {
         container.mainContext.zone = zone
         let page = Page(id: UUID(), title: zone.name, labels: [Label(id: UUID(), name: "tag")], pinnedIDs: [])
-        try container.mainContext.insert(page)
+        try container.mainContext.save(page)
         pages.append(page)
     }
 
@@ -109,18 +109,18 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 }
 
 /// A row is named by its zone and ID together, as a CloudKit record ID is, so the same record
-/// can be in two zones. Inserting it twice into one zone still throws.
+/// can be in two zones, and saving it in one leaves the other alone.
 @MainActor
-@Test func sameIDCanBeInsertedIntoTwoZones() throws {
+@Test func sameIDCanBeSavedToTwoZones() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "One", labels: [Label(id: UUID(), name: "tag")], pinnedIDs: [])
-    try context.insert(page)
+    var page = Page(id: UUID(), title: "One", labels: [Label(id: UUID(), name: "tag")], pinnedIDs: [])
+    try context.save(page)
     context.zone = "Work"
-    try context.insert(page)
-    #expect(throws: RecordContextError.duplicateID(page.id)) { try context.insert(page) }
+    page.title = "Two"
+    try context.save(page)
 
     #expect(try currentRow("Page", page.id, in: context, zone: .records)["title"] == .text("One"))
-    #expect(try currentRow("Page", page.id, in: context, zone: "Work")["title"] == .text("One"))
+    #expect(try currentRow("Page", page.id, in: context, zone: "Work")["title"] == .text("Two"))
     let zones = try context.database.rows("SELECT \"_zoneName\" FROM \"Page\" ORDER BY \"_zoneName\"")
     #expect(zones.map { $0["_zoneName"] } == [Optional(SQLValue.text("Records")), Optional(SQLValue.text("Work"))])
     // Each zone has its own link; the link's ID comes from the record and reference, so it repeats too.
@@ -134,7 +134,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
         id: UUID(), title: "Notes", subtitle: nil, tags: ["a", "b"], year: 1843, note: "secret",
         cover: nil, shop: Coordinate(latitude: 51.5, longitude: -0.12), sequel: nil, writers: [], editorID: nil
     )
-    try context.insert(novel)
+    try context.save(novel)
 
     let row = try currentRow("Novel", novel.id, in: context)
     #expect(row["note"] == .text("secret"))
@@ -149,11 +149,11 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 // MARK: - Links
 
 @MainActor
-@Test func insertWritesOrderedLinks() throws {
+@Test func saveWritesOrderedLinks() throws {
     let context = try makeContext(for: Page.self)
     let items = ["a", "b", "c"].map { Label(id: UUID(), name: $0) }
     let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
-    try context.insert(page)
+    try context.save(page)
 
     let links = try linkRows(of: page.id, in: context)
     #expect(links.map { $0["targetName"] } == items.map { Optional(SQLValue.text($0.id.uuidString)) })
@@ -163,13 +163,13 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 }
 
 @MainActor
-@Test func insertWritesAnAssetLink() throws {
+@Test func saveWritesAnAssetLink() throws {
     let context = try makeContext(for: Novel.self)
     let novel = Novel(
         id: UUID(), title: "Notes", subtitle: nil, tags: [], year: 1843, note: nil,
         cover: Data("cover".utf8), shop: nil, sequel: nil, writers: [], editorID: nil
     )
-    try context.insert(novel)
+    try context.save(novel)
 
     let links = try linkRows(of: novel.id, in: context)
     #expect(links.count == 1)
@@ -178,31 +178,99 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 }
 
 @MainActor
-@Test func insertDoesNotSaveTheTargets() throws {
+@Test func saveDoesNotSaveTheTargets() throws {
     let context = try makeContext(for: Page.self)
     let label = Label(id: UUID(), name: "a")
-    try context.insert(Page(id: UUID(), title: "Notes", labels: [label], pinnedIDs: []))
+    try context.save(Page(id: UUID(), title: "Notes", labels: [label], pinnedIDs: []))
     #expect(try context.database.rows("SELECT * FROM \"Label\"").isEmpty)
 }
 
 // MARK: - Errors
 
 @MainActor
-@Test func insertingAnIDTwiceIsAnError() throws {
+@Test func savingAgainUpdatesTheRecord() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [Label(id: UUID(), name: "a")], pinnedIDs: [])
-    try context.insert(page)
-    #expect(throws: RecordContextError.duplicateID(page.id)) {
-        try context.insert(page)
-    }
-    #expect(try linkRows(of: page.id, in: context).count == 1) // the failed insert wrote nothing
+    let a = Label(id: UUID(), name: "a"), b = Label(id: UUID(), name: "b")
+    var page = Page(id: UUID(), title: "Draft", labels: [a, b], pinnedIDs: [])
+    try context.save(page)
+    let created = try currentRow("Page", page.id, in: context)["_createdAt"]
+
+    page.title = "Final"
+    page.labels = [b]
+    try context.save(page)
+
+    let rows = try context.database.rows("SELECT * FROM \"Page\"")
+    #expect(rows.count == 1)
+    let row = try currentRow("Page", page.id, in: context)
+    #expect(row["title"] == .text("Final"))
+    #expect(row["_createdAt"] == created)
+    // The link to the dropped label never synced, so it's gone.
+    let links = try linkRows(of: page.id, in: context)
+    #expect(links.map { $0["targetName"] } == [Optional(SQLValue.text(b.id.uuidString))])
+}
+
+/// Once a record has synced, saving keeps its synced values in a base row until the next
+/// upload, and a dropped link is marked deleted so the deletion reaches the server.
+@MainActor
+@Test func savingASyncedRecordKeepsItsBase() throws {
+    let context = try makeContext(for: Page.self)
+    let a = Label(id: UUID(), name: "a"), b = Label(id: UUID(), name: "b")
+    var page = Page(id: UUID(), title: "Synced", labels: [a, b], pinnedIDs: [])
+    try context.save(page)
+    // Stand in for a sync, which stores each row's system fields.
+    try context.database.run("UPDATE \"Page\" SET \"_systemFields\" = x'00'", [])
+    try context.database.run("UPDATE \"RecordLink\" SET \"_systemFields\" = x'00'", [])
+
+    page.title = "Edited"
+    page.labels = [b]
+    try context.save(page)
+    page.title = "Edited again"
+    try context.save(page)
+
+    let base = try context.database.rows(
+        "SELECT * FROM \"Page\" WHERE \"_name\" = ? AND \"_isCurrent\" = 0", [.text(page.id.uuidString)]
+    )
+    #expect(base.map { $0["title"] } == [Optional(SQLValue.text("Synced"))])
+    #expect(try currentRow("Page", page.id, in: context)["title"] == .text("Edited again"))
+
+    let current = try context.database.rows(
+        "SELECT * FROM \"RecordLink\" WHERE \"sourceName\" = ? AND \"_isCurrent\" = 1 ORDER BY \"targetName\"",
+        [.text(page.id.uuidString)]
+    )
+    let deleted = current.filter { $0["_deleted"] == .integer(1) }.map { $0["targetName"] }
+    let kept = current.filter { $0["_deleted"] == .integer(0) }.map { $0["targetName"] }
+    #expect(deleted == [Optional(SQLValue.text(a.id.uuidString))])
+    #expect(kept == [Optional(SQLValue.text(b.id.uuidString))])
+    let linkBases = try context.database.rows(
+        "SELECT * FROM \"RecordLink\" WHERE \"sourceName\" = ? AND \"_isCurrent\" = 0", [.text(page.id.uuidString)]
+    )
+    #expect(linkBases.count == 2)
+}
+
+/// Saving a dropped target again brings its link back.
+@MainActor
+@Test func savingRestoresARemovedLink() throws {
+    let context = try makeContext(for: Page.self)
+    let a = Label(id: UUID(), name: "a")
+    var page = Page(id: UUID(), title: "Notes", labels: [a], pinnedIDs: [])
+    try context.save(page)
+    try context.database.run("UPDATE \"RecordLink\" SET \"_systemFields\" = x'00'", [])
+    page.labels = []
+    try context.save(page)
+    page.labels = [a]
+    try context.save(page)
+
+    let current = try context.database.rows(
+        "SELECT * FROM \"RecordLink\" WHERE \"sourceName\" = ? AND \"_isCurrent\" = 1", [.text(page.id.uuidString)]
+    )
+    #expect(current.map { $0["_deleted"] } == [Optional(SQLValue.integer(0))])
 }
 
 @MainActor
-@Test func insertingAnUnregisteredTypeIsAnError() throws {
+@Test func savingAnUnregisteredTypeIsAnError() throws {
     let context = try makeContext(for: Page.self)
     #expect(throws: RecordContextError.unregisteredType("Venue")) {
-        try context.insert(Venue(id: UUID(), name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: []))
+        try context.save(Venue(id: UUID(), name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: []))
     }
 }
 
@@ -229,6 +297,6 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
         context = container.mainContext
     }
     #expect(released == nil)
-    try context.insert(Venue(id: UUID(), name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: []))
+    try context.save(Venue(id: UUID(), name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: []))
     #expect(try context.database.rows("SELECT * FROM \"Venue\"").count == 1)
 }

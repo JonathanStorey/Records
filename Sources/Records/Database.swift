@@ -25,9 +25,6 @@ final class Database: @unchecked Sendable {
     /// Prepared statements by their SQL, reused for every call.
     private var statements: [String: OpaquePointer] = [:]
 
-    /// A write that broke a uniqueness rule, such as a record name already in use.
-    struct ConstraintViolation: Error {}
-
     /// Opens the database file at `url`, creating it and its folder if needed, or a database in
     /// memory when `url` is `nil`.
     init(url: URL?) throws {
@@ -142,8 +139,7 @@ final class Database: @unchecked Sendable {
         }
     }
 
-    /// Runs one statement with `values` bound to its `?` parameters, in order. Throws
-    /// `ConstraintViolation` when it breaks a uniqueness rule.
+    /// Runs one statement with `values` bound to its `?` parameters, in order.
     func run(_ sql: String, _ values: [SQLValue]) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -155,7 +151,6 @@ final class Database: @unchecked Sendable {
         try bind(values, to: statement)
         let result = sqlite3_step(statement)
         guard result == SQLITE_DONE || result == SQLITE_ROW else {
-            if result & 0xFF == SQLITE_CONSTRAINT { throw ConstraintViolation() }
             throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
         }
     }
