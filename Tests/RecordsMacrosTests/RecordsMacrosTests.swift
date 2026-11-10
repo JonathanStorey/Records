@@ -69,7 +69,9 @@ final class RecordMacroTests: XCTestCase {
                 func encodeFields(into record: CKRecord) {
                     record["title"] = Records.FieldCoding.value(self.title)
                     record["isPinned"] = Records.FieldCoding.value(self.isPinned)
-                    record["rating"] = self.rating.flatMap { Records.FieldCoding.value($0) }
+                    record["rating"] = self.rating.flatMap {
+                        Records.FieldCoding.value($0)
+                    }
                     record["tags"] = Records.FieldCoding.value(self.tags)
                 }
                 var changedFields: Set<String> {
@@ -90,7 +92,9 @@ final class RecordMacroTests: XCTestCase {
                         record["title"] = Records.FieldCoding.value(self.title)
                     }
                     if self._rating.isChanged {
-                        record["rating"] = self.rating.flatMap { Records.FieldCoding.value($0) }
+                        record["rating"] = self.rating.flatMap {
+                            Records.FieldCoding.value($0)
+                        }
                     }
                     if self._tags.isChanged {
                         record["tags"] = Records.FieldCoding.value(self.tags)
@@ -188,7 +192,9 @@ final class RecordMacroTests: XCTestCase {
                     self._value = try Records.Field(saved: CKRecordDecoder.decodeIfPresent((Value).self, forKey: "value", from: record))
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["value"] = self.value.flatMap { Records.FieldCoding.value($0) }
+                    record["value"] = self.value.flatMap {
+                        Records.FieldCoding.value($0)
+                    }
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
@@ -199,7 +205,9 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeChangedFields(into record: CKRecord) {
                     if self._value.isChanged {
-                        record["value"] = self.value.flatMap { Records.FieldCoding.value($0) }
+                        record["value"] = self.value.flatMap {
+                            Records.FieldCoding.value($0)
+                        }
                     }
                 }
                 mutating func markFieldsSaved() {
@@ -1499,7 +1507,9 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeFields(into record: CKRecord) {
                     record["name"] = Records.FieldCoding.value(self.name)
-                    record.encryptedValues["note"] = self.note.flatMap { Records.FieldCoding.value($0) }
+                    record.encryptedValues["note"] = self.note.flatMap {
+                        Records.FieldCoding.value($0)
+                    }
                     record.encryptedValues["pin"] = Records.FieldCoding.value(self.pin)
                 }
                 var changedFields: Set<String> {
@@ -1517,7 +1527,9 @@ final class RecordMacroTests: XCTestCase {
                         record["name"] = Records.FieldCoding.value(self.name)
                     }
                     if self._note.isChanged {
-                        record.encryptedValues["note"] = self.note.flatMap { Records.FieldCoding.value($0) }
+                        record.encryptedValues["note"] = self.note.flatMap {
+                            Records.FieldCoding.value($0)
+                        }
                     }
                 }
                 mutating func markFieldsSaved() {
