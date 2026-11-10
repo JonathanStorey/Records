@@ -11,6 +11,15 @@ import CloudKit
 public struct Zone: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
     public let name: String
     public let ownerName: String
+    /// Whether the zone's records sync with CloudKit.
+    public let isSynced: Bool
+
+    /// The zone a container saves new records to unless told otherwise, named `Records`.
+    public static let records: Zone = "Records"
+
+    /// Records kept on this device only and never synced. It sits beside synced zones in the
+    /// same container.
+    public static let local = Zone(reserved: "_local")
 
     init(_ name: String, ownerName: String = CKCurrentUserDefaultName) {
         precondition(
@@ -19,6 +28,14 @@ public struct Zone: Hashable, Sendable, ExpressibleByStringLiteral, CustomString
         )
         self.name = name
         self.ownerName = ownerName
+        isSynced = true
+    }
+
+    /// One of Records' own zones, which never reach CloudKit.
+    private init(reserved name: String) {
+        self.name = name
+        ownerName = CKCurrentUserDefaultName
+        isSynced = false
     }
 
     public init(stringLiteral name: String) {
