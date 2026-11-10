@@ -105,4 +105,42 @@ struct RecordContextBenchmarks {
         }
         #expect(reorder < 5_000)
     }
+
+    @Test func fetchEveryRecord() throws {
+        let context = try RecordContainer(for: [Venue.self], url: nil).mainContext
+        for venue in venues() { context.insert(venue) }
+        try context.save()
+        let time = try measure("fetch \(Self.count) records") {
+            #expect(try context.fetch(RecordDescriptor<Venue>()).count == Self.count)
+        }
+        #expect(time < 5_000)
+    }
+
+    @Test func fetchWithPredicateAndSort() throws {
+        let context = try RecordContainer(for: [Venue.self], url: nil).mainContext
+        for venue in venues() { context.insert(venue) }
+        try context.save()
+        let descriptor = RecordDescriptor<Venue>(
+            predicate: #Predicate { $0.name.contains("9") },
+            sortBy: [SortDescriptor(\.name)],
+            fetchLimit: 50
+        )
+        let time = try measure("fetch \(Self.count) records with a predicate, sort, and limit") {
+            #expect(try context.fetch(descriptor).count == 50)
+        }
+        #expect(time < 5_000)
+    }
+
+    @Test func fetchRecordsWithLinks() throws {
+        let context = try RecordContainer(for: [Page.self], url: nil).mainContext
+        let labels = (0..<10).map { Label(id: UUID(), name: "\($0)") }
+        for index in 0..<Self.count {
+            context.insert(Page(id: UUID(), title: "\(index)", labels: labels, pinnedIDs: []))
+        }
+        try context.save()
+        let time = try measure("fetch \(Self.count) records with 10 links each") {
+            #expect(try context.fetch(RecordDescriptor<Page>()).count == Self.count)
+        }
+        #expect(time < 5_000)
+    }
 }

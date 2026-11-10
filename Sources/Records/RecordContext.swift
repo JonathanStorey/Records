@@ -185,6 +185,75 @@ public final class RecordContext {
         return try Self.load(type, key: RecordKey(recordType: recordType, name: name, zone: zone), in: database)
     }
 
+    /// The records of `R` in the current `zone` that match `descriptor`, sorted and limited as it
+    /// says. Staged changes count: a staged insert is included as staged, and a staged delete
+    /// leaves its record out. References hold their targets' IDs.
+    public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
+        checkRegistered(R.self)
+        var records = try Self.loadAll(R.self, zone: zone, in: database)
+
+        // Staged changes in this zone replace or remove the saved records they name.
+        let stagedHere = stagedOrder.filter { $0.zone == zone && $0.recordType == R.recordType }
+        if !stagedHere.isEmpty {
+            let names = Set(stagedHere.map(\.name))
+            records.removeAll { names.contains($0.id.uuidString) }
+            records += stagedHere.compactMap { key in
+                guard let change = staged[key], change.kind == .save else { return nil }
+                return change.record as? R
+            }
+        }
+
+        if let predicate = descriptor.predicate {
+            records = try records.filter { try predicate.evaluate($0) }
+        }
+        if !descriptor.sortBy.isEmpty {
+            records.sort(using: descriptor.sortBy)
+        }
+        let start = min(max(descriptor.fetchOffset ?? 0, 0), records.count)
+        let end = descriptor.fetchLimit.map { min(start + max($0, 0), records.count) } ?? records.count
+        return Array(records[start..<end])
+    }
+
+    /// How many records `fetch(descriptor)` would return.
+    public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
+        try fetch(descriptor).count
+    }
+
+    /// Every saved, undeleted `R` in `zone`, with references holding IDs. One query reads the
+    /// rows and one reads every link they own or are the target of.
+    private nonisolated static func loadAll<R: Record>(_ type: R.Type, zone: Zone, in database: Database) throws -> [R] {
+        let table = database.quoted(R.recordType)
+        let current = "\"_zoneName\" = ? AND \"_zoneOwner\" = ? AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
+        let zoneValues: [SQLValue] = [.text(zone.name), .text(zone.ownerName)]
+        let rows = try database.rows("SELECT * FROM \(table) WHERE \(current)", zoneValues)
+        guard !rows.isEmpty else { return [] }
+
+        let names = "SELECT \"_name\" FROM \(table) WHERE \(current)"
+        let linkRows = try database.rows(
+            """
+            SELECT * FROM \(database.quoted(RecordLink.recordType)) WHERE \(current) \
+            AND ("sourceName" IN (\(names)) OR "targetName" IN (\(names)))
+            """,
+            zoneValues + zoneValues + zoneValues
+        )
+        var linksByName: [String: [CKRecord]] = [:]
+        for row in linkRows {
+            guard case .text(let name) = row["_name"] else { continue }
+            let link = RecordLink.schema.record(from: row, name: name, zone: zone)
+            if case .text(let source) = row["sourceName"] { linksByName[source, default: []].append(link) }
+            if case .text(let target) = row["targetName"], row["targetName"] != row["sourceName"] {
+                linksByName[target, default: []].append(link)
+            }
+        }
+
+        let decoder = CKRecordDecoder()
+        return try rows.compactMap { row in
+            guard case .text(let name) = row["_name"] else { return nil }
+            let record = R.schema.record(from: row, name: name, zone: zone)
+            return try decoder.decode(R.self, from: record, links: linksByName[name] ?? [], depth: 0)
+        }
+    }
+
     /// One query that names the table holding a current, undeleted record, given the record's
     /// zone and name once per table. Built once, and its statement is cached like any other.
     private lazy var recordTypeLookup: (sql: String, tables: Int) = {

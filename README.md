@@ -452,6 +452,22 @@ staged change comes first: a staged insert returns the staged record, and a stag
 `nil`. References hold their targets' IDs. Without a type, one indexed query finds the table that
 holds the ID.
 
+## Fetching records
+
+```swift
+let albums = try context.fetch(RecordDescriptor<Album>(
+    predicate: #Predicate { $0.year > 1970 && $0.title.contains("Blue") },
+    sortBy: [SortDescriptor(\.title)],
+    fetchLimit: 50
+))
+let count = try context.fetchCount(RecordDescriptor<Album>())
+```
+
+`RecordDescriptor` takes Foundation's `#Predicate` and `SortDescriptor`, as SwiftData's
+`FetchDescriptor` does. `fetch` looks in the context's `zone` and includes staged changes: a
+staged insert is returned as staged, and a staged delete leaves its record out. References hold
+their targets' IDs.
+
 ## Saving and loading
 
 `CKRecordEncoder` turns a record into a `CKRecord`, plus a link record for each target its
