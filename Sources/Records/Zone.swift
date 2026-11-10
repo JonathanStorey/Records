@@ -14,6 +14,9 @@ public struct Zone: Hashable, Sendable, ExpressibleByStringLiteral, CustomString
     /// Whether the zone's records sync with CloudKit.
     public let isSynced: Bool
 
+    /// The zone a container saves new records to unless told otherwise, named `Records`.
+    public static let records: Zone = "Records"
+
     /// Records kept on this device only and never synced. It sits beside synced zones in the
     /// same container.
     public static let local = Zone(reserved: "_local")

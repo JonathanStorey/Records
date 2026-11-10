@@ -135,27 +135,28 @@ private func temporaryFile() -> URL {
 
 @Test func reopeningAFileKeepsItsTables() throws {
     let url = temporaryFile()
-    _ = try RecordContainer(for: [Page.self], initialZone: .local, url: url)
-    let reopened = try RecordContainer(for: [Page.self], initialZone: .local, url: url)
+    _ = try RecordContainer(for: [Page.self], zone: .local, url: url)
+    let reopened = try RecordContainer(for: [Page.self], zone: .local, url: url)
     #expect(try reopened.database.tableNames() == ["Label", "Page", "RecordLink", "_SyncState"])
 }
 
 @Test func changedFieldsAddAndDropColumns() throws {
     let url = temporaryFile()
-    _ = try RecordContainer(for: [GadgetV1.self], initialZone: .local, url: url)
-    let updated = try RecordContainer(for: [GadgetV2.self], initialZone: .local, url: url)
+    _ = try RecordContainer(for: [GadgetV1.self], zone: .local, url: url)
+    let updated = try RecordContainer(for: [GadgetV2.self], zone: .local, url: url)
     #expect(try updated.database.columnNames("Gadget") == Database.bookkeeping.map(\.name) + ["name", "size"])
 }
 
 // MARK: - Zones
 
 @Test func localZonesDontSync() {
+    #expect(Zone.records.name == "Records" && Zone.records.isSynced)
     #expect(!Zone.local.isSynced)
     #expect(Zone("Music").isSynced)
     #expect(RecordContainer.defaultURL.lastPathComponent == "default.records")
 }
 
-@Test func theContainerKeepsItsInitialZone() throws {
-    #expect(try RecordContainer.inMemory(for: Page.self).initialZone == .local)
-    #expect(try RecordContainer.inMemory(for: Page.self, initialZone: "Music").initialZone == "Music")
+@Test func theContainerKeepsItsZone() throws {
+    #expect(try RecordContainer.inMemory(for: Page.self).zone == .records)
+    #expect(try RecordContainer.inMemory(for: Page.self, zone: "Music").zone == "Music")
 }
