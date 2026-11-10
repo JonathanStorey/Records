@@ -1900,8 +1900,20 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Memo {
                 var id: UUID
-                var createdAt: Date?
-                var modifiedAt: Date?
+                var createdAt: Date? {
+                    get {
+                        _createdAt.date
+                    }
+                }
+
+                let _createdAt = Records.ServerDate()
+                var modifiedAt: Date? {
+                    get {
+                        _modifiedAt.date
+                    }
+                }
+
+                let _modifiedAt = Records.ServerDate()
             }
 
             extension Memo: Records.Record {
@@ -1910,8 +1922,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.createdAt = record.creationDate
-                    self.modifiedAt = record.modificationDate
+                    self._createdAt.load(record.creationDate)
+                    self._modifiedAt.load(record.modificationDate)
                 }
                 func encodeFields(into record: CKRecord) {
                 }

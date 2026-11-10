@@ -258,14 +258,15 @@ public enum Timestamp: Sendable {
 /// Reads a date the server keeps for every record, in place of a field.
 ///
 /// The server's clock sets it, so it is the same on every device and never counts as a change. It
-/// is `nil` until the record is first saved. The memberwise initializer takes it with a default of
-/// `nil`, which lets a preview show a record with a date. A date set in code is never uploaded.
+/// is `nil` until the record is first saved, can't be assigned, and stays out of the memberwise
+/// initializer.
 ///
 /// ```swift
 /// @Timestamped(.created) var createdAt: Date?
 /// @Timestamped(.modified) var modifiedAt: Date?
 /// ```
-@attached(peer)
+@attached(accessor, names: named(get))
+@attached(peer, names: prefixed(_))
 public macro Timestamped(_ timestamp: Timestamp) = #externalMacro(module: "RecordsMacros", type: "TimestampedMacro")
 
 /// Stores a field of a `@Record` under its original CloudKit name after the Swift property is
