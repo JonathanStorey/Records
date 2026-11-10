@@ -5,15 +5,11 @@ import Foundation
 public enum RecordContextError: Error, Equatable, CustomStringConvertible {
     /// The record's type isn't registered with the container.
     case unregisteredType(String)
-    /// A record with this ID already exists.
-    case duplicateID(UUID)
 
     public var description: String {
         switch self {
         case .unregisteredType(let type):
             "'\(type)' isn't registered with this container. Pass it, or a type that refers to it, to RecordContainer(for:)."
-        case .duplicateID(let id):
-            "A record with the ID \(id) already exists."
         }
     }
 }
@@ -38,27 +34,26 @@ public final class RecordContext {
         database = container.database
     }
 
-    /// Saves a new record to the current `zone`, with a link for each reference target and each
-    /// `@Asset`.
+    /// Saves `record` to the current `zone`, with a link for each reference target and each
+    /// `@Asset`. A new record is added. A record already in the zone is replaced by this copy:
+    /// it keeps its creation date, and links for targets it no longer has are removed.
     ///
-    /// Only `record` itself is saved. Records its references point at are saved by inserting
-    /// them too. Throws `RecordContextError.duplicateID` when a record with the same ID exists in the zone.
-    public func insert<R: Record>(_ record: R) throws {
+    /// Only `record` itself is saved. Records its references point at are saved by saving them
+    /// too.
+    public func save<R: Record>(_ record: R) throws {
         try checkRegistered(R.self)
         let row = Row(zone: zone, now: Date())
+        let name = record.id.uuidString
         let values = record.columnValues()
-        let links = Self.links(for: record).map { ($0.id, $0.columnValues()) }
+        let links = Self.links(for: record).map { ($0.id.uuidString, $0.columnValues()) }
         let database = self.database
-        do {
-            try database.transaction {
-                try Self.write(R.schema, name: record.id.uuidString, values: values, row: row, replacing: false, in: database)
-                for (id, linkValues) in links {
-                    // A one-to-many target moves to its new source, so its link may exist already.
-                    try Self.write(RecordLink.schema, name: id.uuidString, values: linkValues, row: row, replacing: true, in: database)
-                }
+        try database.transaction {
+            try Self.write(R.schema, name: name, values: values, row: row, in: database)
+            for (linkName, linkValues) in links {
+                // A one-to-many target moves to its new source, so its link may exist already.
+                try Self.write(RecordLink.schema, name: linkName, values: linkValues, row: row, in: database)
             }
-        } catch is Database.ConstraintViolation {
-            throw RecordContextError.duplicateID(record.id)
+            try Self.removeLinks(from: R.recordType, name: name, keeping: links.map(\.0), row: row, in: database)
         }
     }
 
@@ -76,25 +71,77 @@ public final class RecordContext {
 
     /// Writes the current row `name` of `schema`'s table in `row.zone`. A row is named by its zone
     /// and name together, as a CloudKit record ID is, so the same name can be in several zones.
-    /// With `replacing`, an existing row takes the new fields and modification date, and keeps
-    /// the rest.
+    ///
+    /// An existing row takes the new fields and modification date, keeps its creation date, and
+    /// is no longer deleted. If it has synced and has no base row yet, it is first copied to one,
+    /// so the next sync can tell which fields changed since.
     private nonisolated static func write(
-        _ schema: RecordSchema, name: String, values: [SQLValue], row: Row, replacing: Bool, in database: Database
+        _ schema: RecordSchema, name: String, values: [SQLValue], row: Row, in database: Database
     ) throws {
+        let table = database.quoted(schema.recordType)
+        try keepBase(of: schema.recordType, name: name, zone: row.zone, in: database)
         let fieldColumns = schema.fields.map { database.quoted($0.key) }
         let columns = Self.writtenBookkeeping.map(database.quoted) + fieldColumns
         let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
-        var sql = "INSERT INTO \(database.quoted(schema.recordType)) (\(columns.joined(separator: ", "))) VALUES (\(placeholders))"
-        if replacing {
-            let updated = ["\"_modifiedAt\""] + fieldColumns
-            sql += " ON CONFLICT (\"_zoneName\", \"_zoneOwner\", \"_name\", \"_isCurrent\") DO UPDATE SET "
-                + updated.map { "\($0) = excluded.\($0)" }.joined(separator: ", ")
-        }
+        let updated = ["\"_modifiedAt\""] + fieldColumns
+        let sql = "INSERT INTO \(table) (\(columns.joined(separator: ", "))) VALUES (\(placeholders))"
+            + " ON CONFLICT (\"_zoneName\", \"_zoneOwner\", \"_name\", \"_isCurrent\") DO UPDATE SET \"_deleted\" = 0, "
+            + updated.map { "\($0) = excluded.\($0)" }.joined(separator: ", ")
         let seconds = row.now.timeIntervalSince1970
         let bookkeeping: [SQLValue] = [
             .text(name), .integer(1), .text(row.zone.name), .text(row.zone.ownerName), .real(seconds), .real(seconds),
         ]
         try database.run(sql, bookkeeping + values)
+    }
+
+    /// Copies the current row `name` to its base row when the current row has synced and no base
+    /// row exists. The base row holds the server's last known values until the next upload.
+    private nonisolated static func keepBase(
+        of recordType: CKRecord.RecordType, name: String, zone: Zone, in database: Database
+    ) throws {
+        let table = database.quoted(recordType)
+        let columns = try database.columnNames(recordType).map(database.quoted)
+        let selected = columns.map { $0 == "\"_isCurrent\"" ? "0" : $0 }
+        try database.run(
+            """
+            INSERT OR IGNORE INTO \(table) (\(columns.joined(separator: ", "))) \
+            SELECT \(selected.joined(separator: ", ")) FROM \(table) \
+            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "_name" = ? AND "_isCurrent" = 1 AND "_systemFields" IS NOT NULL
+            """,
+            [.text(zone.name), .text(zone.ownerName), .text(name)]
+        )
+    }
+
+    /// Removes the links of `recordType`'s record `name` in `row.zone` other than `kept`. A link
+    /// that never synced is deleted. A synced link is marked deleted, keeping a base row, so the
+    /// deletion reaches the server.
+    private nonisolated static func removeLinks(
+        from recordType: CKRecord.RecordType, name: String, keeping kept: [String], row: Row, in database: Database
+    ) throws {
+        let table = database.quoted(RecordLink.recordType)
+        let match = """
+            "_zoneName" = ? AND "_zoneOwner" = ? AND "_isCurrent" = 1 AND "_deleted" = 0 \
+            AND "sourceName" = ? AND substr("source", 1, ?) = ?
+            """
+        let prefix = recordType + "."
+        let matchValues: [SQLValue] = [
+            .text(row.zone.name), .text(row.zone.ownerName), .text(name), .integer(Int64(prefix.count)), .text(prefix),
+        ]
+        let links = try database.rows("SELECT \"_name\", \"_systemFields\" FROM \(table) WHERE \(match)", matchValues)
+        let zoneValues: [SQLValue] = [.text(row.zone.name), .text(row.zone.ownerName)]
+        for link in links {
+            guard case .text(let linkName) = link["_name"], !kept.contains(linkName) else { continue }
+            let named = "\"_zoneName\" = ? AND \"_zoneOwner\" = ? AND \"_name\" = ? AND \"_isCurrent\" = 1"
+            if link["_systemFields"] == .null {
+                try database.run("DELETE FROM \(table) WHERE \(named)", zoneValues + [.text(linkName)])
+            } else {
+                try keepBase(of: RecordLink.recordType, name: linkName, zone: row.zone, in: database)
+                try database.run(
+                    "UPDATE \(table) SET \"_deleted\" = 1, \"_modifiedAt\" = ? WHERE \(named)",
+                    [.real(row.now.timeIntervalSince1970)] + zoneValues + [.text(linkName)]
+                )
+            }
+        }
     }
 
     // MARK: - Links

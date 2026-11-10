@@ -406,20 +406,24 @@ Records are read and written through a `RecordContext`. The main actor uses the 
 
 ```swift
 let context = container.mainContext
-try context.insert(album)
+try context.save(album)
+
+album.title = "Kind of Blue (Remastered)"
+try context.save(album)   // replaces the stored copy
 ```
 
-`insert` saves a new record, a link for each reference target, and a link for each `@Asset`, all
-in one transaction. It saves only the record itself, so insert the records it points at too. A
-record whose ID already exists in the zone throws `RecordContextError.duplicateID`.
+`save` writes the record, a link for each reference target, and a link for each `@Asset`, all in
+one transaction. A record already in the zone is replaced by the copy you pass. It keeps its
+creation date, and links to targets it no longer has are removed. Only the record itself is
+saved, so save the records it points at too.
 
-New records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
+Records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
 any time. `Zone.local` keeps records on this device without syncing them. As in CloudKit, a record is
 named by its zone and ID together, so the same record can be saved to more than one zone.
 
 ```swift
 context.zone = "Work"
-try context.insert(note)   // saved to the Work zone
+try context.save(note)   // saved to the Work zone
 ```
 
 ## Saving and loading

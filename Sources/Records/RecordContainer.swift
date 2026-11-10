@@ -38,7 +38,7 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
 ///
 /// ```swift
 /// let container = try RecordContainer(for: Album.self, Artist.self)
-/// try container.mainContext.insert(album)
+/// try container.mainContext.save(album)
 /// ```
 ///
 /// Every type a registered type refers to is registered too, so naming the types an app starts
