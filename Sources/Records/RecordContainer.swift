@@ -40,58 +40,36 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
 /// from is enough. Opening checks the types against each other and creates or updates a table
 /// for each.
 public final class RecordContainer: Sendable {
-    /// Where the container keeps its data and how it syncs.
-    public struct Configuration: Sendable {
-        /// Where the database lives.
-        public enum Storage: Sendable {
-            /// A database file at this URL. Its folder is created if needed.
-            case file(URL)
-            /// A database that lasts as long as the container, for tests and previews.
-            case inMemory
-        }
-
-        /// Which iCloud container to sync with.
-        public enum CloudKit: Sendable {
-            /// The app's default container.
-            case automatic
-            /// The container with this identifier, such as `iCloud.com.example.app`.
-            case container(String)
-            /// No sync.
-            case none
-        }
-
-        public var storage: Storage
-        public var cloudKit: CloudKit
-
-        public init(storage: Storage = .file(RecordContainer.defaultURL), cloudKit: CloudKit = .automatic) {
-            self.storage = storage
-            self.cloudKit = cloudKit
-        }
-    }
-
-    /// `Application Support/Records/default.sqlite`.
+    /// `Application Support/Records/default.records`.
     public static var defaultURL: URL {
         URL.applicationSupportDirectory
             .appending(path: "Records", directoryHint: .isDirectory)
-            .appending(path: "default.sqlite", directoryHint: .notDirectory)
+            .appending(path: "default.records", directoryHint: .notDirectory)
     }
 
-    public let configuration: Configuration
+    /// The zone new records are saved to. `.local` and `.inMemory` mean the container doesn't
+    /// sync.
+    public let zone: Zone
     /// Every registered type by record type, including related types and Records' own.
     let types: [CKRecord.RecordType: any Record.Type]
     let database: Database
 
-    /// Opens a container for `types` and every type they refer to.
-    public convenience init(for types: any Record.Type..., configuration: Configuration = Configuration()) throws {
-        try self.init(for: types, configuration: configuration)
+    /// Opens a container for `types` and every type they refer to, saving new records to `zone`.
+    public convenience init(for types: any Record.Type..., zone: Zone = .records) throws {
+        try self.init(for: types, zone: zone)
     }
 
-    /// Opens a container for `types` and every type they refer to.
-    public init(for types: [any Record.Type], configuration: Configuration = Configuration()) throws {
-        self.configuration = configuration
+    /// Opens a container for `types` and every type they refer to, saving new records to `zone`.
+    public convenience init(for types: [any Record.Type], zone: Zone = .records) throws {
+        try self.init(for: types, zone: zone, url: zone.storage == .inMemory ? nil : Self.defaultURL)
+    }
+
+    /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
+    init(for types: [any Record.Type], zone: Zone, url: URL?) throws {
+        self.zone = zone
         self.types = try Self.register(types)
         try Self.validate(self.types)
-        database = try Database(configuration.storage)
+        database = try Database(url: url)
         // A closure, not `\.schema`: a key path to a static member of an existential metatype
         // crashes the Swift 6.1 compiler.
         try database.createTables(for: self.types.values.map { $0.schema })

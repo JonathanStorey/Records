@@ -22,12 +22,11 @@ final class Database: @unchecked Sendable {
     private let handle: OpaquePointer
     private let lock = NSLock()
 
-    init(_ storage: RecordContainer.Configuration.Storage) throws {
-        let path: String
-        switch storage {
-        case .inMemory:
-            path = ":memory:"
-        case .file(let url):
+    /// Opens the database file at `url`, creating it and its folder if needed, or a database in
+    /// memory when `url` is `nil`.
+    init(url: URL?) throws {
+        var path = ":memory:"
+        if let url {
             do {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             } catch {
@@ -44,7 +43,7 @@ final class Database: @unchecked Sendable {
             throw RecordContainerError.database(message)
         }
         self.handle = handle
-        if case .file = storage {
+        if url != nil {
             try execute("PRAGMA journal_mode = WAL")
         }
     }

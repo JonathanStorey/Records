@@ -388,14 +388,14 @@ the problem: two types with the same record type, a field name starting with an 
 `@Reference(from:)` that names a property not pointing back. It then creates a table for each type,
 or updates the table when fields were added or removed.
 
-The database lives at `Application Support/Records/default.sqlite` and syncs with the app's default
-iCloud container. Tests and previews can use a throwaway one:
+The database lives at `Application Support/Records/default.records`. New records go to the zone
+the container opens with, `Records` unless you name another, and sync with the app's default iCloud
+container. Two zones never sync:
 
 ```swift
-let container = try RecordContainer(
-    for: Album.self,
-    configuration: .init(storage: .inMemory, cloudKit: .none)
-)
+let container = try RecordContainer(for: Album.self, zone: "Music")      // a zone of your own
+let onDevice = try RecordContainer(for: Album.self, zone: .local)        // on this device only
+let preview = try RecordContainer(for: Album.self, zone: .inMemory)      // tests and previews
 ```
 
 ## Saving and loading
