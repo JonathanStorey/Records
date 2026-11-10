@@ -32,6 +32,10 @@ private func translate(_ predicate: Predicate<Gauge>) -> (sql: String, values: [
     PredicateTranslator(for: Gauge.self).translate(predicate).map { ($0.filter.sql, $0.filter.values, $0.isExact) }
 }
 
+// Enum cases can't be written inside `#Predicate`, so predicates capture them.
+private let energetic = Mood.energetic
+private let two: Rating? = .two
+
 // MARK: - Translation
 
 @Test func equalityOnAnIntegerIsExact() throws {
@@ -76,10 +80,10 @@ private func translate(_ predicate: Predicate<Gauge>) -> (sql: String, values: [
 }
 
 @Test func enumsAreComparedByRawValue() throws {
-    let rating = try #require(translate(#Predicate { $0.rating == Rating.two }))
+    let rating = try #require(translate(#Predicate { $0.rating == two }))
     #expect(rating.values == [.integer(2)])
     #expect(rating.isExact)
-    let mood = try #require(translate(#Predicate { $0.mood == Mood.energetic }))
+    let mood = try #require(translate(#Predicate { $0.mood == energetic }))
     #expect(mood.values == [.text("energetic")])
 }
 
@@ -154,9 +158,9 @@ private let predicates: [Predicate<Gauge>] = [
     #Predicate { $0.isOn },
     #Predicate { !$0.isOn || $0.steps > 5 },
     #Predicate { $0.rating == nil },
-    #Predicate { $0.rating != Rating.two },
+    #Predicate { $0.rating != two },
     #Predicate { $0.nickname != nil },
-    #Predicate { $0.mood == Mood.energetic },
+    #Predicate { $0.mood == energetic },
     #Predicate { $0.name == "Café" },
     #Predicate { $0.name == "Kiln" },
     #Predicate { $0.name != "Kiln" },
