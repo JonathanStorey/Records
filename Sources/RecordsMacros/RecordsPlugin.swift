@@ -11,5 +11,6 @@ struct RecordsPlugin: CompilerPlugin {
         AssetMacro.self,
         RenamedMacro.self,
         LocationMacro.self,
+        TimestampedMacro.self,
     ]
 }

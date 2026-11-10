@@ -30,6 +30,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
               !ReferenceMacro.isReference(variable),
               !AssetMacro.isAsset(variable),
               !LocationMacro.isLocation(variable),
+              TimestampedMacro.attribute(on: variable) == nil,
               !variable.attributes.contains(where: { $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "RecordField" }),
               variable.bindings.count == 1,
               let binding = variable.bindings.first,
@@ -107,6 +108,10 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                 ? "Records.ToMany(ids: []\(reference.sort == nil ? "" : ", sorted: true"))"
                 : "Records.ToOne(id: nil)"
             lines.append("        self.\(reference.storage) = \(empty)")
+        }
+        // The server keeps these dates outside the record's fields.
+        for timestamp in try timestamps(in: structDecl.memberBlock) {
+            lines.append("        self.\(timestamp.storage).load(record.\(timestamp.kind.recordProperty))")
         }
         lines += [
             "    }",
@@ -339,6 +344,16 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             // A location says where someone is, so it is always encrypted.
             let isEncrypted = isEncrypted(variable) || isLocation
             let renamed = try renamedKey(variable)
+            if TimestampedMacro.attribute(on: variable) != nil {
+                // The server sets the date, so there is no field to encrypt, rename, or write.
+                if isEncrypted {
+                    throw MacroExpansionErrorMessage("The server sets @Timestamped dates, so they can't be @Encrypted")
+                }
+                if renamed != nil {
+                    throw MacroExpansionErrorMessage("The server sets @Timestamped dates, so they have no field to rename")
+                }
+                continue
+            }
             if ReferenceMacro.isReference(variable) {
                 // Links hold references, not fields.
                 if isEncrypted {
@@ -440,6 +455,17 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
     }
 
     /// Whether `variable` carries `@Encrypted` or `@Records.Encrypted`.
+    /// The valid `@Timestamped` properties. `@Timestamped` itself reports invalid ones.
+    private static func timestamps(in members: MemberBlockSyntax) throws -> [(storage: String, kind: TimestampedMacro.Kind)] {
+        members.members.compactMap { member in
+            guard let variable = member.decl.as(VariableDeclSyntax.self),
+                  let attribute = TimestampedMacro.attribute(on: variable),
+                  let timestamp = try? TimestampedMacro.timestamp(variable, attribute: attribute)
+            else { return nil }
+            return (timestamp.storage, timestamp.kind)
+        }
+    }
+
     private static func isEncrypted(_ variable: VariableDeclSyntax) -> Bool {
         variable.attributes.contains {
             let name = $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription
