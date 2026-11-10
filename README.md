@@ -418,7 +418,9 @@ try context.save()
 
 `insert` and `delete` stage changes in the context. Nothing reaches the database until `save()`,
 which writes every staged change in one transaction. `rollback()` discards them, and
-`hasChanges` tells you whether any are waiting.
+`hasChanges` tells you whether any are waiting. `changes` lists the current zone's staged
+changes, such as `.insert(album)`. Inserting a record again replaces its change, so each record
+appears once per zone. `save()` writes the changes of every zone.
 
 Inserting a record that is already saved makes the copy you pass its new value. Saving writes
 only the fields and links that differ from the saved copy, keeps the creation date, and removes

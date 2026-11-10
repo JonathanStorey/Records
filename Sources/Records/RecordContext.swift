@@ -48,8 +48,15 @@ public final class RecordContext {
         database = container.database
     }
 
-    /// Whether any change is staged and not yet saved.
+    /// Whether any change is staged and not yet saved, in any zone.
     public var hasChanges: Bool { !staged.isEmpty }
+
+    /// The changes staged in the current `zone`, in the order they were first staged. A record
+    /// appears at most once: staging it again replaces its change in place. `save()` writes the
+    /// changes of every zone, not only these.
+    public var changes: [RecordChange] {
+        stagedOrder.filter { $0.zone == zone }.compactMap { staged[$0]?.change }
+    }
 
     // MARK: - Staging
 
@@ -107,6 +114,7 @@ public final class RecordContext {
         let linkKeys = RecordLink.schema.fields.map(\.key)
         let change = StagedChange(
             kind: kind,
+            record: record,
             schema: R.schema,
             values: Dictionary(uniqueKeysWithValues: zip(R.schema.fields.map(\.key), record.columnValues())),
             links: { orders in
@@ -312,6 +320,24 @@ struct RecordKey: Hashable, Sendable {
     var values: [SQLValue] { [.text(zone.name), .text(zone.ownerName), .text(name)] }
 }
 
+/// A change staged in a `RecordContext`, waiting for `save()`.
+public enum RecordChange {
+    /// The record is saved: added if new, or replacing the saved copy.
+    case insert(any Record)
+    /// The record is deleted with the links it owns.
+    case delete(any Record)
+
+    /// The record's ID.
+    public var id: UUID { record.id }
+
+    /// The record the change carries.
+    public var record: any Record {
+        switch self {
+        case .insert(let record), .delete(let record): record
+        }
+    }
+}
+
 /// A change staged in a context and written by `save()`.
 struct StagedChange {
     enum Kind {
@@ -322,10 +348,19 @@ struct StagedChange {
     }
 
     let kind: Kind
+    let record: any Record
     let schema: RecordSchema
     /// Every field's column value, by field key.
     let values: [String: SQLValue]
     /// The record's links by name, given the saved order key of each target by
     /// `source|targetName`.
     let links: ([String: String]) -> [(String, [String: SQLValue])]
+
+    /// The public form of this change.
+    var change: RecordChange {
+        switch kind {
+        case .save: .insert(record)
+        case .delete: .delete(record)
+        }
+    }
 }

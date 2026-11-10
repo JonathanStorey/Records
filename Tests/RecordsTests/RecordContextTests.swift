@@ -502,3 +502,64 @@ private func makeVenue() -> Venue {
     #expect(after[1]["order"] == order(of: labels[2]))
     #expect(after[2]["order"] != order(of: labels[0]))
 }
+
+// MARK: - Changes
+
+/// The titles of the staged pages, for comparing changes.
+@MainActor
+private func stagedTitles(_ context: RecordContext) -> [String] {
+    context.changes.compactMap { change in
+        guard case .insert(let record) = change, let page = record as? Page else { return nil }
+        return page.title
+    }
+}
+
+/// Inserting a record again replaces its change in place, so a record appears once.
+@MainActor
+@Test func insertingAgainReplacesTheChange() throws {
+    let context = try makeContext(for: Page.self)
+    var first = Page(id: UUID(), title: "Draft", labels: [], pinnedIDs: [])
+    let second = Page(id: UUID(), title: "Other", labels: [], pinnedIDs: [])
+    context.insert(first)
+    context.insert(second)
+    first.title = "Final"
+    context.insert(first)
+
+    #expect(context.changes.map(\.id) == [first.id, second.id])
+    #expect(stagedTitles(context) == ["Final", "Other"])
+}
+
+/// `changes` shows the current zone's changes, and `save()` writes every zone's.
+@MainActor
+@Test func changesBelongToTheirZone() throws {
+    let context = try makeContext(for: Page.self)
+    let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: [])
+    context.insert(page)
+    context.zone = "Work"
+    context.insert(page)
+    let work = Page(id: UUID(), title: "Plan", labels: [], pinnedIDs: [])
+    context.insert(work)
+
+    #expect(context.changes.map(\.id) == [page.id, work.id])
+    context.zone = .records
+    #expect(context.changes.map(\.id) == [page.id])
+
+    try context.save()
+    #expect(!context.hasChanges)
+    #expect(context.changes.isEmpty)
+    #expect(try context.database.rows("SELECT * FROM \"Page\"").count == 3)
+}
+
+@MainActor
+@Test func deleteAppearsInChanges() throws {
+    let context = try makeContext(for: Page.self)
+    let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: [])
+    context.insert(page)
+    context.delete(page)
+    guard case .delete(let record) = try #require(context.changes.first) else {
+        Issue.record("Expected a delete")
+        return
+    }
+    #expect(record.id == page.id)
+    #expect(context.changes.count == 1)
+}
