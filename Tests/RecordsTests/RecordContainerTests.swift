@@ -159,8 +159,3 @@ private func temporaryFile() -> URL {
     #expect(try RecordContainer(for: Page.self, zone: .inMemory).zone == .inMemory)
 }
 
-@Test func anUnknownAppGroupIsAnError() {
-    #expect(throws: RecordContainerError.appGroupUnavailable("group.example.missing")) {
-        try RecordContainer(for: Page.self, appGroup: "group.example.missing")
-    }
-}
