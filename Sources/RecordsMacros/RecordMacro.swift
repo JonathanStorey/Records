@@ -29,6 +29,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
               !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) }),
               !ReferenceMacro.isReference(variable),
               !AssetMacro.isAsset(variable),
+              !LocationMacro.isLocation(variable),
               !variable.attributes.contains(where: { $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription == "RecordField" }),
               variable.bindings.count == 1,
               let binding = variable.bindings.first,
@@ -80,6 +81,10 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                 continue
             }
             let source = field.isEncrypted ? "record.encryptedValues" : "record"
+            if field.isLocation {
+                lines.append("        self._\(field.key) = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: \"\(field.fieldKey)\", from: \(source)))")
+                continue
+            }
             let read: String
             if let wrapped = field.wrappedType {
                 read = "decodeIfPresent((\(wrapped)).self, forKey: \"\(field.fieldKey)\", from: \(source))"
@@ -291,12 +296,17 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         /// Whether it is marked `@Asset`, so it is stored as a `CKAsset`.
         let isAsset: Bool
 
+        /// Whether it is marked `@Location`, so it is stored as a `CLLocation`.
+        let isLocation: Bool
+
         /// Where the generated code writes the field.
         var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
 
-        /// What the generated code writes: the asset for an `@Asset`, otherwise the value.
+        /// What the generated code writes: the asset for an `@Asset`, the `CLLocation` for a
+        /// `@Location`, otherwise the value.
         var written: String {
             if isAsset { return "self._\(key).asset" }
+            if isLocation { return "self._\(key).location" }
             // `nil` clears the field, so only a value goes through `FieldCoding`.
             if wrappedType != nil { return "self.\(name).flatMap { Records.FieldCoding.value($0) }" }
             return "Records.FieldCoding.value(self.\(name))"
@@ -326,6 +336,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             else { continue }
             let isEncrypted = isEncrypted(variable)
             let isAsset = AssetMacro.isAsset(variable)
+            let isLocation = LocationMacro.isLocation(variable)
             let renamed = try renamedKey(variable)
             if ReferenceMacro.isReference(variable) {
                 // Links hold references, not fields.
@@ -391,7 +402,8 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                     isArray: isArray(type),
                     isTracked: !isLet && key != "id",
                     isEncrypted: isEncrypted,
-                    isAsset: isAsset
+                    isAsset: isAsset,
+                    isLocation: isLocation
                 ))
             }
             properties += found.reversed()

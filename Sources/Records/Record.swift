@@ -231,6 +231,19 @@ public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "Encryp
 @attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Asset() = #externalMacro(module: "RecordsMacros", type: "AssetMacro")
 
+/// Stores a `Coordinate?` property as a location, which a query can search by distance.
+///
+/// The property reads and sets a `Coordinate`, a plain value that is easy to compare and encode.
+/// `$name` reads and sets the full `CLLocation`, keeping its timestamp, accuracy, course, and speed
+/// for code that needs them. Setting either one marks the field changed.
+///
+/// ```swift
+/// @Location var venue: Coordinate?
+/// ```
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_), prefixed(`$`))
+public macro Location() = #externalMacro(module: "RecordsMacros", type: "LocationMacro")
+
 /// Stores a field of a `@Record` under its original CloudKit name after the Swift property is
 /// renamed, so records already saved keep their data.
 ///
