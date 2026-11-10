@@ -45,7 +45,7 @@ public struct RecordMacro: ExtensionMacro {
             "        \"\(recordType)\"",
             "    }",
         ] + schemaLines(recordType: recordType, fields: fields, references: references, access: access)
-            + keyPathLines(typeName: type.trimmedDescription, fields: fields, access: access) + [
+            + keyPathLines(typeName: type.trimmedDescription, fields: fields, references: references, access: access) + [
             "    \(access)init(record: CKRecord) throws {",
             "        self.id = try CKRecordDecoder.decodeID(from: record)",
         ]
@@ -237,16 +237,28 @@ public struct RecordMacro: ExtensionMacro {
     }
 
     /// `fieldKeyPaths`: the column each stored property is saved in, by its key path, so a
-    /// predicate on the property can become SQL. `id` is the record's name.
-    private static func keyPathLines(typeName: String, fields: [StoredProperty], access: String) -> [String] {
+    /// predicate on the property can become SQL. `id` is the record's name. `referenceKeyPaths`
+    /// does the same for each `@Reference`, naming its property.
+    private static func keyPathLines(
+        typeName: String, fields: [StoredProperty], references: [ReferenceMacro.Reference], access: String
+    ) -> [String] {
         let entries = ["\\\(typeName).id: \"_name\""] + fields.filter { !$0.isAsset && !$0.isLocation }.map { field in
             "\\\(typeName).\(field.key): \"\(field.fieldKey)\""
         }
-        return [
+        var lines = [
             "    \(access)static var fieldKeyPaths: [PartialKeyPath<Self>: String] {",
             "        [\(entries.joined(separator: ", "))]",
             "    }",
         ]
+        if !references.isEmpty {
+            let entries = references.map { "\\\(typeName).\($0.key): \"\($0.key)\"" }
+            lines += [
+                "    \(access)static var referenceKeyPaths: [PartialKeyPath<Self>: String] {",
+                "        [\(entries.joined(separator: ", "))]",
+                "    }",
+            ]
+        }
+        return lines
     }
 
     /// `encode(to:)` and `init(from:)` for a struct that declares `Codable`, `Encodable`, or

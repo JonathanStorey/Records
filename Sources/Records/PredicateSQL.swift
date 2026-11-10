@@ -24,12 +24,26 @@ struct SQLPage: Sendable {
 /// through a reference) only widens the query, and never changes the result. `isExact` says
 /// whether the SQL alone decides the result.
 struct PredicateTranslator {
+    /// The quoted table of the predicate's input, which link conditions name.
+    let table: String
     /// Each stored property's column and storage kind, by key path.
     let columns: [AnyKeyPath: Column]
+    /// Each reference's links, by key path.
+    let links: [AnyKeyPath: Link]
 
     struct Column {
         let name: String
         let kind: FieldKind
+    }
+
+    /// The links a reference reads: those whose `source` is `source` and whose `ownName` column
+    /// holds the input record's name. `otherName` holds the other record's name.
+    struct Link {
+        let source: String
+        let ownName: String
+        let otherName: String
+        let isToMany: Bool
+        let holdsIDs: Bool
     }
 
     init<R: Record>(for type: R.Type) {
@@ -43,6 +57,28 @@ struct PredicateTranslator {
             }
         }
         self.columns = columns
+        table = quoted(R.recordType)
+
+        let references = Dictionary(R.schema.references.map { ($0.property, $0) }, uniquingKeysWith: { first, _ in first })
+        var links: [AnyKeyPath: Link] = [:]
+        for (keyPath, property) in R.referenceKeyPaths {
+            guard let reference = references[property] else { continue }
+            if let owner = reference.inverseOf {
+                // A `from:` side reads the owner's links from the target end.
+                links[keyPath] = Link(
+                    source: RecordLink.source(type: reference.target.recordType, property: owner),
+                    ownName: "targetName", otherName: "sourceName",
+                    isToMany: reference.isToMany, holdsIDs: reference.holdsIDs
+                )
+            } else {
+                links[keyPath] = Link(
+                    source: RecordLink.source(type: R.recordType, property: property),
+                    ownName: "sourceName", otherName: "targetName",
+                    isToMany: reference.isToMany, holdsIDs: reference.holdsIDs
+                )
+            }
+        }
+        self.links = links
     }
 
     /// The SQL that `predicate` implies, and whether it is exact, or `nil` when no part of it
@@ -71,9 +107,29 @@ struct PredicateTranslator {
         return (terms + [#""_name" ASC"#]).joined(separator: ", ")
     }
 
-    /// The column `keyPath` reads, when it reads a stored property of the predicate's input.
-    func column(for keyPath: AnyKeyPath, rootIsInput: Bool) -> Column? {
-        rootIsInput ? columns[keyPath] : nil
+    /// What `keyPath` reads, when it reads a stored property or reference of the predicate's
+    /// input.
+    func operand(for keyPath: AnyKeyPath, rootIsInput: Bool) -> SQLOperand? {
+        guard rootIsInput else { return nil }
+        if let column = columns[keyPath] { return .column(column) }
+        return links[keyPath].map(SQLOperand.link)
+    }
+
+    /// Whether the input record has a link of `link`, to `other` when given.
+    func exists(_ link: Link, to other: SQLValue? = nil) -> SQLFilter {
+        let alias = "\"link\""
+        var sql = """
+            EXISTS (SELECT 1 FROM \(quoted(RecordLink.recordType)) AS \(alias) \
+            WHERE \(alias)."_zoneName" = \(table)."_zoneName" AND \(alias)."_zoneOwner" = \(table)."_zoneOwner" \
+            AND \(alias)."_isCurrent" = 1 AND \(alias)."_deleted" = 0 \
+            AND \(alias)."source" = ? AND \(alias).\(quoted(link.ownName)) = \(table)."_name"
+            """
+        var values: [SQLValue] = [.text(link.source)]
+        if let other {
+            sql += " AND \(alias).\(quoted(link.otherName)) = ?"
+            values.append(other)
+        }
+        return SQLFilter(sql: sql + ")", values: values)
     }
 }
 
@@ -82,6 +138,7 @@ struct PredicateTranslator {
 /// One side of a comparison.
 enum SQLOperand {
     case column(PredicateTranslator.Column)
+    case link(PredicateTranslator.Link)
     case value(SQLValue)
 }
 
@@ -114,7 +171,7 @@ extension PredicateExpressions.Variable: PredicateInput {}
 
 extension PredicateExpressions.KeyPath: SQLPredicateExpression {
     func operand(_ translator: PredicateTranslator) -> SQLOperand? {
-        translator.column(for: keyPath, rootIsInput: root is PredicateInput).map(SQLOperand.column)
+        translator.operand(for: keyPath, rootIsInput: root is PredicateInput)
     }
 
     /// A Boolean property on its own, as in `#Predicate { $0.isDone }`.
@@ -196,16 +253,20 @@ extension PredicateExpressions.Negation: SQLPredicateExpression {
 }
 
 extension PredicateExpressions.SequenceContains: SQLPredicateExpression {
-    /// `[a, b].contains($0.property)`.
+    /// `[a, b].contains($0.property)`, or `$0.targetIDs.contains(id)`.
     func condition(exact: Bool, _ translator: PredicateTranslator) -> SQLFilter? {
-        guard case .column(let column)? = sqlOperand(element, translator),
+        if case .link(let link)? = sqlOperand(sequence, translator) {
+            guard link.isToMany, link.holdsIDs, case .value(.text(let id))? = sqlOperand(element, translator) else { return nil }
+            return translator.exists(link, to: .text(id))
+        }
+        guard let operand = sqlOperand(element, translator),
               let constant = sequence as? any ConstantExpression,
               let elements = constant.anyValue as? any Sequence
         else { return nil }
         var conditions: [SQLFilter] = []
         for element in elements {
             guard let value = sqlValue(of: element),
-                  let condition = column.comparison(.equal, value, exact: exact)
+                  let condition = operandComparison(operand, .equal, value, exact: exact, translator)
             else { return nil }
             conditions.append(condition)
         }
@@ -255,22 +316,48 @@ enum SQLComparator {
     }
 }
 
-/// `lhs <comparator> rhs` when one side is a stored property and the other a constant, or both
-/// are integer properties.
+/// `lhs <comparator> rhs` when one side is a stored property or ID reference and the other a
+/// constant, or both are integer properties.
 private func comparison(
     _ comparator: SQLComparator, _ lhs: Any, _ rhs: Any, exact: Bool, _ translator: PredicateTranslator
 ) -> SQLFilter? {
     switch (sqlOperand(lhs, translator), sqlOperand(rhs, translator)) {
-    case let (.column(column)?, .value(value)?):
-        return column.comparison(comparator, value, exact: exact)
-    case let (.value(value)?, .column(column)?):
-        return column.comparison(comparator.reversed, value, exact: exact)
+    case let (operand?, .value(value)?):
+        return operandComparison(operand, comparator, value, exact: exact, translator)
+    case let (.value(value)?, operand?):
+        return operandComparison(operand, comparator.reversed, value, exact: exact, translator)
     case let (.column(left)?, .column(right)?) where left.kind == .integer && right.kind == .integer:
         // Only integers compare in SQL exactly as in Swift, column against column.
         return SQLFilter(sql: "(\(quoted(left.name)) \(comparator.symbol) \(quoted(right.name)))", values: [])
     default:
         return nil
     }
+}
+
+/// `operand <comparator> value`.
+private func operandComparison(
+    _ operand: SQLOperand, _ comparator: SQLComparator, _ value: SQLValue, exact: Bool, _ translator: PredicateTranslator
+) -> SQLFilter? {
+    switch operand {
+    case .column(let column):
+        return column.comparison(comparator, value, exact: exact)
+    case .link(let link):
+        // A to-one ID reference holds the ID its link names, or `nil` without one.
+        guard !link.isToMany, link.holdsIDs else { return nil }
+        switch (comparator, value) {
+        case (.equal, .text): return translator.exists(link, to: value)
+        case (.notEqual, .text): return negated(translator.exists(link, to: value))
+        case (.equal, .null): return negated(translator.exists(link))
+        case (.notEqual, .null): return translator.exists(link)
+        default: return nil
+        }
+    case .value:
+        return nil
+    }
+}
+
+private func negated(_ filter: SQLFilter) -> SQLFilter {
+    SQLFilter(sql: "(NOT \(filter.sql))", values: filter.values)
 }
 
 /// Matches a string holding any character outside printable ASCII.
