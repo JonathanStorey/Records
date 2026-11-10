@@ -125,6 +125,21 @@ and determines its shape:
 | to-many | to-many | many-to-many |
 | either | none | one-way: many-to-one or many-to-many |
 
+### Sorting instead of ordering
+
+A to-many owner keeps the order you give it. To sort by the targets' fields instead, pass `sort:`
+with the same parameters as SwiftData's `@Query`:
+
+```swift
+@Reference(sort: \Tag.name) var tags: [Tag]
+@Reference(sort: \Album.year, order: .reverse) var albums: [Album]
+@Reference(sort: SortDescriptor(\Track.title)) var tracks: [Track]
+@Reference(sort: [SortDescriptor(\Track.disc), SortDescriptor(\Track.number)]) var all: [Track]
+```
+
+A sorted reference sorts each time it's read, and its links carry no order keys, so reordering it
+never writes anything. `$tags` lists the IDs unsorted, because sorting needs the records.
+
 ## Every relationship, by example
 
 These examples build one music library: artists, albums, tracks, artwork, genres, tags,

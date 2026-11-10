@@ -1862,4 +1862,149 @@ final class RecordMacroTests: XCTestCase {
         throw XCTSkip("macros are only supported when running tests for the host platform")
         #endif
     }
+
+    // MARK: - Sorted references
+
+    func testSortByKeyPath() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Crate {
+                @Reference(sort: \\Disc.title, order: .reverse) var discs: [Disc]
+            }
+            """,
+            expandedSource: """
+            struct Crate {
+                var discs: [Disc] {
+                    @storageRestrictions(initializes: _discs)
+                    init(initialValue) {
+                        _discs = Records.ToMany(initialValue, sorted: true)
+                    }
+                    get {
+                        _discs.values.sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
+                    }
+                    set {
+                        _discs.values = newValue
+                    }
+                }
+
+                var _discs: Records.ToMany<Disc>
+
+                var $discs: [UUID] {
+                    _discs.ids
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testSortByDescriptors() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Crate {
+                @Reference(sort: [SortDescriptor(\\Disc.year)]) var discs: [Disc]
+            }
+            """,
+            expandedSource: """
+            struct Crate {
+                var discs: [Disc] {
+                    @storageRestrictions(initializes: _discs)
+                    init(initialValue) {
+                        _discs = Records.ToMany(initialValue, sorted: true)
+                    }
+                    get {
+                        _discs.values.sorted(using: [SortDescriptor(\\Disc.year)])
+                    }
+                    set {
+                        _discs.values = newValue
+                    }
+                }
+
+                var _discs: Records.ToMany<Disc>
+
+                var $discs: [UUID] {
+                    _discs.ids
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testSortNeedsRecords() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Crate {
+                @Reference(Disc.self, sort: \\Disc.title) var discIDs: [UUID]
+            }
+            """,
+            expandedSource: """
+            struct Crate {
+                var discIDs: [UUID]
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testSortNeedsToMany() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Crate {
+                @Reference(sort: \\Disc.title) var disc: Disc?
+            }
+            """,
+            expandedSource: """
+            struct Crate {
+                var disc: Disc?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testOrderNeedsAKeyPath() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Crate {
+                @Reference(sort: [SortDescriptor(\\Disc.year)], order: .reverse) var discs: [Disc]
+            }
+            """,
+            expandedSource: """
+            struct Crate {
+                var discs: [Disc]
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'order:' goes with a key path, e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
 }
