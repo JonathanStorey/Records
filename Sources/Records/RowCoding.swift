@@ -1,0 +1,72 @@
+import CloudKit
+import CoreLocation
+import Foundation
+
+/// A value as SQLite stores it.
+enum SQLValue: Equatable, Sendable {
+    case null
+    case integer(Int64)
+    case real(Double)
+    case text(String)
+    case blob(Data)
+}
+
+extension FieldKind {
+    /// The column value for `value`, as `FieldCoding` wrote it into a `CKRecord`. A value that
+    /// doesn't match the kind is stored as `NULL`.
+    func sqlValue(_ value: Any?) -> SQLValue {
+        guard let value else { return .null }
+        switch self {
+        case .text:
+            return (value as? String).map(SQLValue.text) ?? .null
+        case .integer:
+            return (value as? NSNumber).map { .integer($0.int64Value) } ?? .null
+        case .real:
+            return (value as? NSNumber).map { .real($0.doubleValue) } ?? .null
+        case .date:
+            return (value as? Date).map { .real($0.timeIntervalSince1970) } ?? .null
+        case .bytes:
+            return (value as? Data).map(SQLValue.blob) ?? .null
+        case .archived:
+            let data = try? NSKeyedArchiver.archivedData(withRootObject: value, requiringSecureCoding: true)
+            return data.map(SQLValue.blob) ?? .null
+        }
+    }
+
+    /// The value to put back into a `CKRecord` for `FieldCoding` to read, or `nil` for `NULL`.
+    func recordValue(_ value: SQLValue) -> (any CKRecordValueProtocol)? {
+        switch (self, value) {
+        case (_, .null):
+            return nil
+        case (.text, .text(let string)):
+            return string
+        case (.integer, .integer(let number)):
+            return NSNumber(value: number)
+        case (.real, .real(let number)):
+            return NSNumber(value: number)
+        case (.date, .real(let seconds)):
+            return Date(timeIntervalSince1970: seconds)
+        case (.bytes, .blob(let data)):
+            return data
+        case (.archived, .blob(let data)):
+            let classes: [AnyClass] = [
+                NSArray.self, NSString.self, NSNumber.self, NSDate.self, NSData.self, CLLocation.self,
+            ]
+            return (try? NSKeyedUnarchiver.unarchivedObject(ofClasses: classes, from: data)) as? (any CKRecordValueProtocol)
+        default:
+            return nil
+        }
+    }
+}
+
+extension Record {
+    /// The column value of each field in `schema` order, read from what `encodeFields` writes.
+    func columnValues() -> [SQLValue] {
+        let record = CKRecord(recordType: Self.recordType)
+        encodeFields(into: record)
+        return Self.schema.fields.map { field in
+            let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]
+            return field.kind.sqlValue(value)
+        }
+    }
+}

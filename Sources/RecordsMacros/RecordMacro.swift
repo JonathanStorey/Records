@@ -208,7 +208,8 @@ public struct RecordMacro: ExtensionMacro {
         } else {
             lines.append("            fields: [")
             for field in stored {
-                lines.append("                Records.FieldSchema(name: \"\(field.key)\", key: \"\(field.fieldKey)\", isOptional: \(field.wrappedType != nil), isEncrypted: \(field.isEncrypted)),")
+                let kind = field.isLocation ? ".archived" : "Records.FieldKind(for: (\(field.wrappedType ?? field.type)).self)"
+                lines.append("                Records.FieldSchema(name: \"\(field.key)\", key: \"\(field.fieldKey)\", isOptional: \(field.wrappedType != nil), isEncrypted: \(field.isEncrypted), kind: \(kind)),")
             }
             lines.append("            ],")
         }

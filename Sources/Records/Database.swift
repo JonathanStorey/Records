@@ -1,7 +1,8 @@
 import Foundation
 import SQLite3
 
-/// The container's SQLite connection. Every call runs under one lock, so calls never overlap.
+/// The container's SQLite connection. Every call runs under one lock, and a transaction holds
+/// it throughout, so calls never overlap or land inside another caller's transaction.
 final class Database: @unchecked Sendable {
     /// The columns Records keeps on every record table. Field names can't start with an
     /// underscore, so these never collide with a field.
@@ -20,7 +21,12 @@ final class Database: @unchecked Sendable {
     static let syncStateTable = "_SyncState"
 
     private let handle: OpaquePointer
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
+    /// Prepared statements by their SQL, reused for every call.
+    private var statements: [String: OpaquePointer] = [:]
+
+    /// A write that broke a uniqueness rule, such as a record name already in use.
+    struct ConstraintViolation: Error {}
 
     /// Opens the database file at `url`, creating it and its folder if needed, or a database in
     /// memory when `url` is `nil`.
@@ -49,6 +55,9 @@ final class Database: @unchecked Sendable {
     }
 
     deinit {
+        for statement in statements.values {
+            sqlite3_finalize(statement)
+        }
         sqlite3_close_v2(handle)
     }
 
@@ -117,15 +126,112 @@ final class Database: @unchecked Sendable {
         }
     }
 
-    /// Runs `body` in one transaction, rolled back if it throws.
-    func transaction(_ body: () throws -> Void) throws {
+    /// Runs `body` in one transaction, rolled back if it throws. Holds the lock throughout, so
+    /// no other call runs in between.
+    func transaction<T>(_ body: () throws -> T) throws -> T {
+        lock.lock()
+        defer { lock.unlock() }
         try execute("BEGIN IMMEDIATE")
         do {
-            try body()
+            let result = try body()
             try execute("COMMIT")
+            return result
         } catch {
             try? execute("ROLLBACK")
             throw error
+        }
+    }
+
+    /// Runs one statement with `values` bound to its `?` parameters, in order. Throws
+    /// `ConstraintViolation` when it breaks a uniqueness rule.
+    func run(_ sql: String, _ values: [SQLValue]) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        let statement = try prepared(sql)
+        defer {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+        }
+        try bind(values, to: statement)
+        let result = sqlite3_step(statement)
+        guard result == SQLITE_DONE || result == SQLITE_ROW else {
+            if result & 0xFF == SQLITE_CONSTRAINT { throw ConstraintViolation() }
+            throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+        }
+    }
+
+    /// Every row `sql` returns with `values` bound, each as its columns by name.
+    func rows(_ sql: String, _ values: [SQLValue] = []) throws -> [[String: SQLValue]] {
+        lock.lock()
+        defer { lock.unlock() }
+        let statement = try prepared(sql)
+        defer {
+            sqlite3_reset(statement)
+            sqlite3_clear_bindings(statement)
+        }
+        try bind(values, to: statement)
+        var rows: [[String: SQLValue]] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                var row: [String: SQLValue] = [:]
+                for column in 0..<sqlite3_column_count(statement) {
+                    row[String(cString: sqlite3_column_name(statement, column))] = value(statement, column)
+                }
+                rows.append(row)
+            case SQLITE_DONE:
+                return rows
+            default:
+                throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+            }
+        }
+    }
+
+    private func prepared(_ sql: String) throws -> OpaquePointer {
+        if let statement = statements[sql] { return statement }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v3(handle, sql, -1, UInt32(SQLITE_PREPARE_PERSISTENT), &statement, nil) == SQLITE_OK,
+              let statement
+        else {
+            throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+        }
+        statements[sql] = statement
+        return statement
+    }
+
+    private func bind(_ values: [SQLValue], to statement: OpaquePointer) throws {
+        // SQLite copies text and blobs bound with this, so they needn't outlive the call.
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        for (offset, value) in values.enumerated() {
+            let index = Int32(offset + 1)
+            let result: Int32 = switch value {
+            case .null: sqlite3_bind_null(statement, index)
+            case .integer(let number): sqlite3_bind_int64(statement, index, number)
+            case .real(let number): sqlite3_bind_double(statement, index, number)
+            case .text(let string): sqlite3_bind_text(statement, index, string, -1, transient)
+            case .blob(let data):
+                data.withUnsafeBytes { sqlite3_bind_blob(statement, index, $0.baseAddress, Int32($0.count), transient) }
+            }
+            guard result == SQLITE_OK else {
+                throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+            }
+        }
+    }
+
+    private func value(_ statement: OpaquePointer, _ column: Int32) -> SQLValue {
+        switch sqlite3_column_type(statement, column) {
+        case SQLITE_INTEGER:
+            return .integer(sqlite3_column_int64(statement, column))
+        case SQLITE_FLOAT:
+            return .real(sqlite3_column_double(statement, column))
+        case SQLITE_TEXT:
+            return .text(String(cString: sqlite3_column_text(statement, column)))
+        case SQLITE_BLOB:
+            let count = Int(sqlite3_column_bytes(statement, column))
+            guard count > 0, let bytes = sqlite3_column_blob(statement, column) else { return .blob(Data()) }
+            return .blob(Data(bytes: bytes, count: count))
+        default:
+            return .null
         }
     }
 
@@ -151,7 +257,7 @@ final class Database: @unchecked Sendable {
         }
     }
 
-    private func quoted(_ name: String) -> String {
+    func quoted(_ name: String) -> String {
         "\"\(name.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 }

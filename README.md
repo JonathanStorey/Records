@@ -12,6 +12,7 @@ device and sync them through CloudKit with `CKSyncEngine`. Swift macros generate
 - [Every relationship, by example](#every-relationship-by-example)
 - [Choosing the owner](#choosing-the-owner)
 - [Opening a container](#opening-a-container)
+- [Writing records](#writing-records)
 - [Saving and loading](#saving-and-loading)
 - [What loading returns](#what-loading-returns)
 - [Not built yet](#not-built-yet)
@@ -389,9 +390,7 @@ the problem: two types with the same record type, a field name starting with an 
 or updates the table when fields were added or removed.
 
 The database lives at `Application Support/Records/default.records` and syncs with the app's default
-iCloud container. One container holds every zone. New records go to the `Records` zone, or to the
-one you pass as `zone: "Music"`, unless a save names another. `Zone.local` keeps records on this
-device without syncing them. Tests and previews can use a throwaway database:
+iCloud container. One container holds every zone. Tests and previews can use a throwaway database:
 
 ```swift
 let preview = try RecordContainer.inMemory(for: Album.self)
@@ -399,6 +398,28 @@ let preview = try RecordContainer.inMemory(for: Album.self)
 
 To share the database with the app's extensions and widgets, pass its app group:
 `RecordContainer(for: Album.self, appGroup: "group.com.example.music")`.
+
+## Writing records
+
+Records are read and written through a `RecordContext`. The main actor uses the container's
+`mainContext`.
+
+```swift
+let context = container.mainContext
+try context.insert(album)
+```
+
+`insert` saves a new record, a link for each reference target, and a link for each `@Asset`, all
+in one transaction. It saves only the record itself, so insert the records it points at too. A
+record whose ID already exists throws `RecordContextError.duplicateID`.
+
+New records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
+any time. `Zone.local` keeps records on this device without syncing them.
+
+```swift
+context.zone = "Work"
+try context.insert(note)   // saved to the Work zone
+```
 
 ## Saving and loading
 
