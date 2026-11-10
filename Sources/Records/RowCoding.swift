@@ -70,3 +70,20 @@ extension Record {
         }
     }
 }
+
+extension RecordSchema {
+    /// A record named `name` in `zone`, holding the fields of `row`. It is what `encodeFields`
+    /// would write, so the record's generated initializer reads it back.
+    func record(from row: [String: SQLValue], name: String, zone: Zone) -> CKRecord {
+        let record = CKRecord(recordType: recordType, recordID: CKRecord.ID(recordName: name, zoneID: zone.zoneID))
+        for field in fields {
+            guard let value = field.kind.recordValue(row[field.key] ?? .null) else { continue }
+            if field.isEncrypted {
+                record.encryptedValues[field.key] = value
+            } else {
+                record[field.key] = value
+            }
+        }
+        return record
+    }
+}
