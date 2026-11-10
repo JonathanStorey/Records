@@ -84,6 +84,17 @@ gig.$venue = gpsFix       // keeps the fix's timestamp and accuracy
 Setting either one marks the field changed. A location says where someone is, so it is always
 encrypted end to end, with no `@Encrypted` needed.
 
+Read the dates the server keeps for every record with `@Timestamped`:
+
+```swift
+@Timestamped(.created) var createdAt: Date?
+@Timestamped(.modified) var modifiedAt: Date?
+```
+
+They come from the server's clock, so they match on every device, and `.modified` is the one to sort
+a "recently updated" list by. They are `nil` until the record is first saved, never count as a
+change, and can't be assigned.
+
 A field can hold any type CloudKit stores, such as `String`, `Int`, `Double`, `Bool`, `Date`, `Data`,
 `CLLocation`, or an array of them. An enum with such a raw value is stored as its raw value, and any
 other `Codable` type is stored as JSON:

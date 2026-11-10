@@ -14,6 +14,7 @@ private var macroSpecs: [String: MacroSpec] {
         "Asset": MacroSpec(type: AssetMacro.self),
         "Renamed": MacroSpec(type: RenamedMacro.self),
         "Location": MacroSpec(type: LocationMacro.self),
+        "Timestamped": MacroSpec(type: TimestampedMacro.self),
     ]
 }
 #endif
@@ -1875,6 +1876,104 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(message: "@Location holds 'Coordinate?', e.g. 'var venue: Coordinate?'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    // MARK: - Timestamps
+
+    func testTimestampsReadServerDates() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Memo {
+                var id: UUID
+                @Timestamped(.created) var createdAt: Date?
+                @Timestamped(.modified) var modifiedAt: Date?
+            }
+            """,
+            expandedSource: """
+            struct Memo {
+                var id: UUID
+                var createdAt: Date? {
+                    get {
+                        _createdAt
+                    }
+                }
+
+                var _createdAt: Date?
+                var modifiedAt: Date? {
+                    get {
+                        _modifiedAt
+                    }
+                }
+
+                var _modifiedAt: Date?
+            }
+
+            extension Memo: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Memo"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._createdAt = record.creationDate
+                    self._modifiedAt = record.modificationDate
+                }
+                func encodeFields(into record: CKRecord) {
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testTimestampMustHoldOptionalDate() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Memo {
+                @Timestamped(.created) var createdAt: Date
+            }
+            """,
+            expandedSource: """
+            struct Memo {
+                var createdAt: Date
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Timestamped holds 'Date?', which is nil until the record is first saved", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testTimestampNeedsAKind() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Memo {
+                @Timestamped(.edited) var editedAt: Date?
+            }
+            """,
+            expandedSource: """
+            struct Memo {
+                var editedAt: Date?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Timestamped takes .created or .modified, e.g. @Timestamped(.created)", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )

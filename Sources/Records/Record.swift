@@ -247,6 +247,27 @@ public macro Asset() = #externalMacro(module: "RecordsMacros", type: "AssetMacro
 @attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Location() = #externalMacro(module: "RecordsMacros", type: "LocationMacro")
 
+/// A date the server keeps for every record.
+public enum Timestamp: Sendable {
+    /// When the record was first saved.
+    case created
+    /// When the record was last saved, from any device.
+    case modified
+}
+
+/// Reads a date the server keeps for every record, in place of a field.
+///
+/// The server's clock sets it, so it is the same on every device, never counts as a change, and
+/// can't be assigned. It is `nil` until the record is first saved.
+///
+/// ```swift
+/// @Timestamped(.created) var createdAt: Date?
+/// @Timestamped(.modified) var modifiedAt: Date?
+/// ```
+@attached(accessor, names: named(get))
+@attached(peer, names: prefixed(_))
+public macro Timestamped(_ timestamp: Timestamp) = #externalMacro(module: "RecordsMacros", type: "TimestampedMacro")
+
 /// Stores a field of a `@Record` under its original CloudKit name after the Swift property is
 /// renamed, so records already saved keep their data.
 ///
