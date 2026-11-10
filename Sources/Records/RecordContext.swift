@@ -116,6 +116,11 @@ public final class RecordContext {
     }
 
     /// The difference that saves or deletes `record`, compared with `original`.
+    /// A new record's difference: an insert with no original.
+    private static func insertion<R: Record>(of record: R) -> RecordDifference {
+        difference(for: record, original: nil, isDelete: false)
+    }
+
     private static func difference<R: Record>(for record: R, original: R?, isDelete: Bool) -> RecordDifference {
         let keys = R.schema.fields.map(\.key)
         return RecordDifference(
@@ -152,7 +157,7 @@ public final class RecordContext {
                 guard visited.insert(key).inserted,
                       try Self.currentRow(of: key, in: database) == nil
                 else { continue }
-                try Self.write(Self.difference(for: target, original: nil, isDelete: false), key: key, now: now, in: database)
+                try Self.write(Self.insertion(of: target), key: key, now: now, in: database)
                 queue.append((zone, target))
             }
         }
