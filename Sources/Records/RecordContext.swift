@@ -190,7 +190,10 @@ public final class RecordContext {
     /// leaves its record out. References hold their targets' IDs.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         checkRegistered(R.self)
-        var records = try Self.loadAll(R.self, zone: zone, in: database)
+        // The SQL narrows the rows read. The predicate still decides the result below, so a part
+        // of it SQL can't express only widens the query.
+        let filter = descriptor.predicate.flatMap { PredicateTranslator(for: R.self).translate($0)?.filter }
+        var records = try Self.loadAll(R.self, zone: zone, filter: filter, in: database)
 
         // Staged changes in this zone replace or remove the saved records they name.
         let stagedHere = stagedOrder.filter { $0.zone == zone && $0.recordType == R.recordType }
@@ -219,22 +222,26 @@ public final class RecordContext {
         try fetch(descriptor).count
     }
 
-    /// Every saved, undeleted `R` in `zone`, with references holding IDs. One query reads the
-    /// rows and one reads every link they own or are the target of.
-    private nonisolated static func loadAll<R: Record>(_ type: R.Type, zone: Zone, in database: Database) throws -> [R] {
+    /// Every saved, undeleted `R` in `zone` that meets `filter`, with references holding IDs.
+    /// One query reads the rows and one reads every link they own or are the target of.
+    private nonisolated static func loadAll<R: Record>(
+        _ type: R.Type, zone: Zone, filter: SQLFilter?, in database: Database
+    ) throws -> [R] {
         let table = database.quoted(R.recordType)
         let current = "\"_zoneName\" = ? AND \"_zoneOwner\" = ? AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
         let zoneValues: [SQLValue] = [.text(zone.name), .text(zone.ownerName)]
-        let rows = try database.rows("SELECT * FROM \(table) WHERE \(current)", zoneValues)
+        let matching = current + (filter.map { " AND \($0.sql)" } ?? "")
+        let matchingValues = zoneValues + (filter?.values ?? [])
+        let rows = try database.rows("SELECT * FROM \(table) WHERE \(matching)", matchingValues)
         guard !rows.isEmpty else { return [] }
 
-        let names = "SELECT \"_name\" FROM \(table) WHERE \(current)"
+        let names = "SELECT \"_name\" FROM \(table) WHERE \(matching)"
         let linkRows = try database.rows(
             """
             SELECT * FROM \(database.quoted(RecordLink.recordType)) WHERE \(current) \
             AND ("sourceName" IN (\(names)) OR "targetName" IN (\(names)))
             """,
-            zoneValues + zoneValues + zoneValues
+            zoneValues + matchingValues + matchingValues
         )
         var linksByName: [String: [CKRecord]] = [:]
         for row in linkRows {

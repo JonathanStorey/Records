@@ -133,6 +133,18 @@ struct RecordContextBenchmarks {
         #expect(time < 5_000)
     }
 
+    @Test func fetchOneRecordByAPredicateTheDatabaseChecks() throws {
+        let context = try RecordContainer(for: [Venue.self], url: nil).mainContext
+        for venue in venues() { context.insert(venue) }
+        try context.save()
+        let descriptor = RecordDescriptor<Venue>(predicate: #Predicate { $0.name == "Venue 500" })
+        let time = try measure("fetch 1 of \(Self.count) records by a predicate the database checks") {
+            let count = try context.fetch(descriptor).count
+            #expect(count == 1)
+        }
+        #expect(time < 5_000)
+    }
+
     @Test func fetchRecordsWithLinks() throws {
         let context = try RecordContainer(for: [Page.self], url: nil).mainContext
         let labels = (0..<10).map { Label(id: UUID(), name: "\($0)") }

@@ -44,7 +44,8 @@ public struct RecordMacro: ExtensionMacro {
             "    \(access)static var recordType: CKRecord.RecordType {",
             "        \"\(recordType)\"",
             "    }",
-        ] + schemaLines(recordType: recordType, fields: fields, references: references, access: access) + [
+        ] + schemaLines(recordType: recordType, fields: fields, references: references, access: access)
+            + keyPathLines(typeName: type.trimmedDescription, fields: fields, access: access) + [
             "    \(access)init(record: CKRecord) throws {",
             "        self.id = try CKRecordDecoder.decodeID(from: record)",
         ]
@@ -233,6 +234,19 @@ public struct RecordMacro: ExtensionMacro {
             "    }",
         ]
         return lines
+    }
+
+    /// `fieldKeyPaths`: the column each stored property is saved in, by its key path, so a
+    /// predicate on the property can become SQL. `id` is the record's name.
+    private static func keyPathLines(typeName: String, fields: [StoredProperty], access: String) -> [String] {
+        let entries = ["\\\(typeName).id: \"_name\""] + fields.filter { !$0.isAsset && !$0.isLocation }.map { field in
+            "\\\(typeName).\(field.key): \"\(field.fieldKey)\""
+        }
+        return [
+            "    \(access)static var fieldKeyPaths: [PartialKeyPath<Self>: String] {",
+            "        [\(entries.joined(separator: ", "))]",
+            "    }",
+        ]
     }
 
     /// `encode(to:)` and `init(from:)` for a struct that declares `Codable`, `Encodable`, or
