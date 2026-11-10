@@ -111,7 +111,8 @@ struct RecordContextBenchmarks {
         for venue in venues() { context.insert(venue) }
         try context.save()
         let time = try measure("fetch \(Self.count) records") {
-            #expect(try context.fetch(RecordDescriptor<Venue>()).count == Self.count)
+            let count = try context.fetch(RecordDescriptor<Venue>()).count
+            #expect(count == Self.count)
         }
         #expect(time < 5_000)
     }
@@ -126,7 +127,8 @@ struct RecordContextBenchmarks {
             fetchLimit: 50
         )
         let time = try measure("fetch \(Self.count) records with a predicate, sort, and limit") {
-            #expect(try context.fetch(descriptor).count == 50)
+            let count = try context.fetch(descriptor).count
+            #expect(count == 50)
         }
         #expect(time < 5_000)
     }
@@ -139,7 +141,8 @@ struct RecordContextBenchmarks {
         }
         try context.save()
         let time = try measure("fetch \(Self.count) records with 10 links each") {
-            #expect(try context.fetch(RecordDescriptor<Page>()).count == Self.count)
+            let count = try context.fetch(RecordDescriptor<Page>()).count
+            #expect(count == Self.count)
         }
         #expect(time < 5_000)
     }
