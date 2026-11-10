@@ -436,6 +436,18 @@ context.zone = "Work"
 context.insert(note)   // staged for the Work zone
 ```
 
+## Reading records
+
+```swift
+let album = try context.record(id: albumID, for: Album.self)   // Album?
+let any = try context.record(id: someID)                       // (any Record)?
+```
+
+Both look in the context's `zone` and return `nil` when the record is missing or deleted. A
+staged change comes first: a staged insert returns the staged record, and a staged delete returns
+`nil`. References hold their targets' IDs. Without a type, one indexed query finds the table that
+holds the ID.
+
 ## Saving and loading
 
 `CKRecordEncoder` turns a record into a `CKRecord`, plus a link record for each target its

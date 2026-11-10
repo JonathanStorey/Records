@@ -107,9 +107,7 @@ public final class RecordContext {
     }
 
     private func stage<R: Record>(_ record: R, _ kind: StagedChange.Kind) {
-        guard let registered = types[R.recordType], ObjectIdentifier(registered) == ObjectIdentifier(R.self) else {
-            preconditionFailure(RecordContextError.unregisteredType(R.recordType).description)
-        }
+        checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
         let linkKeys = RecordLink.schema.fields.map(\.key)
         let change = StagedChange(
@@ -124,6 +122,78 @@ public final class RecordContext {
             }
         )
         if staged.updateValue(change, forKey: key) == nil { stagedOrder.append(key) }
+    }
+
+    // MARK: - Reading
+
+    /// The `R` with `id` in the current `zone`, or `nil` when there is none. A staged change
+    /// comes first: a staged insert returns the staged record, and a staged delete returns `nil`.
+    ///
+    /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
+    public func record<R: Record>(id: UUID, for type: R.Type = R.self) throws -> R? {
+        checkRegistered(R.self)
+        let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
+        if let change = staged[key] {
+            return change.kind == .delete ? nil : change.record as? R
+        }
+        return try Self.load(R.self, key: key, in: database)
+    }
+
+    /// The record with `id` in the current `zone`, whatever its type, or `nil` when there is none.
+    /// A staged change comes first, as in `record(id:for:)`. Finding the type takes one indexed
+    /// query across every table.
+    public func record(id: UUID) throws -> (any Record)? {
+        let name = id.uuidString
+        if let key = stagedOrder.first(where: { $0.name == name && $0.zone == zone && $0.recordType != RecordLink.recordType }),
+           let change = staged[key] {
+            return change.kind == .delete ? nil : change.record
+        }
+        let lookup = recordTypeLookup
+        let values = Array(repeating: RecordKey(recordType: "", name: name, zone: zone).values, count: lookup.tables).flatMap { $0 }
+        guard case .text(let recordType) = try database.rows(lookup.sql, values).first?["type"],
+              let type = types[recordType]
+        else { return nil }
+        return try Self.load(type, key: RecordKey(recordType: recordType, name: name, zone: zone), in: database)
+    }
+
+    /// One query that names the table holding a current, undeleted record, given the record's
+    /// zone and name once per table. Built once, and its statement is cached like any other.
+    private lazy var recordTypeLookup: (sql: String, tables: Int) = {
+        let recordTypes = types.keys.filter { $0 != RecordLink.recordType }.sorted()
+        let selects = recordTypes.map { recordType in
+            let literal = "'" + recordType.replacingOccurrences(of: "'", with: "''") + "'"
+            return "SELECT \(literal) AS \"type\" FROM \(database.quoted(recordType)) "
+                + "WHERE \(Self.named) AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
+        }
+        return (selects.joined(separator: " UNION ALL ") + " LIMIT 1", recordTypes.count)
+    }()
+
+    /// The saved `R` for `key`, with its references holding IDs, or `nil` when it is missing or
+    /// deleted.
+    private nonisolated static func load<R: Record>(_ type: R.Type, key: RecordKey, in database: Database) throws -> R? {
+        guard let row = try currentRow(of: key, in: database), row["_deleted"] != .integer(1) else { return nil }
+        let record = R.schema.record(from: row, name: key.name, zone: key.zone)
+        // The record's own links, and the links that point at it for its `from:` sides.
+        let linkRows = try database.rows(
+            """
+            SELECT * FROM \(database.quoted(RecordLink.recordType)) \
+            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "_isCurrent" = 1 AND "_deleted" = 0 \
+            AND ("sourceName" = ? OR "targetName" = ?)
+            """,
+            key.values + [.text(key.name)]
+        )
+        let links = linkRows.compactMap { row -> CKRecord? in
+            guard case .text(let name) = row["_name"] else { return nil }
+            return RecordLink.schema.record(from: row, name: name, zone: key.zone)
+        }
+        return try CKRecordDecoder().decode(R.self, from: record, links: links, depth: 0)
+    }
+
+    /// Stops with a message when `R` isn't registered, which is a programmer error.
+    private func checkRegistered<R: Record>(_ type: R.Type) {
+        guard let registered = types[R.recordType], ObjectIdentifier(registered) == ObjectIdentifier(R.self) else {
+            preconditionFailure(RecordContextError.unregisteredType(R.recordType).description)
+        }
     }
 
     // MARK: - Writing

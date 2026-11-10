@@ -563,3 +563,105 @@ private func stagedTitles(_ context: RecordContext) -> [String] {
     #expect(record.id == page.id)
     #expect(context.changes.count == 1)
 }
+
+// MARK: - Looking up a record
+
+/// The IDs a fetched record's reference holds.
+private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
+    record.referenceStates.first { $0.property == property }?.ids ?? []
+}
+
+@MainActor
+@Test func recordReadsBackTheSavedValue() throws {
+    let context = try makeContext(for: Venue.self)
+    var venue = makeVenue()
+    venue.rating = .three
+    venue.moods = [.calm, .energetic]
+    venue.previous = Address(street: "1 Main", city: "Springfield")
+    context.insert(venue)
+    try context.save()
+
+    #expect(try context.record(id: venue.id, for: Venue.self) == venue)
+}
+
+@MainActor
+@Test func recordReadsEncryptedAndArchivedFields() throws {
+    let context = try makeContext(for: Novel.self)
+    let novel = Novel(
+        id: UUID(), title: "Dune", subtitle: nil, tags: ["sf", "classic"], year: 1965, note: "secret",
+        cover: nil, shop: Coordinate(latitude: 51.5, longitude: -0.12), sequel: nil, writers: [], editorID: nil
+    )
+    context.insert(novel)
+    try context.save()
+
+    let loaded = try #require(try context.record(id: novel.id, for: Novel.self))
+    #expect(loaded.title == "Dune")
+    #expect(loaded.tags == ["sf", "classic"])
+    #expect(loaded.year == 1965)
+    #expect(loaded.note == "secret")
+    #expect(loaded.shop?.latitude == 51.5)
+}
+
+@MainActor
+@Test func recordFillsReferenceIDsInOrder() throws {
+    let context = try makeContext(for: Page.self)
+    let labels = ["a", "b", "c"].map { Label(id: UUID(), name: $0) }
+    let page = Page(id: UUID(), title: "Notes", labels: [labels[2], labels[0], labels[1]], pinnedIDs: [])
+    context.insert(page)
+    try context.save()
+
+    let loaded = try #require(try context.record(id: page.id, for: Page.self))
+    #expect(referenceIDs(loaded, "labels") == [labels[2].id, labels[0].id, labels[1].id])
+}
+
+/// A staged change comes before the saved record.
+@MainActor
+@Test func recordReturnsStagedChanges() throws {
+    let context = try makeContext(for: Venue.self)
+    var venue = makeVenue()
+    context.insert(venue)
+    #expect(try context.record(id: venue.id, for: Venue.self) == venue)
+    try context.save()
+
+    venue.name = "Arena"
+    context.insert(venue)
+    #expect(try context.record(id: venue.id, for: Venue.self)?.name == "Arena")
+    context.delete(venue)
+    #expect(try context.record(id: venue.id, for: Venue.self) == nil)
+    #expect(try context.record(id: venue.id) == nil)
+}
+
+@MainActor
+@Test func recordIsNilWhenMissingDeletedOrInAnotherZone() throws {
+    let context = try makeContext(for: Page.self)
+    let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: [])
+    #expect(try context.record(id: page.id, for: Page.self) == nil)
+    context.insert(page)
+    try context.save()
+
+    context.zone = "Work"
+    #expect(try context.record(id: page.id, for: Page.self) == nil)
+    #expect(try context.record(id: page.id) == nil)
+
+    context.zone = .records
+    try context.database.run("UPDATE \"Page\" SET \"_systemFields\" = x'00'", [])
+    context.delete(page)
+    try context.save()
+    #expect(try context.record(id: page.id, for: Page.self) == nil)
+    #expect(try context.record(id: page.id) == nil)
+}
+
+/// Without a type, the record is found in whichever table holds it.
+@MainActor
+@Test func recordFindsTheTypeFromTheID() throws {
+    let context = try makeContext(for: Page.self, Venue.self)
+    let label = Label(id: UUID(), name: "a")
+    let venue = makeVenue()
+    context.insert(label)
+    context.insert(venue)
+    try context.save()
+
+    #expect((try context.record(id: venue.id) as? Venue) == venue)
+    #expect((try context.record(id: label.id) as? Label) == label)
+    #expect(try context.record(id: UUID()) == nil)
+}
