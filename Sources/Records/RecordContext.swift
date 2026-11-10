@@ -42,7 +42,7 @@ public final class RecordContext {
     /// `@Asset`.
     ///
     /// Only `record` itself is saved. Records its references point at are saved by inserting
-    /// them too. Throws `RecordContextError.duplicateID` when a record with the same ID exists.
+    /// them too. Throws `RecordContextError.duplicateID` when a record with the same ID exists in the zone.
     public func insert<R: Record>(_ record: R) throws {
         try checkRegistered(R.self)
         let row = Row(zone: zone, now: Date())
