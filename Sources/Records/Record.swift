@@ -61,7 +61,7 @@ extension Record {
 /// ```
 ///
 /// Generic types must pass a name with `@Record("Name")`.
-@attached(extension, conformances: Record, names: named(recordType), named(init(record:)), named(encodeFields), named(referenceStates), named(loadReference), named(assetStates), named(loadAsset), named(deleteSelfReferences), named(inverse))
+@attached(extension, conformances: Record, names: named(recordType), named(init(record:)), named(encodeFields), named(referenceStates), named(loadReference), named(assetStates), named(loadAsset), named(deleteSelfReferences), named(inverse), named(_RecordCodingKeys), named(encode(to:)), named(init(from:)))
 public macro Record() = #externalMacro(module: "RecordsMacros", type: "RecordMacro")
 
 /// Makes a struct a `Record` with an explicit record type.
@@ -69,7 +69,7 @@ public macro Record() = #externalMacro(module: "RecordsMacros", type: "RecordMac
 /// ```swift
 /// @Record("Box") struct Box<Value: CKRecordValueProtocol> { ... }
 /// ```
-@attached(extension, conformances: Record, names: named(recordType), named(init(record:)), named(encodeFields), named(referenceStates), named(loadReference), named(assetStates), named(loadAsset), named(deleteSelfReferences), named(inverse))
+@attached(extension, conformances: Record, names: named(recordType), named(init(record:)), named(encodeFields), named(referenceStates), named(loadReference), named(assetStates), named(loadAsset), named(deleteSelfReferences), named(inverse), named(_RecordCodingKeys), named(encode(to:)), named(init(from:)))
 public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacros", type: "RecordMacro")
 
 /// Marks a property that points at other `Record`s: one, as in `@Reference var author: Person?`,

@@ -132,6 +132,20 @@ Records keeps no schema versions, because CloudKit's schema only grows. Change a
 - **Stop using** a field by deleting the property. Its data stays in CloudKit.
 - **Never change a field's type.** Add a new field and stop writing the old one.
 
+### Codable
+
+A record can also conform to `Codable`. Declare it on the struct itself, and `@Record` writes
+`encode(to:)` and `init(from:)`, keyed by each property's Swift name:
+
+- A reference encodes its target IDs, so a decoded record holds IDs only, as after a load with
+  depth 0.
+- An `@Asset` encodes its ID. The data stays in its file, which a decoded record finds again on the
+  same device.
+- A `@Location` encodes its coordinate.
+- `@Timestamped` dates are left out, since they come from storage.
+
+A record that writes either method itself keeps its own.
+
 ## References
 
 A property that points at other records is marked `@Reference`. It is never written as a field.

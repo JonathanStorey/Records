@@ -181,11 +181,106 @@ public struct RecordMacro: ExtensionMacro {
                 "    }",
             ]
         }
+        lines += codableLines(for: structDecl, properties: properties, references: references, access: access)
         lines.append("}")
 
         let decl = DeclSyntax(stringLiteral: lines.joined(separator: "\n"))
         guard let extensionDecl = decl.as(ExtensionDeclSyntax.self) else { return [] }
         return [extensionDecl]
+    }
+
+    /// `encode(to:)` and `init(from:)` for a struct that declares `Codable`, `Encodable`, or
+    /// `Decodable`, since the storage behind the wrappers can't be synthesized.
+    ///
+    /// Each property is keyed by its Swift name. A reference encodes its target IDs, an asset its
+    /// ID, and a location its coordinate. Timestamps and constants are left out. A struct that
+    /// writes either method itself keeps its own.
+    private static func codableLines(
+        for decl: StructDeclSyntax,
+        properties: [StoredProperty],
+        references: [ReferenceMacro.Reference],
+        access: String
+    ) -> [String] {
+        let inherited = Set(decl.inheritanceClause?.inheritedTypes.map {
+            $0.type.trimmedDescription.replacingOccurrences(of: "Swift.", with: "")
+        } ?? [])
+        let methods = decl.memberBlock.members.map(\.decl)
+        let writesEncode = methods.contains {
+            guard let function = $0.as(FunctionDeclSyntax.self) else { return false }
+            return function.name.text == "encode"
+                && function.signature.parameterClause.parameters.map(\.firstName.text) == ["to"]
+        }
+        let writesInit = methods.contains {
+            $0.as(InitializerDeclSyntax.self)?.signature.parameterClause.parameters.map(\.firstName.text) == ["from"]
+        }
+        let encodes = !inherited.isDisjoint(with: ["Codable", "Encodable"]) && !writesEncode
+        let decodes = !inherited.isDisjoint(with: ["Codable", "Decodable"]) && !writesInit
+        guard encodes || decodes else { return [] }
+
+        let keys = properties.map(\.key) + references.map(\.key)
+        var lines = [
+            "    private enum _RecordCodingKeys: String, CodingKey {",
+        ] + keys.map { "        case `\($0)`" } + ["    }"]
+
+        if encodes {
+            lines += [
+                "    \(access)func encode(to encoder: any Encoder) throws {",
+                "        var container = encoder.container(keyedBy: _RecordCodingKeys.self)",
+            ]
+            for property in properties {
+                let key = ".`\(property.key)`"
+                if property.isAsset {
+                    lines.append("        try container.encodeIfPresent(self._\(property.key).id, forKey: \(key))")
+                } else if property.isLocation {
+                    lines.append("        try container.encodeIfPresent(self._\(property.key).coordinate, forKey: \(key))")
+                } else if property.wrappedType != nil {
+                    lines.append("        try container.encodeIfPresent(self.\(property.name), forKey: \(key))")
+                } else {
+                    lines.append("        try container.encode(self.\(property.name), forKey: \(key))")
+                }
+            }
+            for reference in references {
+                let key = ".`\(reference.key)`"
+                if reference.isToMany {
+                    lines.append("        try container.encode(self.\(reference.storage).ids, forKey: \(key))")
+                } else {
+                    lines.append("        try container.encodeIfPresent(self.\(reference.storage).id, forKey: \(key))")
+                }
+            }
+            lines.append("    }")
+        }
+
+        if decodes {
+            lines += [
+                "    \(access)init(from decoder: any Decoder) throws {",
+                "        let container = try decoder.container(keyedBy: _RecordCodingKeys.self)",
+            ]
+            for property in properties {
+                let key = ".`\(property.key)`"
+                if property.isAsset {
+                    // The data stays in its file. On a device that has it, the ID finds it again.
+                    lines.append("        self._\(property.key) = Records.AssetField(id: try container.decodeIfPresent(UUID.self, forKey: \(key)), file: nil)")
+                } else if property.isLocation {
+                    lines.append("        self._\(property.key) = Records.LocationField(try container.decodeIfPresent(Records.Coordinate.self, forKey: \(key)))")
+                } else if let wrapped = property.wrappedType {
+                    lines.append("        self.\(property.name) = try container.decodeIfPresent((\(wrapped)).self, forKey: \(key))")
+                } else {
+                    lines.append("        self.\(property.name) = try container.decode((\(property.type)).self, forKey: \(key))")
+                }
+            }
+            // References come back holding IDs only, as after a load with depth 0.
+            for reference in references {
+                let key = ".`\(reference.key)`"
+                if reference.isToMany {
+                    let sorted = reference.sort == nil ? "" : ", sorted: true"
+                    lines.append("        self.\(reference.storage) = Records.ToMany(ids: try container.decodeIfPresent([UUID].self, forKey: \(key)) ?? []\(sorted))")
+                } else {
+                    lines.append("        self.\(reference.storage) = Records.ToOne(id: try container.decodeIfPresent(UUID.self, forKey: \(key)))")
+                }
+            }
+            lines.append("    }")
+        }
+        return lines
     }
 
     /// The name passed to `@Record("Name")`, or the struct's name.
