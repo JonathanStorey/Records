@@ -21,7 +21,6 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
     #expect(stored.coordinate.latitude == hall.latitude)
     #expect(stored.coordinate.longitude == hall.longitude)
     #expect(stored.altitude == 30)
-    #expect(gig.changedFields == ["title", "venue", "home"])
 }
 
 @Test func aCoordinateRoundTrips() throws {
@@ -30,7 +29,6 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
     #expect(decoded.venue == hall)
     #expect(decoded.home == Coordinate(latitude: 40.7, longitude: -74))
     #expect(decoded.home?.altitude == nil)
-    #expect(!decoded.hasChanges)
     #expect(decoded == gig)
 }
 
@@ -61,18 +59,15 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
     #expect(location.speed == 1.5)
 }
 
-@Test func settingEitherFormMarksTheFieldChanged() throws {
+@Test func settingEitherFormSetsTheLocation() throws {
     let record = CKRecordEncoder().encode(Gig(id: UUID(), title: "Proms", venue: hall, home: nil), in: .records)
     var gig = try CKRecordDecoder().decode(Gig.self, from: record)
-    #expect(gig.changedFields.isEmpty)
 
     gig.venue = Coordinate(latitude: 48.86, longitude: 2.35)
-    #expect(gig.changedFields == ["venue"])
-    gig.markSaved()
+    #expect(gig.$venue?.coordinate.latitude == 48.86)
 
     gig.$venue = nil
     #expect(gig.venue == nil)
-    #expect(gig.changedFields == ["venue"])
-    try CKRecordEncoder().encode(gig, into: record)
+    gig.encodeFields(into: record)
     #expect(record.encryptedValues["venue"] == nil)
 }

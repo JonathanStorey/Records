@@ -62,7 +62,7 @@ private func makeProfile() -> Profile {
     let profile = makeProfile()
     let user = makeUser(with: profile)
 
-    let links = try encoder.linksToSave(for: user, in: .records).map(link)
+    let links = try encoder.links(for: user, in: .records).map(link)
     #expect(links.count == 1)
     let written = try #require(links.first)
     #expect(written.relationship == "User.profile:Profile <-> Profile.userID:User")
@@ -81,8 +81,7 @@ private func makeProfile() -> Profile {
     let owner = makeUser(with: nil)
     let profile = Profile(id: UUID(), bio: "Engineer", userID: owner.id)
     #expect(profile.userID == owner.id)
-    #expect(encoder.linksToSave(for: profile, in: .records).isEmpty)
-    #expect(encoder.linkIDsToDelete(for: profile, in: .records).isEmpty)
+    #expect(encoder.links(for: profile, in: .records).isEmpty)
 }
 
 @Test func deleteSelfIsDeclaredByTheFromSide() {
@@ -107,11 +106,11 @@ private func makeProfile() -> Profile {
 @Test func addingAnInverseKeepsToOneLinkIDs() {
     let sourceID = UUID()
     let oneWay = ReferenceState(
-        property: "profile", targetType: "Profile", isToMany: false, inverse: nil, targets: [], loaded: []
+        property: "profile", targetType: "Profile", isToMany: false, isSorted: false, inverse: nil, ids: []
     )
     let twoWay = ReferenceState(
-        property: "profile", targetType: "Profile", isToMany: false,
-        inverse: Inverse(\User.profile, to: Profile.self, property: "userID"), targets: [], loaded: []
+        property: "profile", targetType: "Profile", isToMany: false, isSorted: false,
+        inverse: Inverse(\User.profile, to: Profile.self, property: "userID"), ids: []
     )
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "User", sourceID: sourceID, targetID: UUID())
@@ -124,7 +123,7 @@ private func makeProfile() -> Profile {
 @Test func bothSidesDecodeFromTheSameLink() throws {
     let profile = makeProfile()
     let user = makeUser(with: profile)
-    let links = encoder.linksToSave(for: user, in: .records)
+    let links = encoder.links(for: user, in: .records)
     let records = [encoder.encode(user, in: .records), encoder.encode(profile, in: .records)]
 
     let userAgain = try decoder.decode(User.self, from: records[0], links: links, targets: records)
@@ -133,13 +132,13 @@ private func makeProfile() -> Profile {
 
     let profileAgain = try decoder.decode(Profile.self, from: records[1], links: links, targets: records)
     #expect(profileAgain.userID == user.id)
-    #expect(encoder.linksToSave(for: profileAgain, in: .records).isEmpty)
+    #expect(encoder.links(for: profileAgain, in: .records).isEmpty)
 }
 
 @Test func idFormsDecodeOnBothSides() throws {
     let settings = Settings(id: UUID(), accountID: nil)
     let account = Account(id: UUID(), settingsID: settings.id)
-    let links = encoder.linksToSave(for: account, in: .records)
+    let links = encoder.links(for: account, in: .records)
     #expect(try links.map { try link($0).relationship } == ["Account.settingsID:Settings <-> Settings.accountID:Account"])
 
     let settingsAgain = try decoder.decode(Settings.self, from: encoder.encode(settings, in: .records), links: links)
@@ -147,19 +146,19 @@ private func makeProfile() -> Profile {
 
     let accountAgain = try decoder.decode(Account.self, from: encoder.encode(account, in: .records), links: links)
     #expect(accountAgain == account)
-    #expect(encoder.linksToSave(for: accountAgain, in: .records).isEmpty)
+    #expect(encoder.changes(for: accountAgain, from: links).isEmpty)
 }
 
 @Test func retargetingMovesTheFromSide() throws {
     let first = makeProfile(), second = makeProfile()
     var user = makeUser(with: first)
-    let original = encoder.linksToSave(for: user, in: .records)
-    user.markReferencesSaved()
+    let original = encoder.links(for: user, in: .records)
 
     user.profile = second
-    let moved = encoder.linksToSave(for: user, in: .records)
+    let changes = encoder.changes(for: user, from: original)
+    let moved = changes.saves
     #expect(moved.map(\.recordID) == original.map(\.recordID))
-    #expect(encoder.linkIDsToDelete(for: user, in: .records).isEmpty)
+    #expect(changes.deletes.isEmpty)
 
     let firstAgain = try decoder.decode(Profile.self, from: encoder.encode(first, in: .records), links: moved)
     let secondAgain = try decoder.decode(Profile.self, from: encoder.encode(second, in: .records), links: moved)
@@ -170,18 +169,18 @@ private func makeProfile() -> Profile {
 @Test func clearingTheOwnerDeletesTheLink() throws {
     let profile = makeProfile()
     var user = makeUser(with: profile)
-    let original = encoder.linksToSave(for: user, in: .records)
-    user.markReferencesSaved()
+    let original = encoder.links(for: user, in: .records)
 
     user.profile = nil
-    #expect(encoder.linksToSave(for: user, in: .records).isEmpty)
-    #expect(encoder.linkIDsToDelete(for: user, in: .records) == original.map(\.recordID))
+    let changes = encoder.changes(for: user, from: original)
+    #expect(changes.saves.isEmpty)
+    #expect(changes.deletes == original.map(\.recordID))
 }
 
 @Test func recordOwnerWithIDFromSide() throws {
     let crest = Crest(id: UUID(), teamID: nil)
     let team = Team(id: UUID(), crest: crest)
-    let teamLinks = encoder.linksToSave(for: team, in: .records)
+    let teamLinks = encoder.links(for: team, in: .records)
     #expect(try teamLinks.map { try link($0).relationship } == ["Team.crest:Crest <-> Crest.teamID:Team"])
     #expect(try teamLinks.map { try link($0).deleteSelf } == [true])
     let crestAgain = try decoder.decode(Crest.self, from: encoder.encode(crest, in: .records), links: teamLinks)

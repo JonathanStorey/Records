@@ -19,7 +19,6 @@ private let png = Data("not really a png".utf8)
     #expect(url.deletingLastPathComponent().standardizedFileURL == AssetField.directory.standardizedFileURL)
     #expect(try Data(contentsOf: url) == png)
     #expect(poster.image == png)
-    #expect(poster.changedFields == ["title", "image"])
 }
 
 @Test func eachNewValueGetsItsOwnFile() throws {
@@ -43,7 +42,6 @@ private let png = Data("not really a png".utf8)
     let decoded = try CKRecordDecoder().decode(Poster.self, from: CKRecordEncoder().encode(poster, in: .records))
     #expect(decoded.$image == poster.$image)
     #expect(decoded.image == png)
-    #expect(!decoded.hasChanges)
     #expect(decoded == poster)
 }
 
@@ -52,9 +50,8 @@ private let png = Data("not really a png".utf8)
     var poster = try CKRecordDecoder().decode(Poster.self, from: record)
     poster.image = nil
     #expect(poster.$image == nil)
-    #expect(poster.changedFields == ["image"])
 
-    try CKRecordEncoder().encode(poster, into: record)
+    poster.encodeFields(into: record)
     #expect(record["image"] == nil)
 }
 

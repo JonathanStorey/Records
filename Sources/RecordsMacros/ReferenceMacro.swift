@@ -7,9 +7,8 @@ import SwiftSyntaxMacros
 /// `@Reference(Person.self) var authorID: UUID?` or `@Reference(Tag.self) var tagIDs: [UUID]`.
 ///
 /// Turns the property into a computed one backed by a `Records.ToOne` or `Records.ToMany` named
-/// with a leading underscore. The storage keeps the current targets, the targets last loaded or
-/// saved, and, for the record form, the loaded records. An init accessor keeps the property in the memberwise
-/// initializer.
+/// with a leading underscore. The storage keeps the current targets and, for the record form, the
+/// loaded records. An init accessor keeps the property in the memberwise initializer.
 ///
 /// Only the peer role reports problems, so each one is reported once. The accessor role adds
 /// nothing to a property it cannot handle.

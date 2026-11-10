@@ -30,7 +30,7 @@ private func decodedLinks(_ records: [CKRecord]) throws -> [RecordLink] {
 /// A page that was saved with its links and read back with its labels.
 private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord]) {
     let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
-    let links = encoder.linksToSave(for: page, in: .records)
+    let links = encoder.links(for: page, in: .records)
     let decoded = try decoder.decode(
         Page.self, from: encoder.encode(page, in: .records),
         links: links.shuffled(), targets: items.map { encoder.encode($0, in: .records) }
@@ -59,16 +59,14 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 @Test func settingRecordsKeepsTargetsThatWerentLoaded() throws {
     let items = labels("a", "b")
     let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
-    var decoded = try decoder.decode(
-        Page.self, from: encoder.encode(page, in: .records),
-        links: encoder.linksToSave(for: page, in: .records)
-    )
+    let links = encoder.links(for: page, in: .records)
+    var decoded = try decoder.decode(Page.self, from: encoder.encode(page, in: .records), links: links)
     #expect(decoded.labels.isEmpty)
 
     let added = Label(id: UUID(), name: "c")
     decoded.labels.append(added)
     #expect(decoded._labels.ids == items.map(\.id) + [added.id])
-    #expect(encoder.linksToSave(for: decoded, in: .records).count == 1)
+    #expect(encoder.changes(for: decoded, from: links).saves.count == 1)
 }
 
 // MARK: - Links
@@ -76,7 +74,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 @Test func newRecordWritesOrderedLinks() throws {
     let items = labels("a", "b", "c")
     let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
-    let links = try decodedLinks(encoder.linksToSave(for: page, in: .records))
+    let links = try decodedLinks(encoder.links(for: page, in: .records))
 
     #expect(links.map(\.relationship) == Array(repeating: "Page.labels:[Label]", count: 3))
     #expect(links.map(\.targetName) == items.map(\.id.uuidString))
@@ -88,39 +86,40 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 @Test func toManyLinksHaveOneIDPerTarget() throws {
     let items = labels("a", "b")
     let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
-    let records = encoder.linksToSave(for: page, in: .records)
+    let records = encoder.links(for: page, in: .records)
     #expect(Set(records.map(\.recordID)).count == 2)
 
     let factory = try RecordLink.manyToMany(from: page, property: "labels", to: Label.self, id: items[0].id, order: "x")
     #expect(records[0].recordID.recordName == factory.id.uuidString)
 }
 
-@Test func loadedToManyHasNoChanges() throws {
+@Test func loadedToManyKeepsItsOrderKeys() throws {
     let items = labels("a", "b", "c")
-    let (page, _) = try savedPage(items)
+    let (page, links) = try savedPage(items)
     #expect(page.labels == items)
-    #expect(encoder.linksToSave(for: page, in: .records).isEmpty)
-    #expect(encoder.linkIDsToDelete(for: page, in: .records).isEmpty)
+    #expect(encoder.changes(for: page, from: links).isEmpty)
 }
 
 @Test func appendingWritesOneLinkAfterTheRest() throws {
     var (page, links) = try savedPage(labels("a", "b"))
     page.labels.append(Label(id: UUID(), name: "c"))
 
-    let saves = try decodedLinks(encoder.linksToSave(for: page, in: .records))
+    let changes = encoder.changes(for: page, from: links)
+    let saves = try decodedLinks(changes.saves)
     #expect(saves.count == 1)
     let last = try #require(try decodedLinks(links).compactMap(\.order).max(by: OrderKey.precedes))
     let added = try #require(saves.first?.order)
     #expect(OrderKey.precedes(last, added))
-    #expect(encoder.linkIDsToDelete(for: page, in: .records).isEmpty)
+    #expect(changes.deletes.isEmpty)
 }
 
 @Test func removingDeletesOneLink() throws {
     var (page, links) = try savedPage(labels("a", "b", "c"))
     page.labels.remove(at: 1)
 
-    #expect(encoder.linksToSave(for: page, in: .records).isEmpty)
-    #expect(encoder.linkIDsToDelete(for: page, in: .records) == [links[1].recordID])
+    let changes = encoder.changes(for: page, from: links)
+    #expect(changes.saves.isEmpty)
+    #expect(changes.deletes == [links[1].recordID])
 }
 
 @Test func movingRewritesOneLink() throws {
@@ -128,27 +127,23 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     var (page, links) = try savedPage(items)
     page.labels = [items[2], items[0], items[1]]
 
-    let saves = encoder.linksToSave(for: page, in: .records)
-    #expect(saves.map(\.recordID) == [links[2].recordID])
-    #expect(encoder.linkIDsToDelete(for: page, in: .records).isEmpty)
+    let changes = encoder.changes(for: page, from: links)
+    #expect(changes.saves.map(\.recordID) == [links[2].recordID])
+    #expect(changes.deletes.isEmpty)
 
     let first = try #require(try decodedLinks(links)[0].order)
-    let moved = try #require(try decodedLinks(saves)[0].order)
+    let moved = try #require(try decodedLinks(changes.saves)[0].order)
     #expect(OrderKey.precedes(moved, first))
-}
 
-@Test func markingSavedKeepsTheNewOrder() throws {
-    let items = labels("a", "b", "c")
-    var (page, _) = try savedPage(items)
-    page.labels = [items[2], items[0], items[1]]
-    page.markReferencesSaved()
-    #expect(encoder.linksToSave(for: page, in: .records).isEmpty)
+    // Saved, the new order needs nothing more.
+    let saved = encoder.links(for: page, in: .records, existing: links)
+    #expect(encoder.changes(for: page, from: saved).isEmpty)
 }
 
 @Test func idFormWritesAndReadsLinks() throws {
     let ids = [UUID(), UUID()]
     let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: ids)
-    let links = encoder.linksToSave(for: page, in: .records)
+    let links = encoder.links(for: page, in: .records)
     #expect(try decodedLinks(links).map(\.relationship) == ["Page.pinnedIDs:[Label]", "Page.pinnedIDs:[Label]"])
 
     let decoded = try decoder.decode(Page.self, from: encoder.encode(page, in: .records), links: links.reversed())

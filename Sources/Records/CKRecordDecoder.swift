@@ -37,8 +37,6 @@ public struct CKRecordDecoder: Sendable {
     /// levels deep. With the default of 1, the targets are records and their own references
     /// hold only IDs. With 2, those references hold records too, and so on. With 0, every
     /// reference holds only IDs. A reference that holds IDs is always filled, at every level.
-    /// Every reference starts out unchanged, so the encoder writes no links for it until it
-    /// changes.
     public func decode<R: Record>(
         _ type: R.Type,
         from record: CKRecord,

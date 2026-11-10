@@ -22,7 +22,7 @@ private func savedArticle(
     editorID: UUID? = UUID()
 ) throws -> (article: Article, links: [CKRecord]) {
     let article = Article(id: UUID(), title: "Notes", author: author, editorID: editorID)
-    let links = encoder.linksToSave(for: article, in: .records)
+    let links = encoder.links(for: article, in: .records)
     let targets = [author].compactMap { $0.map { encoder.encode($0, in: .records) } }
     let decoded = try decoder.decode(
         Article.self, from: encoder.encode(article, in: .records), links: links, targets: targets
@@ -48,7 +48,7 @@ private func savedArticle(
     let employee = Employee(id: UUID(), name: "Ada", manager: boss)
     #expect(employee.manager == boss)
 
-    let links = encoder.linksToSave(for: employee, in: .records)
+    let links = encoder.links(for: employee, in: .records)
     #expect(try links.map { try link($0).relationship } == ["Employee.manager:Employee"])
 
     let decoded = try decoder.decode(
@@ -63,7 +63,7 @@ private func savedArticle(
     let boss = Employee(id: UUID(), name: "Grace", manager: nil)
     let employee = Employee(id: UUID(), name: "Ada", manager: boss)
     let record = encoder.encode(employee, in: .records)
-    let links = encoder.linksToSave(for: employee, in: .records)
+    let links = encoder.links(for: employee, in: .records)
 
     let withoutTarget = try decoder.decode(Employee.self, from: record, links: links)
     #expect(withoutTarget.manager == nil)
@@ -71,14 +71,13 @@ private func savedArticle(
     #expect(withoutTarget == employee)
 }
 
-// MARK: - Links to save and delete
+// MARK: - Links
 
 @Test func newRecordWritesALinkPerReference() throws {
     let ada = Person(id: UUID(), name: "Ada"), editorID = UUID()
     let article = Article(id: UUID(), title: "Notes", author: ada, editorID: editorID)
 
-    let links = encoder.linksToSave(for: article, in: .records)
-    #expect(encoder.linkIDsToDelete(for: article, in: .records).isEmpty)
+    let links = encoder.links(for: article, in: .records)
     #expect(links.allSatisfy { $0.recordType == "RecordLink" && $0.recordID.zoneID == Zone.records.zoneID })
 
     let decoded = try links.map(link)
@@ -91,21 +90,19 @@ private func savedArticle(
 @Test func referenceLinkMatchesTheFactory() throws {
     let ada = Person(id: UUID(), name: "Ada")
     let article = Article(id: UUID(), title: "Notes", author: ada, editorID: nil)
-    let written = try link(#require(encoder.linksToSave(for: article, in: .records).first))
+    let written = try link(#require(encoder.links(for: article, in: .records).first))
     let built = try RecordLink.manyToOne(from: article, property: "author", to: Person.self, id: ada.id)
     #expect(written == built)
 }
 
 @Test func emptyReferencesWriteNoLinks() {
     let article = Article(id: UUID(), title: "Notes", author: nil, editorID: nil)
-    #expect(encoder.linksToSave(for: article, in: .records).isEmpty)
-    #expect(encoder.linkIDsToDelete(for: article, in: .records).isEmpty)
+    #expect(encoder.links(for: article, in: .records).isEmpty)
 }
 
-@Test func loadedRecordHasNoChanges() throws {
-    let (article, _) = try savedArticle()
-    #expect(encoder.linksToSave(for: article, in: .records).isEmpty)
-    #expect(encoder.linkIDsToDelete(for: article, in: .records).isEmpty)
+@Test func loadedRecordHasTheSameLinks() throws {
+    let (article, links) = try savedArticle()
+    #expect(encoder.changes(for: article, from: links).isEmpty)
 }
 
 @Test func changingATargetOverwritesTheSameLink() throws {
@@ -113,31 +110,42 @@ private func savedArticle(
     let newEditor = UUID()
     article.editorID = newEditor
 
-    let saves = encoder.linksToSave(for: article, in: .records)
-    #expect(saves.map(\.recordID) == [links[1].recordID])
-    #expect(try link(saves[0]).targetName == newEditor.uuidString)
-    #expect(encoder.linkIDsToDelete(for: article, in: .records).isEmpty)
+    let changes = encoder.changes(for: article, from: links)
+    #expect(changes.saves.map(\.recordID) == [links[1].recordID])
+    #expect(try link(changes.saves[0]).targetName == newEditor.uuidString)
+    #expect(changes.deletes.isEmpty)
 }
 
-@Test func clearingAReferenceDeletesItsLink() throws {
+@Test func clearingAReferenceDropsItsLink() throws {
     var (article, links) = try savedArticle()
     article.author = nil
 
-    #expect(encoder.linksToSave(for: article, in: .records).isEmpty)
-    #expect(encoder.linkIDsToDelete(for: article, in: .records) == [links[0].recordID])
-}
-
-@Test func markingSavedClearsChanges() {
-    var article = Article(id: UUID(), title: "Notes", author: nil, editorID: UUID())
-    #expect(encoder.linksToSave(for: article, in: .records).count == 1)
-    article.markReferencesSaved()
-    #expect(encoder.linksToSave(for: article, in: .records).isEmpty)
-
-    article.editorID = nil
-    #expect(encoder.linkIDsToDelete(for: article, in: .records).count == 1)
+    let changes = encoder.changes(for: article, from: links)
+    #expect(changes.saves.isEmpty)
+    #expect(changes.deletes == [links[0].recordID])
 }
 
 // MARK: - Decoding with links
+
+@Test func depthSetsHowManyLevelsHoldRecords() throws {
+    let top = Employee(id: UUID(), name: "Linus", manager: nil)
+    let boss = Employee(id: UUID(), name: "Grace", manager: top)
+    let employee = Employee(id: UUID(), name: "Ada", manager: boss)
+    let links = [employee, boss].flatMap { encoder.links(for: $0, in: .records) }
+    let records = [employee, boss, top].map { encoder.encode($0, in: .records) }
+
+    let bare = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 0)
+    #expect(bare.manager == nil)
+    #expect(bare.$manager == boss.id)
+
+    let one = try decoder.decode(Employee.self, from: records[0], links: links, targets: records)
+    #expect(one.manager?.name == "Grace")
+    #expect(one.manager?.manager == nil)
+    #expect(one.manager?.$manager == top.id)
+
+    let two = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 2)
+    #expect(two.manager?.manager?.name == "Linus")
+}
 
 @Test func decodingFillsReferencesFromLinks() throws {
     let ada = Person(id: UUID(), name: "Ada"), editorID = UUID()
@@ -149,13 +157,11 @@ private func savedArticle(
 @Test func decodingWithoutTargetsFillsOnlyIDs() throws {
     let ada = Person(id: UUID(), name: "Ada")
     let article = Article(id: UUID(), title: "Notes", author: ada, editorID: nil)
-    let decoded = try decoder.decode(
-        Article.self, from: encoder.encode(article, in: .records),
-        links: encoder.linksToSave(for: article, in: .records)
-    )
+    let links = encoder.links(for: article, in: .records)
+    let decoded = try decoder.decode(Article.self, from: encoder.encode(article, in: .records), links: links)
     #expect(decoded.author == nil)
     #expect(decoded._author.id == ada.id)
-    #expect(encoder.linksToSave(for: decoded, in: .records).isEmpty)
+    #expect(encoder.changes(for: decoded, from: links).isEmpty)
 }
 
 @Test func decodingIgnoresOtherRecordsLinks() throws {
@@ -163,7 +169,7 @@ private func savedArticle(
     let article = Article(id: UUID(), title: "Notes", author: nil, editorID: nil)
     let decoded = try decoder.decode(
         Article.self, from: encoder.encode(article, in: .records),
-        links: encoder.linksToSave(for: other, in: .records)
+        links: encoder.links(for: other, in: .records)
     )
     #expect(decoded._author.id == nil)
     #expect(decoded.editorID == nil)
