@@ -78,7 +78,7 @@ final class Database: @unchecked Sendable {
         let table = quoted(schema.recordType)
         let columns = Self.bookkeeping.map { "\(quoted($0.name)) \($0.definition)" }
             + schema.fields.map { quoted($0.key) }
-        try execute("CREATE TABLE IF NOT EXISTS \(table) (\(columns.joined(separator: ", ")), PRIMARY KEY (\"_name\", \"_isCurrent\"))")
+        try execute("CREATE TABLE IF NOT EXISTS \(table) (\(columns.joined(separator: ", ")), PRIMARY KEY (\"_zoneName\", \"_zoneOwner\", \"_name\", \"_isCurrent\"))")
 
         let existing = try columnNames(schema.recordType)
         let wanted = Set(schema.fields.map(\.key))
@@ -96,8 +96,8 @@ final class Database: @unchecked Sendable {
             """)
         if schema.recordType == RecordLink.recordType {
             // Each side of a relationship finds its links by its own name.
-            try execute("CREATE INDEX IF NOT EXISTS \"RecordLink_source\" ON \(table) (\"sourceName\", \"source\")")
-            try execute("CREATE INDEX IF NOT EXISTS \"RecordLink_target\" ON \(table) (\"targetName\", \"source\")")
+            try execute("CREATE INDEX IF NOT EXISTS \"RecordLink_source\" ON \(table) (\"_zoneName\", \"_zoneOwner\", \"sourceName\", \"source\")")
+            try execute("CREATE INDEX IF NOT EXISTS \"RecordLink_target\" ON \(table) (\"_zoneName\", \"_zoneOwner\", \"targetName\", \"source\")")
         }
     }
 

@@ -9,12 +9,16 @@ private func makeContext(for types: any Record.Type...) throws -> RecordContext 
     try RecordContainer(for: types, url: nil).mainContext
 }
 
-/// The current row of `id` in `table`.
+/// The current row of `id` in `table`, in `zone` when one is given.
 @MainActor
-private func currentRow(_ table: String, _ id: UUID, in context: RecordContext) throws -> [String: SQLValue] {
-    let rows = try context.database.rows(
-        "SELECT * FROM \"\(table)\" WHERE \"_name\" = ? AND \"_isCurrent\" = 1", [.text(id.uuidString)]
-    )
+private func currentRow(_ table: String, _ id: UUID, in context: RecordContext, zone: Zone? = nil) throws -> [String: SQLValue] {
+    var sql = "SELECT * FROM \"\(table)\" WHERE \"_name\" = ? AND \"_isCurrent\" = 1"
+    var values: [SQLValue] = [.text(id.uuidString)]
+    if let zone {
+        sql += " AND \"_zoneName\" = ? AND \"_zoneOwner\" = ?"
+        values += [.text(zone.name), .text(zone.ownerName)]
+    }
+    let rows = try context.database.rows(sql, values)
     return try #require(rows.first)
 }
 
@@ -104,15 +108,23 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     #expect(try context.database.rows("SELECT * FROM \"Page\"").count == zones.count)
 }
 
-/// A record's ID is unique across every zone, so the same record can't be inserted into two.
+/// A row is named by its zone and ID together, as a CloudKit record ID is, so the same record
+/// can be in two zones. Inserting it twice into one zone still throws.
 @MainActor
-@Test func sameIDCannotBeInsertedIntoTwoZones() throws {
+@Test func sameIDCanBeInsertedIntoTwoZones() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "One", labels: [], pinnedIDs: [])
+    let page = Page(id: UUID(), title: "One", labels: [Label(id: UUID(), name: "tag")], pinnedIDs: [])
     try context.insert(page)
     context.zone = "Work"
+    try context.insert(page)
     #expect(throws: RecordContextError.duplicateID(page.id)) { try context.insert(page) }
-    #expect(try currentRow("Page", page.id, in: context)["_zoneName"] == .text("Records"))
+
+    #expect(try currentRow("Page", page.id, in: context, zone: .records)["title"] == .text("One"))
+    #expect(try currentRow("Page", page.id, in: context, zone: "Work")["title"] == .text("One"))
+    let zones = try context.database.rows("SELECT \"_zoneName\" FROM \"Page\" ORDER BY \"_zoneName\"")
+    #expect(zones.map { $0["_zoneName"] } == [Optional(SQLValue.text("Records")), Optional(SQLValue.text("Work"))])
+    // Each zone has its own link; the link's ID comes from the record and reference, so it repeats too.
+    #expect(try linkRows(of: page.id, in: context).count == 2)
 }
 
 @MainActor

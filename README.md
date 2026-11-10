@@ -414,7 +414,8 @@ in one transaction. It saves only the record itself, so insert the records it po
 record whose ID already exists throws `RecordContextError.duplicateID`.
 
 New records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
-any time. `Zone.local` keeps records on this device without syncing them.
+any time. `Zone.local` keeps records on this device without syncing them. As in CloudKit, a record is
+named by its zone and ID together, so the same record can be saved to more than one zone.
 
 ```swift
 context.zone = "Work"
