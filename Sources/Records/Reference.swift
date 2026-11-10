@@ -293,3 +293,33 @@ extension Record {
         record.recordType == recordType && record.recordID.recordName == id.uuidString
     }
 }
+
+// MARK: - Loaded targets
+
+/// Reference storage that can hold loaded target records.
+protocol LoadedReference {
+    /// The target records the reference holds, in order. Empty when it holds only IDs.
+    var loadedRecords: [any Record] { get }
+}
+
+extension ToOne: LoadedReference {
+    var loadedRecords: [any Record] { value.map { [$0] } ?? [] }
+}
+
+extension ToMany: LoadedReference {
+    var loadedRecords: [any Record] { values }
+}
+
+extension Record {
+    /// The target records loaded into the references that write links. `@Reference(from:)`
+    /// sides are left out, since this record doesn't own those links.
+    var loadedTargets: [any Record] {
+        let owning = Set(referenceStates.map(\.property))
+        return Mirror(reflecting: self).children.flatMap { child -> [any Record] in
+            guard let label = child.label, label.hasPrefix("_"), owning.contains(String(label.dropFirst())),
+                  let reference = child.value as? LoadedReference
+            else { return [] }
+            return reference.loadedRecords
+        }
+    }
+}

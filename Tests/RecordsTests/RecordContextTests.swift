@@ -187,15 +187,6 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     #expect(links.first?["assetID"] == novel._cover.id.map { SQLValue.text($0.uuidString) })
 }
 
-@MainActor
-@Test func saveDoesNotSaveTheTargets() throws {
-    let context = try makeContext(for: Page.self)
-    let label = Label(id: UUID(), name: "a")
-    context.insert(Page(id: UUID(), title: "Notes", labels: [label], pinnedIDs: []))
-    try context.save()
-    #expect(try context.database.rows("SELECT * FROM \"Label\"").isEmpty)
-}
-
 // MARK: - Errors
 
 @MainActor
@@ -664,4 +655,93 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
     #expect((try context.record(id: venue.id) as? Venue) == venue)
     #expect((try context.record(id: label.id) as? Label) == label)
     #expect(try context.record(id: UUID()) == nil)
+}
+
+// MARK: - New targets
+
+/// A loaded target that exists nowhere yet is inserted with the record that refers to it, in
+/// the same zone.
+@MainActor
+@Test func saveInsertsNewTargets() throws {
+    let context = try makeContext(for: Page.self)
+    context.zone = "Work"
+    let labels = ["a", "b"].map { Label(id: UUID(), name: $0) }
+    context.insert(Page(id: UUID(), title: "Notes", labels: labels, pinnedIDs: []))
+    #expect(context.changes.count == 1)
+    try context.save()
+
+    for label in labels {
+        #expect(try currentRow("Label", label.id, in: context, zone: "Work")["name"] == .text(label.name))
+    }
+}
+
+/// A target that is already saved is never written, so a stale copy can't overwrite it.
+@MainActor
+@Test func saveLeavesExistingTargetsAlone() throws {
+    let context = try makeContext(for: Page.self)
+    let label = Label(id: UUID(), name: "Current")
+    context.insert(label)
+    try context.save()
+
+    let stale = Label(id: label.id, name: "Stale")
+    context.insert(Page(id: UUID(), title: "Notes", labels: [stale], pinnedIDs: []))
+    try context.save()
+    #expect(try currentRow("Label", label.id, in: context)["name"] == .text("Current"))
+}
+
+/// A target staged on its own is saved as staged, not as the copy the record holds.
+@MainActor
+@Test func stagedTargetsWinOverLoadedCopies() throws {
+    let context = try makeContext(for: Page.self)
+    let label = Label(id: UUID(), name: "Loaded")
+    context.insert(Page(id: UUID(), title: "Notes", labels: [label], pinnedIDs: []))
+    context.insert(Label(id: label.id, name: "Staged"))
+    try context.save()
+    #expect(try currentRow("Label", label.id, in: context)["name"] == .text("Staged"))
+}
+
+/// A deleted target stays deleted.
+@MainActor
+@Test func saveDoesNotRestoreDeletedTargets() throws {
+    let context = try makeContext(for: Page.self)
+    let label = Label(id: UUID(), name: "a")
+    context.insert(label)
+    try context.save()
+    try context.database.run("UPDATE \"Label\" SET \"_systemFields\" = x'00'", [])
+    context.delete(label)
+    try context.save()
+
+    context.insert(Page(id: UUID(), title: "Notes", labels: [label], pinnedIDs: []))
+    try context.save()
+    #expect(try currentRow("Label", label.id, in: context)["_deleted"] == .integer(1))
+}
+
+/// New targets' own new targets are inserted too, through to-one and to-many references.
+@MainActor
+@Test func saveInsertsNewTargetsAtEveryLevel() throws {
+    let context = try makeContext(for: Novel.self)
+    let writer = Writer(id: UUID(), name: "Herbert", bookIDs: [])
+    let sequel = Novel(
+        id: UUID(), title: "Dune Messiah", subtitle: nil, tags: [], year: 1969, note: nil,
+        cover: nil, shop: nil, sequel: nil, writers: [writer], editorID: nil
+    )
+    let novel = Novel(
+        id: UUID(), title: "Dune", subtitle: nil, tags: [], year: 1965, note: nil,
+        cover: nil, shop: nil, sequel: sequel, writers: [], editorID: nil
+    )
+    context.insert(novel)
+    try context.save()
+
+    #expect(try currentRow("Novel", sequel.id, in: context)["title"] == .text("Dune Messiah"))
+    #expect(try currentRow("Writer", writer.id, in: context)["name"] == .text("Herbert"))
+    #expect(try linkRows(of: sequel.id, in: context).map { $0["targetName"] } == [Optional(SQLValue.text(writer.id.uuidString))])
+}
+
+/// A reference that holds only IDs has no records to insert.
+@MainActor
+@Test func idOnlyReferencesInsertNothing() throws {
+    let context = try makeContext(for: Page.self)
+    context.insert(Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: [UUID()]))
+    try context.save()
+    #expect(try context.database.rows("SELECT * FROM \"Label\"").isEmpty)
 }

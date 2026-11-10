@@ -424,8 +424,12 @@ appears once per zone. `save()` writes the changes of every zone.
 
 Inserting a record that is already saved makes the copy you pass its new value. Saving writes
 only the fields and links that differ from the saved copy, keeps the creation date, and removes
-links to targets the record no longer has. Only the record itself is staged, so insert the
-records it points at too.
+links to targets the record no longer has.
+
+A reference that holds records can hold new ones. When saved, any target that exists nowhere yet
+(not saved in the zone and not staged) is inserted too, along with its own new targets. A target
+that already exists is never written from a record that refers to it, so an old copy can't
+overwrite newer values. Insert it directly to save changes to it.
 
 Records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
 any time. `Zone.local` keeps records on this device without syncing them. As in CloudKit, a record is

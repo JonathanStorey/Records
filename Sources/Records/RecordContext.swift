@@ -85,16 +85,9 @@ public final class RecordContext {
         let database = self.database
         try database.transaction {
             for (key, change) in changes {
-                let savedLinks = try Self.currentLinks(of: key, in: database)
-                switch change.kind {
-                case .save:
-                    try Self.writeRecord(change.schema, key: key, values: change.values, now: now, in: database)
-                    try Self.writeLinks(change.links(Self.orders(of: savedLinks)), of: key, saved: savedLinks, now: now, in: database)
-                case .delete:
-                    try Self.remove(key, now: now, in: database)
-                    try Self.writeLinks([], of: key, saved: savedLinks, now: now, in: database)
-                }
+                try Self.write(change, key: key, now: now, in: database)
             }
+            try insertNewTargets(of: changes, now: now, in: database)
         }
         staged.removeAll()
         stagedOrder.removeAll()
@@ -109,8 +102,13 @@ public final class RecordContext {
     private func stage<R: Record>(_ record: R, _ kind: StagedChange.Kind) {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
+        if staged.updateValue(Self.change(for: record, kind), forKey: key) == nil { stagedOrder.append(key) }
+    }
+
+    /// The change that saves or deletes `record`.
+    private static func change<R: Record>(for record: R, _ kind: StagedChange.Kind) -> StagedChange {
         let linkKeys = RecordLink.schema.fields.map(\.key)
-        let change = StagedChange(
+        return StagedChange(
             kind: kind,
             record: record,
             schema: R.schema,
@@ -121,7 +119,38 @@ public final class RecordContext {
                 }
             }
         )
-        if staged.updateValue(change, forKey: key) == nil { stagedOrder.append(key) }
+    }
+
+    /// Inserts the loaded targets of the saved records that exist nowhere yet: not saved in the
+    /// zone, deleted or not, and not staged. A target that exists is never written, so a stale
+    /// copy can't overwrite it. New targets' own new targets are inserted too.
+    private func insertNewTargets(of changes: [(RecordKey, StagedChange)], now: Double, in database: Database) throws {
+        var visited = Set(changes.map(\.0))
+        var queue = changes.compactMap { key, change in change.kind == .save ? (key.zone, change.record) : nil }
+        while !queue.isEmpty {
+            let (zone, record) = queue.removeFirst()
+            for target in record.loadedTargets {
+                let key = RecordKey(recordType: type(of: target).recordType, name: target.id.uuidString, zone: zone)
+                guard visited.insert(key).inserted,
+                      try Self.currentRow(of: key, in: database) == nil
+                else { continue }
+                try Self.write(Self.change(for: target, .save), key: key, now: now, in: database)
+                queue.append((zone, target))
+            }
+        }
+    }
+
+    /// Writes one change: the record's row and its links.
+    private nonisolated static func write(_ change: StagedChange, key: RecordKey, now: Double, in database: Database) throws {
+        let savedLinks = try currentLinks(of: key, in: database)
+        switch change.kind {
+        case .save:
+            try writeRecord(change.schema, key: key, values: change.values, now: now, in: database)
+            try writeLinks(change.links(orders(of: savedLinks)), of: key, saved: savedLinks, now: now, in: database)
+        case .delete:
+            try remove(key, now: now, in: database)
+            try writeLinks([], of: key, saved: savedLinks, now: now, in: database)
+        }
     }
 
     // MARK: - Reading
