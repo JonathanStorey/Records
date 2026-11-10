@@ -75,6 +75,46 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     #expect(try currentRow("Page", second.id, in: context)["_zoneOwner"] == .text(CKCurrentUserDefaultName))
 }
 
+/// One main context writes to several zones by switching `zone` between inserts. Each record
+/// and its links land in the zone that was set when it was inserted.
+@MainActor
+@Test func mainContextSwitchesBetweenZones() throws {
+    let container = try RecordContainer(for: [Page.self], url: nil)
+    let shared = Zone(CKRecordZone.ID(zoneName: "Team", ownerName: "_friend"))
+    let zones: [Zone] = [.records, "Work", .local, shared]
+    var pages: [Page] = []
+    for zone in zones {
+        container.mainContext.zone = zone
+        let page = Page(id: UUID(), title: zone.name, labels: [Label(id: UUID(), name: "tag")], pinnedIDs: [])
+        try container.mainContext.insert(page)
+        pages.append(page)
+    }
+
+    // The zone stays set because mainContext is the same context every time.
+    #expect(container.mainContext.zone == shared)
+    let context = container.mainContext
+    for (page, zone) in zip(pages, zones) {
+        let row = try currentRow("Page", page.id, in: context)
+        #expect(row["_zoneName"] == .text(zone.name))
+        #expect(row["_zoneOwner"] == .text(zone.ownerName))
+        let links = try linkRows(of: page.id, in: context)
+        #expect(links.count == 1)
+        #expect(links.allSatisfy { $0["_zoneName"] == .text(zone.name) && $0["_zoneOwner"] == .text(zone.ownerName) })
+    }
+    #expect(try context.database.rows("SELECT * FROM \"Page\"").count == zones.count)
+}
+
+/// A record's ID is unique across every zone, so the same record can't be inserted into two.
+@MainActor
+@Test func sameIDCannotBeInsertedIntoTwoZones() throws {
+    let context = try makeContext(for: Page.self)
+    let page = Page(id: UUID(), title: "One", labels: [], pinnedIDs: [])
+    try context.insert(page)
+    context.zone = "Work"
+    #expect(throws: RecordContextError.duplicateID(page.id)) { try context.insert(page) }
+    #expect(try currentRow("Page", page.id, in: context)["_zoneName"] == .text("Records"))
+}
+
 @MainActor
 @Test func encryptedAndArchivedFieldsAreStored() throws {
     let context = try makeContext(for: Novel.self)
