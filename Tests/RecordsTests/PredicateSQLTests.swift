@@ -2,6 +2,11 @@ import Foundation
 import Testing
 @testable import Records
 
+/// A raw-value enum predicates can compare, which needs `Codable`.
+enum Grade: Int, Codable {
+    case one = 1, two, three
+}
+
 @Record
 struct Gauge: Equatable {
     var id: UUID
@@ -12,7 +17,7 @@ struct Gauge: Equatable {
     var checkedAt: Date
     var isOn: Bool
     var mood: Mood
-    var rating: Rating?
+    var rating: Grade?
     var nickname: String?
 }
 
@@ -20,7 +25,7 @@ private let start = Date(timeIntervalSinceReferenceDate: 800_000_000.123456)
 
 private func gauge(
     _ name: String, level: Double = 1, steps: Int = 0, limit: Int = 5, checkedAt: Date = start,
-    isOn: Bool = false, mood: Mood = .calm, rating: Rating? = nil, nickname: String? = nil
+    isOn: Bool = false, mood: Mood = .calm, rating: Grade? = nil, nickname: String? = nil
 ) -> Gauge {
     Gauge(
         id: UUID(), name: name, level: level, steps: steps, limit: limit, checkedAt: checkedAt,
@@ -34,7 +39,7 @@ private func translate(_ predicate: Predicate<Gauge>) -> (sql: String, values: [
 
 // Enum cases can't be written inside `#Predicate`, so predicates capture them.
 private let energetic = Mood.energetic
-private let two: Rating? = .two
+private let two: Grade? = .two
 
 // MARK: - Translation
 
