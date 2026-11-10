@@ -190,13 +190,18 @@ public final class RecordContext {
     /// leaves its record out. References hold their targets' IDs.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         checkRegistered(R.self)
+        let plan = self.plan(for: descriptor)
+        if let page = plan.page {
+            // The database sorts and limits exactly as Swift would.
+            return try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: page, in: database)
+        }
+
         // The SQL narrows the rows read. The predicate still decides the result below, so a part
         // of it SQL can't express only widens the query.
-        let filter = descriptor.predicate.flatMap { PredicateTranslator(for: R.self).translate($0)?.filter }
-        var records = try Self.loadAll(R.self, zone: zone, filter: filter, in: database)
+        var records = try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: nil, in: database)
 
         // Staged changes in this zone replace or remove the saved records they name.
-        let stagedHere = stagedOrder.filter { $0.zone == zone && $0.recordType == R.recordType }
+        let stagedHere = stagedKeys(R.self)
         if !stagedHere.isEmpty {
             let names = Set(stagedHere.map(\.name))
             records.removeAll { names.contains($0.id.uuidString) }
@@ -219,22 +224,72 @@ public final class RecordContext {
 
     /// How many records `fetch(descriptor)` would return.
     public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
-        try fetch(descriptor).count
+        checkRegistered(R.self)
+        let plan = self.plan(for: descriptor)
+        guard plan.page != nil else { return try fetch(descriptor).count }
+        // The database counts the matches without reading them.
+        let (matching, values) = Self.matching(zone: zone, filter: plan.filter)
+        let rows = try database.rows(
+            "SELECT COUNT(*) AS \"count\" FROM \(database.quoted(R.recordType)) WHERE \(matching)", values
+        )
+        guard case .integer(let total)? = rows.first?["count"] else { return 0 }
+        let remaining = max(Int(total) - max(descriptor.fetchOffset ?? 0, 0), 0)
+        return descriptor.fetchLimit.map { min(remaining, max($0, 0)) } ?? remaining
     }
 
-    /// Every saved, undeleted `R` in `zone` that meets `filter`, with references holding IDs.
-    /// One query reads the rows and one reads every link they own or are the target of.
-    private nonisolated static func loadAll<R: Record>(
-        _ type: R.Type, zone: Zone, filter: SQLFilter?, in database: Database
-    ) throws -> [R] {
-        let table = database.quoted(R.recordType)
+    /// The staged changes to records of `R` in the current zone.
+    private func stagedKeys<R: Record>(_ type: R.Type) -> [RecordKey] {
+        stagedOrder.filter { $0.zone == zone && $0.recordType == R.recordType }
+    }
+
+    /// The SQL for `descriptor`: a filter that narrows the rows read, and, when the database can
+    /// answer the whole descriptor alone, the order and range of rows to read.
+    ///
+    /// The database answers alone when the predicate translates exactly, every sort translates,
+    /// and no change to `R` is staged in this zone.
+    private func plan<R: Record>(for descriptor: RecordDescriptor<R>) -> (filter: SQLFilter?, page: SQLPage?) {
+        let translator = PredicateTranslator(for: R.self)
+        var filter: SQLFilter?
+        var isExact = true
+        if let predicate = descriptor.predicate {
+            let translated = translator.translate(predicate)
+            filter = translated?.filter
+            isExact = translated?.isExact ?? false
+        }
+        guard isExact, stagedKeys(R.self).isEmpty, let order = translator.orderBy(descriptor.sortBy) else {
+            return (filter, nil)
+        }
+        let page = SQLPage(
+            orderBy: order,
+            limit: descriptor.fetchLimit.map { max($0, 0) },
+            offset: max(descriptor.fetchOffset ?? 0, 0)
+        )
+        return (filter, page)
+    }
+
+    /// The condition for current, undeleted rows in `zone` that meet `filter`, and its values.
+    private nonisolated static func matching(zone: Zone, filter: SQLFilter?) -> (sql: String, values: [SQLValue]) {
         let current = "\"_zoneName\" = ? AND \"_zoneOwner\" = ? AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
         let zoneValues: [SQLValue] = [.text(zone.name), .text(zone.ownerName)]
-        let matching = current + (filter.map { " AND \($0.sql)" } ?? "")
-        let matchingValues = zoneValues + (filter?.values ?? [])
+        return (current + (filter.map { " AND \($0.sql)" } ?? ""), zoneValues + (filter?.values ?? []))
+    }
+
+    /// Every saved, undeleted `R` in `zone` that meets `filter`, in the order and range of `page`
+    /// when given, with references holding IDs. One query reads the rows and one reads every
+    /// link they own or are the target of.
+    private nonisolated static func loadAll<R: Record>(
+        _ type: R.Type, zone: Zone, filter: SQLFilter?, page: SQLPage?, in database: Database
+    ) throws -> [R] {
+        let table = database.quoted(R.recordType)
+        var (matching, matchingValues) = Self.matching(zone: zone, filter: filter)
+        if let page {
+            matching += " ORDER BY \(page.orderBy) LIMIT ? OFFSET ?"
+            matchingValues += [.integer(Int64(page.limit ?? -1)), .integer(Int64(page.offset))]
+        }
         let rows = try database.rows("SELECT * FROM \(table) WHERE \(matching)", matchingValues)
         guard !rows.isEmpty else { return [] }
 
+        let (current, zoneValues) = Self.matching(zone: zone, filter: nil)
         let names = "SELECT \"_name\" FROM \(table) WHERE \(matching)"
         let linkRows = try database.rows(
             """
