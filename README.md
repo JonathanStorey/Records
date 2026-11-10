@@ -60,9 +60,11 @@ artwork.$image            // that file's URL, ready for an image view
 artwork.image             // read from the file only when asked for
 ```
 
-Each new value gets its own `<UUID>.asset` file in `Application Support/Records/Assets`. A decoded
-record points at the file CloudKit downloaded, so loading a list never reads the data until you
-ask for it. An asset can't be `@Encrypted`.
+The asset isn't a field of the record. It rides on its own link, `Artwork.image:_Asset`, so
+editing the record's other fields never uploads it again. Each new value gets a new ID and its own
+`<ID>.asset` file in `Application Support/Records/Assets`, and the link carries that ID, so two
+devices can tell whether they hold the same image without comparing the data. Loading a list never
+reads the data until you ask for it. An asset can't be `@Encrypted`.
 
 Mark a `Coordinate?` field `@Location` to store a place. The property is a plain value that is easy
 to compare and encode, and `$name` is the full `CLLocation` for code that needs its timestamp,

@@ -109,12 +109,21 @@ struct RecordLink: Equatable, Sendable {
     var relationship: String
     /// The source record's name, its `id` as a UUID string.
     var sourceName: String
-    /// The target record's name, its `id` as a UUID string.
-    var targetName: String
+    /// The target record's name, its `id` as a UUID string. `nil` on an asset's link.
+    var targetName: String?
     /// Delete the target when the source is deleted.
     var deleteSelf: Bool
     /// Fractional index key. Required on to-many links, empty on to-one links.
     var order: String?
+    /// The asset's ID as a UUID string, on an `@Asset`'s link only. The asset itself is the
+    /// link's `asset` field, which the encoder writes and the decoder reads.
+    var assetID: String?
+
+    /// The field that holds an asset link's `CKAsset`.
+    static let assetKey = "asset"
+    /// The target type in an asset link's signature, as in `Album.cover:_Asset`. A record type
+    /// must start with a letter, so it never collides with one.
+    static let assetType = "_Asset"
 
     /// The relationship's shape, read from its signature.
     var kind: Relationship {
@@ -328,5 +337,27 @@ extension RecordLink {
         let sides = relationship.components(separatedBy: " <-> ")
         guard index < sides.count, let side = try? SignatureSide(sides[index], signature: relationship) else { return nil }
         return (String(side.declaringType), String(side.property))
+    }
+}
+
+// MARK: - Assets
+
+extension RecordLink {
+    /// The link an `@Asset` writes, such as `Album.cover:_Asset`. Like any to-one link, its ID
+    /// leaves out the target, so a new value overwrites the same link.
+    init(asset: AssetState, assetID: UUID, sourceType: CKRecord.RecordType, sourceID: UUID) {
+        let relationship = Self.signature(
+            sourceType: sourceType, property: asset.property, sourceIsToMany: false,
+            targetType: Self.assetType, inverse: nil, inverseIsToMany: true
+        )
+        self.init(
+            id: Self.id(forward: relationship, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: ""),
+            relationship: relationship,
+            sourceName: sourceID.uuidString,
+            targetName: nil,
+            deleteSelf: false,
+            order: nil,
+            assetID: assetID.uuidString
+        )
     }
 }

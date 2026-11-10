@@ -24,7 +24,22 @@ public struct CKRecordEncoder: Sendable {
     /// has in `existing`, and each target keeps its key wherever it still sorts in place, so moving
     /// one target changes only that target's link. Comparing the result with `existing` gives the
     /// links to write and the ones to delete. `@Reference(from:)` properties write no links.
+    ///
+    /// Each `@Asset` that holds data adds a link that carries the asset.
     public func links<R: Record>(for record: R, in zone: Zone, existing: [CKRecord] = []) -> [CKRecord] {
+        referenceLinks(for: record, in: zone, existing: existing) + assetLinks(for: record, in: zone)
+    }
+
+    private func assetLinks<R: Record>(for record: R, in zone: Zone) -> [CKRecord] {
+        record.assetStates.compactMap { asset in
+            guard let assetID = asset.id else { return nil }
+            let link = encode(RecordLink(asset: asset, assetID: assetID, sourceType: R.recordType, sourceID: record.id), in: zone)
+            link[RecordLink.assetKey] = asset.fileURL.map(CKAsset.init(fileURL:))
+            return link
+        }
+    }
+
+    private func referenceLinks<R: Record>(for record: R, in zone: Zone, existing: [CKRecord]) -> [CKRecord] {
         let decoder = CKRecordDecoder()
         var keys: [String: String] = [:]
         for link in existing {

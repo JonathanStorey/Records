@@ -26,7 +26,7 @@ public struct CKRecordDecoder: Sendable {
         return try R(record: record)
     }
 
-    /// Decodes `record` and fills its `@Reference` properties from `links`.
+    /// Decodes `record` and fills its `@Reference` and `@Asset` properties from `links`.
     ///
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
     /// whose source or, for `@Reference(from:)` properties, target is `record` are used, and links
@@ -51,10 +51,18 @@ public struct CKRecordDecoder: Sendable {
         for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
             // Skip a malformed link rather than fail the whole record.
             guard let link = try? decode(RecordLink.self, from: linkRecord) else { continue }
+            // An `@Asset`'s link: this record is its source.
+            if let assetID = link.assetID {
+                if link.sourceName == sourceName, let source = link.source, source.type == R.recordType {
+                    let asset = linkRecord[RecordLink.assetKey] as? CKAsset
+                    decoded.loadAsset(source.property, id: UUID(uuidString: assetID), file: asset?.fileURL)
+                }
+                continue
+            }
             // The owning side: this record is the link's source.
             if link.sourceName == sourceName,
                let source = link.source, source.type == R.recordType,
-               let targetID = UUID(uuidString: link.targetName) {
+               let targetID = link.targetName.flatMap(UUID.init(uuidString:)) {
                 byProperty[source.property, default: []].append((ReferenceTarget(id: targetID, order: link.order), linkRecord))
             }
             // The `@Reference(from:)` side: this record is the link's target.

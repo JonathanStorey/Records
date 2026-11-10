@@ -77,7 +77,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     let links = try decodedLinks(encoder.links(for: page, in: .records))
 
     #expect(links.map(\.relationship) == Array(repeating: "Page.labels:[Label]", count: 3))
-    #expect(links.map(\.targetName) == items.map(\.id.uuidString))
+    #expect(links.map(\.targetName) == items.map { Optional($0.id.uuidString) })
     let orders = links.compactMap(\.order)
     #expect(orders.count == 3)
     #expect(zip(orders, orders.dropFirst()).allSatisfy { OrderKey.precedes($0, $1) })
