@@ -406,16 +406,24 @@ Records are read and written through a `RecordContext`. The main actor uses the 
 
 ```swift
 let context = container.mainContext
-try context.save(album)
+context.insert(album)
+context.insert(artist)
+try context.save()           // both in one transaction
 
 album.title = "Kind of Blue (Remastered)"
-try context.save(album)   // replaces the stored copy
+context.insert(album)        // replaces the saved copy when saved
+context.delete(oldAlbum)
+try context.save()
 ```
 
-`save` writes the record, a link for each reference target, and a link for each `@Asset`, all in
-one transaction. A record already in the zone is replaced by the copy you pass. It keeps its
-creation date, and links to targets it no longer has are removed. Only the record itself is
-saved, so save the records it points at too.
+`insert` and `delete` stage changes in the context. Nothing reaches the database until `save()`,
+which writes every staged change in one transaction. `rollback()` discards them, and
+`hasChanges` tells you whether any are waiting.
+
+Inserting a record that is already saved makes the copy you pass its new value. Saving writes
+only the fields and links that differ from the saved copy, keeps the creation date, and removes
+links to targets the record no longer has. Only the record itself is staged, so insert the
+records it points at too.
 
 Records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
 any time. `Zone.local` keeps records on this device without syncing them. As in CloudKit, a record is
@@ -423,7 +431,7 @@ named by its zone and ID together, so the same record can be saved to more than 
 
 ```swift
 context.zone = "Work"
-try context.save(note)   // saved to the Work zone
+context.insert(note)   // staged for the Work zone
 ```
 
 ## Saving and loading
