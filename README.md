@@ -64,6 +64,28 @@ Each new value gets its own `<UUID>.asset` file in `Application Support/Records/
 record points at the file CloudKit downloaded, so loading a list never reads the data until you
 ask for it. An asset can't be `@Encrypted`.
 
+A field can hold any type CloudKit stores, such as `String`, `Int`, `Double`, `Bool`, `Date`, `Data`,
+`CLLocation`, or an array of them. An enum with such a raw value is stored as its raw value, and any
+other `Codable` type is stored as JSON:
+
+```swift
+enum Mood: String, Codable { case calm, energetic }
+struct Credits: Codable { var producer: String; var engineer: String }
+
+@Record
+struct Track {
+    var id: UUID
+    var mood: Mood          // stored as "calm" or "energetic"
+    var credits: Credits    // stored as JSON
+}
+```
+
+To rename a property after its schema is deployed, keep its CloudKit name with `@Renamed`:
+
+```swift
+@Renamed("released") var year: Int   // was `var released: Int`
+```
+
 The record type is the struct's name. Pass a name to use another, which generic types must do:
 `@Record("Tag")`.
 

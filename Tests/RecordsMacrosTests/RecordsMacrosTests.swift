@@ -12,6 +12,7 @@ private var macroSpecs: [String: MacroSpec] {
         "Reference": MacroSpec(type: ReferenceMacro.self),
         "Encrypted": MacroSpec(type: EncryptedMacro.self),
         "Asset": MacroSpec(type: AssetMacro.self),
+        "Renamed": MacroSpec(type: RenamedMacro.self),
     ]
 }
 #endif
@@ -66,10 +67,12 @@ final class RecordMacroTests: XCTestCase {
                     self._tags = try Records.Field(saved: CKRecordDecoder.decodeIfPresent(([String]).self, forKey: "tags", from: record) ?? [])
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["title"] = self.title
-                    record["isPinned"] = self.isPinned
-                    record["rating"] = self.rating
-                    record["tags"] = self.tags
+                    record["title"] = Records.FieldCoding.value(self.title)
+                    record["isPinned"] = Records.FieldCoding.value(self.isPinned)
+                    record["rating"] = self.rating.flatMap {
+                        Records.FieldCoding.value($0)
+                    }
+                    record["tags"] = Records.FieldCoding.value(self.tags)
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
@@ -86,13 +89,15 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeChangedFields(into record: CKRecord) {
                     if self._title.isChanged {
-                        record["title"] = self.title
+                        record["title"] = Records.FieldCoding.value(self.title)
                     }
                     if self._rating.isChanged {
-                        record["rating"] = self.rating
+                        record["rating"] = self.rating.flatMap {
+                            Records.FieldCoding.value($0)
+                        }
                     }
                     if self._tags.isChanged {
-                        record["tags"] = self.tags
+                        record["tags"] = Records.FieldCoding.value(self.tags)
                     }
                 }
                 mutating func markFieldsSaved() {
@@ -135,7 +140,7 @@ final class RecordMacroTests: XCTestCase {
                     self._default = try Records.Field(saved: CKRecordDecoder.decode((Bool).self, forKey: "default", from: record))
                 }
                 public func encodeFields(into record: CKRecord) {
-                    record["default"] = self.`default`
+                    record["default"] = Records.FieldCoding.value(self.`default`)
                 }
                 public var changedFields: Set<String> {
                     var fields: Set<String> = []
@@ -146,7 +151,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 public func encodeChangedFields(into record: CKRecord) {
                     if self._default.isChanged {
-                        record["default"] = self.`default`
+                        record["default"] = Records.FieldCoding.value(self.`default`)
                     }
                 }
                 public mutating func markFieldsSaved() {
@@ -187,7 +192,9 @@ final class RecordMacroTests: XCTestCase {
                     self._value = try Records.Field(saved: CKRecordDecoder.decodeIfPresent((Value).self, forKey: "value", from: record))
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["value"] = self.value
+                    record["value"] = self.value.flatMap {
+                        Records.FieldCoding.value($0)
+                    }
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
@@ -198,7 +205,9 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeChangedFields(into record: CKRecord) {
                     if self._value.isChanged {
-                        record["value"] = self.value
+                        record["value"] = self.value.flatMap {
+                            Records.FieldCoding.value($0)
+                        }
                     }
                 }
                 mutating func markFieldsSaved() {
@@ -449,7 +458,7 @@ final class RecordMacroTests: XCTestCase {
                     self._author = Records.ToOne(id: nil)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["title"] = self.title
+                    record["title"] = Records.FieldCoding.value(self.title)
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
@@ -460,7 +469,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeChangedFields(into record: CKRecord) {
                     if self._title.isChanged {
-                        record["title"] = self.title
+                        record["title"] = Records.FieldCoding.value(self.title)
                     }
                 }
                 mutating func markFieldsSaved() {
@@ -1497,9 +1506,11 @@ final class RecordMacroTests: XCTestCase {
                     self.pin = try CKRecordDecoder.decode((Int).self, forKey: "pin", from: record.encryptedValues)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["name"] = self.name
-                    record.encryptedValues["note"] = self.note
-                    record.encryptedValues["pin"] = self.pin
+                    record["name"] = Records.FieldCoding.value(self.name)
+                    record.encryptedValues["note"] = self.note.flatMap {
+                        Records.FieldCoding.value($0)
+                    }
+                    record.encryptedValues["pin"] = Records.FieldCoding.value(self.pin)
                 }
                 var changedFields: Set<String> {
                     var fields: Set<String> = []
@@ -1513,10 +1524,12 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeChangedFields(into record: CKRecord) {
                     if self._name.isChanged {
-                        record["name"] = self.name
+                        record["name"] = Records.FieldCoding.value(self.name)
                     }
                     if self._note.isChanged {
-                        record.encryptedValues["note"] = self.note
+                        record.encryptedValues["note"] = self.note.flatMap {
+                            Records.FieldCoding.value($0)
+                        }
                     }
                 }
                 mutating func markFieldsSaved() {
@@ -1730,6 +1743,118 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(message: "CloudKit can't encrypt an asset, so a property can't be both @Asset and @Encrypted", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    // MARK: - Renamed fields
+
+    func testRenamedFieldUsesItsOriginalName() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Album {
+                var id: UUID
+                @Renamed("released") var year: Int
+            }
+            """,
+            expandedSource: """
+            struct Album {
+                var id: UUID
+                @RecordField var year: Int
+            }
+
+            extension Album: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Album"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._year = try Records.Field(saved: CKRecordDecoder.decode((Int).self, forKey: "released", from: record))
+                }
+                func encodeFields(into record: CKRecord) {
+                    record["released"] = Records.FieldCoding.value(self.year)
+                }
+                var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._year.isChanged {
+                        fields.insert("year")
+                    }
+                    return fields
+                }
+                func encodeChangedFields(into record: CKRecord) {
+                    if self._year.isChanged {
+                        record["released"] = Records.FieldCoding.value(self.year)
+                    }
+                }
+                mutating func markFieldsSaved() {
+                    self._year.markSaved()
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testTwoFieldsCannotShareAName() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Album {
+                var id: UUID
+                var released: Date
+                @Renamed("released") var year: Int
+            }
+            """,
+            expandedSource: """
+            struct Album {
+                var id: UUID
+                @RecordField
+                var released: Date
+                @RecordField var year: Int
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "Two properties are stored in the field 'released'", line: 1, column: 1),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRenamedNeedsAStringLiteral() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Album {
+                var id: UUID
+                @Renamed(oldName) var year: Int
+            }
+            """,
+            expandedSource: """
+            struct Album {
+                var id: UUID
+                @RecordField var year: Int
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(
+                    message: "@Renamed takes the field's original name as a string literal, e.g. @Renamed(\"released\")",
+                    line: 1,
+                    column: 1
+                ),
             ],
             macroSpecs: macroSpecs
         )

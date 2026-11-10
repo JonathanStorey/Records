@@ -200,6 +200,15 @@ public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "Encryp
 @attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Asset() = #externalMacro(module: "RecordsMacros", type: "AssetMacro")
 
+/// Stores a field of a `@Record` under its original CloudKit name after the Swift property is
+/// renamed, so records already saved keep their data.
+///
+/// ```swift
+/// @Renamed("released") var year: Int   // was `var released: Int`
+/// ```
+@attached(peer)
+public macro Renamed(_ originalName: String) = #externalMacro(module: "RecordsMacros", type: "RenamedMacro")
+
 /// Backs a stored property of a `@Record` with a `Records.Field`, which notes when it is set.
 /// `@Record` adds it to each stored `var` except `id`, so you don't write it yourself.
 @attached(accessor, names: named(init), named(get), named(set))

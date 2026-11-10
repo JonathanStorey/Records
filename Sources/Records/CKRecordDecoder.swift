@@ -92,23 +92,69 @@ public struct CKRecordDecoder: Sendable {
         return id
     }
 
+    // The overloads below match `FieldCoding`'s, so a field type that can't be stored is a
+    // compile error, and the most direct storage wins when a type matches more than one.
+
     /// The value of `key` as `T`. Used by the code `@Record` generates for non-optional properties.
     /// Pass `record.encryptedValues` for an `@Encrypted` field.
-    public static func decode<T>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
-        guard let value = try decodeIfPresent(type, forKey: key, from: record) else {
-            throw CKRecordDecodingError.missingField(key)
-        }
-        return value
+    public static func decode<T: CKRecordValueProtocol>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
+        try required(read(key, from: record, FieldCoding.reader(type)), key)
+    }
+
+    public static func decode<T: CKRecordValueProtocol & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
+        try required(read(key, from: record, FieldCoding.reader(type)), key)
+    }
+
+    public static func decode<T: RawRepresentable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T
+    where T.RawValue: CKRecordValueProtocol {
+        try required(read(key, from: record, FieldCoding.reader(type)), key)
+    }
+
+    public static func decode<T: RawRepresentable & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T
+    where T.RawValue: CKRecordValueProtocol {
+        try required(read(key, from: record, FieldCoding.reader(type)), key)
+    }
+
+    public static func decode<T: Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
+        try required(read(key, from: record, FieldCoding.reader(type)), key)
     }
 
     /// The value of `key` as `T`, or `nil` when the field is missing. Used by the code `@Record`
-    /// generates for optional properties.
+    /// generates for optional properties and arrays.
     /// Pass `record.encryptedValues` for an `@Encrypted` field.
-    public static func decodeIfPresent<T>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
+    public static func decodeIfPresent<T: CKRecordValueProtocol>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
+        try read(key, from: record, FieldCoding.reader(type))
+    }
+
+    public static func decodeIfPresent<T: CKRecordValueProtocol & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
+        try read(key, from: record, FieldCoding.reader(type))
+    }
+
+    public static func decodeIfPresent<T: RawRepresentable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T?
+    where T.RawValue: CKRecordValueProtocol {
+        try read(key, from: record, FieldCoding.reader(type))
+    }
+
+    public static func decodeIfPresent<T: RawRepresentable & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T?
+    where T.RawValue: CKRecordValueProtocol {
+        try read(key, from: record, FieldCoding.reader(type))
+    }
+
+    public static func decodeIfPresent<T: Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
+        try read(key, from: record, FieldCoding.reader(type))
+    }
+
+    /// The field `key` read with `reader`, or `nil` when it is missing.
+    private static func read<T>(_ key: String, from record: any CKRecordKeyValueSetting, _ reader: (Any) throws -> T?) throws -> T? {
         guard let value = record.object(forKey: key) else { return nil }
-        guard let typed = value as? T else {
+        guard let typed = try? reader(value) else {
             throw CKRecordDecodingError.typeMismatch(field: key)
         }
         return typed
+    }
+
+    private static func required<T>(_ value: T?, _ key: String) throws -> T {
+        guard let value else { throw CKRecordDecodingError.missingField(key) }
+        return value
     }
 }

@@ -76,18 +76,18 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         for field in fields {
             if field.isAsset {
                 // A record holds the asset's file, which `cover` reads only when it is used.
-                lines.append("        self._\(field.key) = try Records.AssetField(saved: CKRecordDecoder.decodeIfPresent((CKAsset).self, forKey: \"\(field.key)\", from: record))")
+                lines.append("        self._\(field.key) = try Records.AssetField(saved: CKRecordDecoder.decodeIfPresent((CKAsset).self, forKey: \"\(field.fieldKey)\", from: record))")
                 continue
             }
             let source = field.isEncrypted ? "record.encryptedValues" : "record"
             let read: String
             if let wrapped = field.wrappedType {
-                read = "decodeIfPresent((\(wrapped)).self, forKey: \"\(field.key)\", from: \(source))"
+                read = "decodeIfPresent((\(wrapped)).self, forKey: \"\(field.fieldKey)\", from: \(source))"
             } else if field.isArray {
                 // CloudKit does not keep empty lists, so a missing array field means empty.
-                read = "decodeIfPresent((\(field.type)).self, forKey: \"\(field.key)\", from: \(source)) ?? []"
+                read = "decodeIfPresent((\(field.type)).self, forKey: \"\(field.fieldKey)\", from: \(source)) ?? []"
             } else {
-                read = "decode((\(field.type)).self, forKey: \"\(field.key)\", from: \(source))"
+                read = "decode((\(field.type)).self, forKey: \"\(field.fieldKey)\", from: \(source))"
             }
             if field.isTracked {
                 // Read straight into the storage, so a decoded record starts unchanged.
@@ -106,7 +106,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             "    \(access)func encodeFields(into record: CKRecord) {",
         ]
         for field in fields {
-            lines.append("        \(field.destination)[\"\(field.key)\"] = \(field.written)")
+            lines.append("        \(field.destination)[\"\(field.fieldKey)\"] = \(field.written)")
         }
         lines.append("    }")
         let tracked = fields.filter(\.isTracked)
@@ -130,7 +130,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             for field in tracked {
                 lines += [
                     "        if self._\(field.key).isChanged {",
-                    "            \(field.destination)[\"\(field.key)\"] = \(field.written)",
+                    "            \(field.destination)[\"\(field.fieldKey)\"] = \(field.written)",
                     "        }",
                 ]
             }
@@ -271,8 +271,10 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
     private struct StoredProperty {
         /// The identifier as written, including any backticks.
         let name: String
-        /// The CloudKit field key: the name without backticks.
+        /// The name without backticks, which names the storage and `changedFields`.
         let key: String
+        /// The CloudKit field key: the `@Renamed` name, or `key`.
+        let fieldKey: String
         /// The declared type, as written.
         let type: String
         /// The wrapped type when the declared type is optional, such as `Int` for `Int?`.
@@ -291,7 +293,12 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
 
         /// What the generated code writes: the asset for an `@Asset`, otherwise the value.
-        var written: String { isAsset ? "self._\(key).asset" : "self.\(name)" }
+        var written: String {
+            if isAsset { return "self._\(key).asset" }
+            // `nil` clears the field, so only a value goes through `FieldCoding`.
+            if wrappedType != nil { return "self.\(name).flatMap { Records.FieldCoding.value($0) }" }
+            return "Records.FieldCoding.value(self.\(name))"
+        }
     }
 
     /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
@@ -317,12 +324,19 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             else { continue }
             let isEncrypted = isEncrypted(variable)
             let isAsset = AssetMacro.isAsset(variable)
+            let renamed = try renamedKey(variable)
             if ReferenceMacro.isReference(variable) {
                 // Links hold references, not fields.
                 if isEncrypted {
                     throw MacroExpansionErrorMessage("@Encrypted applies to fields, not to a @Reference")
                 }
+                if renamed != nil {
+                    throw MacroExpansionErrorMessage("@Renamed applies to fields, not to a @Reference")
+                }
                 continue
+            }
+            if renamed != nil, variable.bindings.count > 1 {
+                throw MacroExpansionErrorMessage("@Renamed applies to one field; declare it on its own line")
             }
             let isLet = variable.bindingSpecifier.tokenKind == .keyword(.let)
             if !isLet {
@@ -355,6 +369,9 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                 if key == "id", isEncrypted {
                     throw MacroExpansionErrorMessage("'id' is the record name, which CloudKit can't encrypt")
                 }
+                if key == "id", renamed != nil {
+                    throw MacroExpansionErrorMessage("'id' is the record name, so it has no field to rename")
+                }
                 guard let type = binding.typeAnnotation?.type ?? carriedType else {
                     throw MacroExpansionErrorMessage("@Record property '\(key)' needs an explicit type annotation")
                 }
@@ -366,6 +383,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
                 found.append(StoredProperty(
                     name: name,
                     key: key,
+                    fieldKey: renamed ?? key,
                     type: type.trimmedDescription,
                     wrappedType: wrapped?.trimmedDescription,
                     isArray: isArray(type),
@@ -376,7 +394,34 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             }
             properties += found.reversed()
         }
+        // Two properties can't share a CloudKit field.
+        var keys = Set<String>()
+        for property in properties where property.key != "id" {
+            guard keys.insert(property.fieldKey).inserted else {
+                throw MacroExpansionErrorMessage("Two properties are stored in the field '\(property.fieldKey)'")
+            }
+        }
         return properties
+    }
+
+    /// The field name in `@Renamed("name")` on `variable`, if any.
+    private static func renamedKey(_ variable: VariableDeclSyntax) throws -> String? {
+        for element in variable.attributes {
+            guard let attribute = element.as(AttributeSyntax.self) else { continue }
+            let name = attribute.attributeName.trimmedDescription
+            guard name == "Renamed" || name == "Records.Renamed" else { continue }
+            guard let argument = attribute.arguments?.as(LabeledExprListSyntax.self)?.first,
+                  let literal = argument.expression.as(StringLiteralExprSyntax.self),
+                  let key = literal.representedLiteralValue
+            else {
+                throw MacroExpansionErrorMessage("@Renamed takes the field's original name as a string literal, e.g. @Renamed(\"released\")")
+            }
+            guard isValidRecordType(key) else {
+                throw MacroExpansionErrorMessage("'\(key)' is not a valid field name; use letters, digits, and underscores, starting with a letter")
+            }
+            return key
+        }
+        return nil
     }
 
     /// Whether `variable` carries `@Encrypted` or `@Records.Encrypted`.
