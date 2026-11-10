@@ -346,7 +346,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             let renamed = try renamedKey(variable)
             if TimestampedMacro.attribute(on: variable) != nil {
                 // The server sets the date, so there is no field to encrypt, rename, or write.
-                if isEncrypted(variable) {
+                if isEncrypted {
                     throw MacroExpansionErrorMessage("The server sets @Timestamped dates, so they can't be @Encrypted")
                 }
                 if renamed != nil {
