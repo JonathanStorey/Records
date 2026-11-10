@@ -51,25 +51,26 @@ public struct CKRecordDecoder: Sendable {
         for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
             // Skip a malformed link rather than fail the whole record.
             guard let link = try? decode(RecordLink.self, from: linkRecord) else { continue }
+            let property = String(link.sourceProperty)
+            let ownsLink = link.sourceName == sourceName && link.sourceType == R.recordType
             // An `@Asset`'s link: this record is its source.
             if let assetID = link.assetID {
-                if link.sourceName == sourceName, let source = link.source, source.type == R.recordType {
+                if ownsLink {
                     let asset = linkRecord[RecordLink.assetKey] as? CKAsset
-                    decoded.loadAsset(source.property, id: UUID(uuidString: assetID), file: asset?.fileURL)
+                    decoded.loadAsset(property, id: UUID(uuidString: assetID), file: asset?.fileURL)
                 }
                 continue
             }
             // The owning side: this record is the link's source.
-            if link.sourceName == sourceName,
-               let source = link.source, source.type == R.recordType,
-               let targetID = link.targetName.flatMap(UUID.init(uuidString:)) {
-                byProperty[source.property, default: []].append((ReferenceTarget(id: targetID, order: link.order), linkRecord))
+            if ownsLink, let targetID = link.targetName.flatMap(UUID.init(uuidString:)) {
+                byProperty[property, default: []].append((ReferenceTarget(id: targetID, order: link.order), linkRecord))
             }
-            // The `@Reference(from:)` side: this record is the link's target.
+            // The `@Reference(from:)` side: this record is the link's target, and its type names
+            // the owner's property as an inverse.
             if link.targetName == sourceName,
-               let target = link.target, target.type == R.recordType,
+               let inverse = R.inverse(of: property, in: String(link.sourceType)),
                let sourceID = UUID(uuidString: link.sourceName) {
-                byProperty[target.property, default: []].append((ReferenceTarget(id: sourceID), linkRecord))
+                byProperty[inverse.property, default: []].append((ReferenceTarget(id: sourceID), linkRecord))
             }
         }
 

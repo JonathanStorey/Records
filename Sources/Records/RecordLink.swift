@@ -1,114 +1,47 @@
 import CloudKit
 import CryptoKit
 
-/// The shape of a relationship. Derived from a relationship signature, never stored.
+/// The shape of a relationship, from both sides' cardinality. Derived from the schema, never
+/// stored.
 public enum Relationship: String, Sendable, CaseIterable {
     case oneToOne
     case oneToMany
     case manyToOne
     case manyToMany
-}
 
-public enum RecordLinkError: Error, Equatable {
-    /// The signature does not match `Type.property:Type` or `Type.property:[Type]`,
-    /// optionally followed by ` <-> ` and the inverse side.
-    case invalidSignature(String)
-}
-
-extension Relationship {
-    /// Parses a relationship signature such as `Note.tags:[Tag] <-> Tag.notes:[Note]`.
-    ///
-    /// Brackets mean many. A signature without ` <-> ` has no inverse and is treated as
-    /// `manyToOne` (to-one source) or `manyToMany` (to-many source).
-    public init(signature: String) throws {
-        let sides = signature.components(separatedBy: " <-> ")
-        guard sides.count == 1 || sides.count == 2 else {
-            throw RecordLinkError.invalidSignature(signature)
-        }
-
-        let source = try SignatureSide(sides[0], signature: signature)
-        let inverse = try sides.count == 2 ? SignatureSide(sides[1], signature: signature) : nil
-
-        if let inverse {
-            // Each side must point at the other side's declaring type.
-            guard source.targetType == inverse.declaringType,
-                  inverse.targetType == source.declaringType
-            else { throw RecordLinkError.invalidSignature(signature) }
-        }
-
-        switch (source.isToMany, inverse?.isToMany) {
-        case (false, false?): self = .oneToOne
-        case (false, _): self = .manyToOne
-        case (true, false?): self = .oneToMany
-        case (true, _): self = .manyToMany
+    /// The shape of the relationship a `@Reference` declares. Without an inverse, a to-one
+    /// reference reads as many-to-one and a to-many reference as many-to-many.
+    public init(_ reference: ReferenceState) {
+        self = switch (reference.isToMany, reference.inverse?.isToMany) {
+        case (false, false?): .oneToOne
+        case (false, _): .manyToOne
+        case (true, false?): .oneToMany
+        case (true, _): .manyToMany
         }
     }
 }
 
-/// One side of a signature: `Type.property:Type` or `Type.property:[Type]`.
-private struct SignatureSide {
-    let declaringType: Substring
-    let property: Substring
-    let targetType: Substring
-    let isToMany: Bool
-
-    init(_ side: String, signature: String) throws {
-        let parts = side.split(separator: ":", omittingEmptySubsequences: false)
-        guard parts.count == 2 else { throw RecordLinkError.invalidSignature(signature) }
-
-        let declaring = parts[0].split(separator: ".", omittingEmptySubsequences: false)
-        guard declaring.count == 2 else { throw RecordLinkError.invalidSignature(signature) }
-
-        var target = parts[1]
-        let isToMany = target.hasPrefix("[") && target.hasSuffix("]")
-        if isToMany { target = target.dropFirst().dropLast() }
-
-        guard Self.isIdentifier(declaring[0]),
-              Self.isIdentifier(declaring[1]),
-              Self.isIdentifier(target)
-        else { throw RecordLinkError.invalidSignature(signature) }
-
-        self.declaringType = declaring[0]
-        self.property = declaring[1]
-        self.targetType = target
-        self.isToMany = isToMany
-    }
-
-    private static func isIdentifier(_ text: Substring) -> Bool {
-        guard let first = text.first, first.isLetter || first == "_" else { return false }
-        return text.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
-    }
-}
-
-/// A relationship between two records, stored as its own internal `RecordLink` record.
+/// One link of a relationship, or one `@Asset`, stored as its own internal `RecordLink` record.
 ///
-/// The source is always the owning side, a `@Reference` property that writes links. The inverse is
-/// the target's `@Reference(from:)` property, which never writes links.
+/// A link stores only data: which property of which record it belongs to, the target, its order,
+/// and, for an asset, the asset. Everything else about the relationship, such as the target type,
+/// the inverse, and `deleteSelf`, comes from the types' declarations, so changing an inverse never
+/// rewrites a link.
 ///
-/// Each factory builds the relationship signature from the records' types and the property
-/// names, so the signature is always canonical. The `id` is derived from the link's identity,
-/// so creating the same link twice, on any device, produces the same record.
-///
-/// A link holds no `deleteSelf` flag. That belongs to the target's `@Reference(from:)` declaration,
-/// which the container knows from each type's schema.
-///
-/// ```swift
-/// let link = try RecordLink.manyToOne(
-///     from: note, property: "folder",
-///     to: Folder.self, id: folder.id, inverse: "notes")
-/// // relationship == "Note.folder:Folder <-> Folder.notes:[Note]"
-/// ```
+/// The `id` is derived from the link's identity, so creating the same link twice, on any device,
+/// produces the same record.
 @Record("RecordLink")
 struct RecordLink: Equatable, Sendable {
-    /// Derived from the link's identity. See `id(forward:kind:sourceName:targetName:)`.
+    /// Derived from the link's identity. See `id(source:kind:sourceName:targetName:)`.
     var id: UUID
-    /// The relationship signature, e.g. `Note.tags:[Tag] <-> Tag.notes:[Note]`.
-    var relationship: String
+    /// The owning property, as `Type.property`, such as `Album.tracks`. For a `@Reference` it is
+    /// the property that writes links. For an `@Asset` it is the asset's property.
+    var source: String
     /// The source record's name, its `id` as a UUID string.
     var sourceName: String
     /// The target record's name, its `id` as a UUID string. `nil` on an asset's link.
     var targetName: String?
-    /// Fractional index key. Required on to-many links, empty on to-one links.
+    /// Fractional index key. Required on ordered to-many links, empty otherwise.
     var order: String?
     /// The asset's ID as a UUID string, on an `@Asset`'s link only. The asset itself is the
     /// link's `asset` field, which the encoder writes and the decoder reads.
@@ -116,140 +49,47 @@ struct RecordLink: Equatable, Sendable {
 
     /// The field that holds an asset link's `CKAsset`.
     static let assetKey = "asset"
-    /// The target type in an asset link's signature, as in `Album.cover:_Asset`. A record type
-    /// must start with a letter, so it never collides with one.
-    static let assetType = "_Asset"
 
-    /// The relationship's shape, read from its signature.
-    var kind: Relationship {
-        get throws { try Relationship(signature: relationship) }
+    /// The source's record type, such as `Album`.
+    var sourceType: Substring {
+        source.split(separator: ".", maxSplits: 1).first ?? ""
     }
 
-    // MARK: Factories
-
-    /// One source to one target, e.g. `User.profile:Profile <-> Profile.user:User`.
-    /// The inverse is required, because a to-one link without one reads as many-to-one.
-    static func oneToOne<Source: Record, Target: Record>(
-        from source: Source, property: String,
-        to target: Target.Type, id targetID: UUID,
-        inverse: String
-    ) throws -> RecordLink {
-        try make(
-            .oneToOne, source: source, property: property, sourceIsToMany: false,
-            target: target, targetID: targetID, inverse: inverse, inverseIsToMany: false,
-            order: nil
-        )
+    /// The source's property, such as `tracks`.
+    var sourceProperty: Substring {
+        source.split(separator: ".", maxSplits: 1).dropFirst().first ?? ""
     }
 
-    /// One source to many targets, e.g. `Folder.notes:[Note] <-> Note.folder:Folder`.
-    /// The inverse is required, because a to-many link without one reads as many-to-many.
-    /// To-many links are always ordered, so `order` is a required fractional index key.
-    static func oneToMany<Source: Record, Target: Record>(
-        from source: Source, property: String,
-        to target: Target.Type, id targetID: UUID,
-        inverse: String, order: String
-    ) throws -> RecordLink {
-        try make(
-            .oneToMany, source: source, property: property, sourceIsToMany: true,
-            target: target, targetID: targetID, inverse: inverse, inverseIsToMany: false,
-            order: order
-        )
+    /// `Type.property`, as `source` stores it.
+    static func source(type: CKRecord.RecordType, property: String) -> String {
+        "\(type).\(property)"
     }
 
-    /// Many sources to one target, e.g. `Note.folder:Folder <-> Folder.notes:[Note]`,
-    /// or `Note.author:Person` without an inverse.
-    static func manyToOne<Source: Record, Target: Record>(
-        from source: Source, property: String,
-        to target: Target.Type, id targetID: UUID,
-        inverse: String? = nil
-    ) throws -> RecordLink {
-        try make(
-            .manyToOne, source: source, property: property, sourceIsToMany: false,
-            target: target, targetID: targetID, inverse: inverse, inverseIsToMany: true,
-            order: nil
-        )
-    }
-
-    /// Many sources to many targets, e.g. `Note.tags:[Tag] <-> Tag.notes:[Note]`,
-    /// or `Note.tags:[Tag]` without an inverse.
-    /// To-many links are always ordered, so `order` is a required fractional index key.
-    static func manyToMany<Source: Record, Target: Record>(
-        from source: Source, property: String,
-        to target: Target.Type, id targetID: UUID,
-        inverse: String? = nil, order: String
-    ) throws -> RecordLink {
-        try make(
-            .manyToMany, source: source, property: property, sourceIsToMany: true,
-            target: target, targetID: targetID, inverse: inverse, inverseIsToMany: true,
-            order: order
-        )
-    }
-
-    /// Builds the canonical signature, e.g. `Note.tags:[Tag] <-> Tag.notes:[Note]`.
-    static func signature(
-        sourceType: String,
-        property: String,
-        sourceIsToMany: Bool,
-        targetType: String,
-        inverse: String?,
-        inverseIsToMany: Bool
-    ) -> String {
-        let forward = "\(sourceType).\(property):" + (sourceIsToMany ? "[\(targetType)]" : targetType)
-        guard let inverse else { return forward }
-        let backward = "\(targetType).\(inverse):" + (inverseIsToMany ? "[\(sourceType)]" : sourceType)
+    /// The full signature of the relationship a `@Reference` declares, such as
+    /// `Album.tracks:[Track] <-> Track.albumID:Album`. Brackets mean many. It is computed from the
+    /// declarations for reading and is never stored.
+    static func signature(of reference: ReferenceState, in sourceType: CKRecord.RecordType) -> String {
+        let forward = "\(source(type: sourceType, property: reference.property)):"
+            + (reference.isToMany ? "[\(reference.targetType)]" : reference.targetType)
+        guard let inverse = reference.inverse else { return forward }
+        let backward = "\(reference.targetType).\(inverse.property):"
+            + (inverse.isToMany ? "[\(sourceType)]" : sourceType)
         return forward + " <-> " + backward
-    }
-
-    private static func make<Source: Record, Target: Record>(
-        _ kind: Relationship,
-        source: Source,
-        property: String,
-        sourceIsToMany: Bool,
-        target: Target.Type,
-        targetID: UUID,
-        inverse: String?,
-        inverseIsToMany: Bool,
-        order: String?
-    ) throws -> RecordLink {
-        let relationship = signature(
-            sourceType: Source.recordType, property: property, sourceIsToMany: sourceIsToMany,
-            targetType: Target.recordType, inverse: inverse, inverseIsToMany: inverseIsToMany
-        )
-        // Parsing validates the identifiers and confirms the signature reads back as `kind`.
-        guard try Relationship(signature: relationship) == kind else {
-            throw RecordLinkError.invalidSignature(relationship)
-        }
-
-        let forward = signature(
-            sourceType: Source.recordType, property: property, sourceIsToMany: sourceIsToMany,
-            targetType: Target.recordType, inverse: nil, inverseIsToMany: inverseIsToMany
-        )
-        let sourceName = source.id.uuidString
-        let targetName = targetID.uuidString
-
-        return RecordLink(
-            id: id(forward: forward, kind: kind, sourceName: sourceName, targetName: targetName),
-            relationship: relationship,
-            sourceName: sourceName,
-            targetName: targetName,
-            order: order
-        )
     }
 
     /// A UUID built from the SHA-256 of the fields that identify the link.
     ///
-    /// Only the forward side of the signature (before ` <-> `) is hashed, so adding or
-    /// renaming an inverse keeps existing link IDs. To-one links leave out the target, so
-    /// pointing at a new target overwrites the same record. One-to-many links leave out the
-    /// source, so each target belongs to one source.
+    /// A to-one link leaves out the target, so pointing at a new target overwrites the same
+    /// record. A one-to-many link leaves out the source, so each target belongs to one source. A
+    /// many-to-many link has one per pair.
     ///
     /// The first 16 bytes of the digest become the UUID, marked as version 8 (custom) with the
     /// RFC 9562 variant, so it is a valid UUID that never collides with random v4 IDs.
-    static func id(forward: String, kind: Relationship, sourceName: String, targetName: String) -> UUID {
+    static func id(source: String, kind: Relationship, sourceName: String, targetName: String) -> UUID {
         let parts: [String] = switch kind {
-        case .oneToOne, .manyToOne: [forward, sourceName]
-        case .oneToMany: [forward, targetName]
-        case .manyToMany: [forward, sourceName, targetName]
+        case .oneToOne, .manyToOne: [source, sourceName]
+        case .oneToMany: [source, targetName]
+        case .manyToMany: [source, sourceName, targetName]
         }
         var bytes = Array(SHA256.hash(data: Data(parts.joined(separator: "|").utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x80 // version 8
@@ -264,83 +104,38 @@ struct RecordLink: Equatable, Sendable {
 // MARK: - References
 
 extension RecordLink {
-    /// The link a `@Reference` writes to `target`, such as `Article.author:Person`,
-    /// `Page.labels:[Label]`, or, with an inverse, `User.profile:Profile <-> Profile.user:User`.
-    ///
-    /// Only the forward side is hashed into the ID, so adding an inverse keeps the IDs of to-one
-    /// links. A to-many link's ID changes when an inverse makes it one-to-many.
+    /// The link a `@Reference` writes to `target`.
     init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, target: ReferenceTarget) {
         self.init(
             id: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: target.id),
-            relationship: Self.signature(
-                sourceType: sourceType, property: reference.property, sourceIsToMany: reference.isToMany,
-                targetType: reference.targetType, inverse: reference.inverse?.property,
-                inverseIsToMany: reference.inverse?.isToMany ?? true
-            ),
+            source: Self.source(type: sourceType, property: reference.property),
             sourceName: sourceID.uuidString,
             targetName: target.id.uuidString,
             order: target.order
         )
     }
 
-    /// The ID of the link a `@Reference` writes. A to-one link leaves out the target, so it is
-    /// the same whatever the reference points at. A one-to-many link leaves out the source, so a
-    /// target belongs to one source. A many-to-many link has one per pair.
+    /// The ID of the link a `@Reference` writes to `targetID`.
     static func id(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, targetID: UUID) -> UUID {
-        let kind: Relationship = switch (reference.isToMany, reference.inverse?.isToMany) {
-        case (false, false?): .oneToOne
-        case (false, _): .manyToOne
-        case (true, false?): .oneToMany
-        case (true, _): .manyToMany
-        }
-        return id(
-            forward: forward(reference, sourceType: sourceType),
-            kind: kind,
+        id(
+            source: source(type: sourceType, property: reference.property),
+            kind: Relationship(reference),
             sourceName: sourceID.uuidString,
             targetName: targetID.uuidString
         )
-    }
-
-    private static func forward(_ reference: ReferenceState, sourceType: CKRecord.RecordType) -> String {
-        signature(
-            sourceType: sourceType, property: reference.property, sourceIsToMany: reference.isToMany,
-            targetType: reference.targetType, inverse: nil, inverseIsToMany: true
-        )
-    }
-
-    /// The source's record type and property, read from the forward side of the signature,
-    /// or `nil` when the signature is invalid.
-    var source: (type: String, property: String)? {
-        side(0)
-    }
-
-    /// The target's record type and `@Reference(from:)` property, read from the inverse side of
-    /// the signature, or `nil` when there is no inverse or the signature is invalid.
-    var target: (type: String, property: String)? {
-        side(1)
-    }
-
-    private func side(_ index: Int) -> (type: String, property: String)? {
-        guard (try? Relationship(signature: relationship)) != nil else { return nil }
-        let sides = relationship.components(separatedBy: " <-> ")
-        guard index < sides.count, let side = try? SignatureSide(sides[index], signature: relationship) else { return nil }
-        return (String(side.declaringType), String(side.property))
     }
 }
 
 // MARK: - Assets
 
 extension RecordLink {
-    /// The link an `@Asset` writes, such as `Album.cover:_Asset`. Like any to-one link, its ID
-    /// leaves out the target, so a new value overwrites the same link.
+    /// The link an `@Asset` writes. Like any to-one link, its ID leaves out the target, so a new
+    /// value overwrites the same link.
     init(asset: AssetState, assetID: UUID, sourceType: CKRecord.RecordType, sourceID: UUID) {
-        let relationship = Self.signature(
-            sourceType: sourceType, property: asset.property, sourceIsToMany: false,
-            targetType: Self.assetType, inverse: nil, inverseIsToMany: true
-        )
+        let source = Self.source(type: sourceType, property: asset.property)
         self.init(
-            id: Self.id(forward: relationship, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: ""),
-            relationship: relationship,
+            id: Self.id(source: source, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: ""),
+            source: source,
             sourceName: sourceID.uuidString,
             targetName: nil,
             order: nil,

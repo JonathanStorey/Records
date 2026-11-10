@@ -48,8 +48,9 @@ private struct Fixture {
     let links = try fixture.links.map(link)
 
     #expect(links.count == 3)
-    #expect(links.allSatisfy { $0.relationship == "Post.topics:[Topic] <-> Topic.postIDs:[Post]" })
-    #expect(try links.allSatisfy { try $0.kind == .manyToMany })
+    #expect(links.allSatisfy { $0.source == "Post.topics" })
+    #expect(signatures(of: fixture.first) == ["Post.topics:[Topic] <-> Topic.postIDs:[Post]"])
+    #expect(Relationship(fixture.first.referenceStates[0]) == .manyToMany)
     #expect(encoder.links(for: fixture.swift, in: .records).isEmpty)
 }
 

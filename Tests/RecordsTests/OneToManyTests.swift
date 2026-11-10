@@ -61,8 +61,9 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     let links = try books.flatMap { encoder.links(for: $0, in: .records) }.map(link)
 
     #expect(links.count == 2)
-    #expect(links.allSatisfy { $0.relationship == "Book.shelf:Shelf <-> Shelf.bookIDs:[Book]" })
-    #expect(try links.allSatisfy { try $0.kind == .manyToOne })
+    #expect(links.allSatisfy { $0.source == "Book.shelf" })
+    #expect(signatures(of: books[0]) == ["Book.shelf:Shelf <-> Shelf.bookIDs:[Book]"])
+    #expect(Relationship(books[0].referenceStates[0]) == .manyToOne)
     #expect(links.allSatisfy { $0.targetName == shelf.id.uuidString })
     #expect(encoder.links(for: shelf, in: .records).isEmpty)
 }
@@ -124,8 +125,9 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     let read = try links.map(link)
 
     #expect(read.count == 3)
-    #expect(read.allSatisfy { $0.relationship == "Release.tracks:[Song] <-> Song.albumID:Release" })
-    #expect(try read.allSatisfy { try $0.kind == .oneToMany })
+    #expect(read.allSatisfy { $0.source == "Release.tracks" })
+    #expect(signatures(of: album) == ["Release.tracks:[Song] <-> Song.albumID:Release"])
+    #expect(Relationship(album.referenceStates[0]) == .oneToMany)
     #expect(Song.deleteSelfReferences == ["albumID"])
     #expect(tracks.allSatisfy { encoder.links(for: $0, in: .records).isEmpty })
 
@@ -158,7 +160,8 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     let boss = Staff(id: UUID(), name: "Ada", manager: nil, reportIDs: [])
     let reports = ["Grace", "Linus"].map { Staff(id: UUID(), name: $0, manager: boss, reportIDs: []) }
     let links = reports.flatMap { encoder.links(for: $0, in: .records) }
-    #expect(try links.map { try link($0).relationship } == Array(repeating: "Staff.manager:Staff <-> Staff.reportIDs:[Staff]", count: 2))
+    #expect(try links.map { try link($0).source } == ["Staff.manager", "Staff.manager"])
+    #expect(signatures(of: reports[0]) == ["Staff.manager:Staff <-> Staff.reportIDs:[Staff]"])
 
     let bossRecord = encoder.encode(boss, in: .records)
     let bossAgain = try decoder.decode(Staff.self, from: bossRecord, links: links)

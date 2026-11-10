@@ -104,7 +104,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
     struct Reference {
         /// The identifier as written, including any backticks.
         let name: String
-        /// The name without backticks. Also the property name in the link's signature.
+        /// The name without backticks. Also the property its links name.
         let key: String
         /// The target record type as written, such as `Person`.
         let target: String
