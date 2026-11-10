@@ -30,8 +30,8 @@ public struct CKRecordDecoder: Sendable {
     ///
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
     /// whose source or, for `@Reference(from:)` properties, target is `record` are used, and links
-    /// that can't be read or that come from a newer link version are skipped. To-many targets are ordered by their order keys, then
-    /// by when the link was created, then by the link's name.
+    /// that can't be read are skipped. To-many targets are ordered by their order keys, then by
+    /// when the link was created, then by the link's name.
     ///
     /// A reference that holds records is filled from the matching records in `targets`, `depth`
     /// levels deep. With the default of 1, the targets are records and their own references
@@ -49,11 +49,8 @@ public struct CKRecordDecoder: Sendable {
 
         var byProperty: [String: [(target: ReferenceTarget, link: CKRecord)]] = [:]
         for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
-            // Skip links this build can't read, rather than fail or delete them: they may come
-            // from a newer version of the app.
-            guard let link = try? decode(RecordLink.self, from: linkRecord),
-                  link.version <= RecordLink.currentVersion
-            else { continue }
+            // Skip a malformed link rather than fail the whole record.
+            guard let link = try? decode(RecordLink.self, from: linkRecord) else { continue }
             // The owning side: this record is the link's source.
             if link.sourceName == sourceName,
                let source = link.source, source.type == R.recordType,

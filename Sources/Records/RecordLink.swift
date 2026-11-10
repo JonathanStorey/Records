@@ -115,11 +115,6 @@ struct RecordLink: Equatable, Sendable {
     var deleteSelf: Bool
     /// Fractional index key. Required on to-many links, empty on to-one links.
     var order: String?
-    /// The link format version.
-    var version: Int64
-
-    /// The current link format version.
-    static let currentVersion: Int64 = 1
 
     /// The relationship's shape, read from its signature.
     var kind: Relationship {
@@ -239,8 +234,7 @@ struct RecordLink: Equatable, Sendable {
             sourceName: sourceName,
             targetName: targetName,
             deleteSelf: deleteSelf,
-            order: order,
-            version: currentVersion
+            order: order
         )
     }
 
@@ -288,8 +282,7 @@ extension RecordLink {
             sourceName: sourceID.uuidString,
             targetName: target.id.uuidString,
             deleteSelf: reference.inverse?.deleteSelf ?? false,
-            order: target.order,
-            version: Self.currentVersion
+            order: target.order
         )
     }
 

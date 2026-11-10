@@ -120,6 +120,16 @@ To rename a property after its schema is deployed, keep its CloudKit name with `
 The record type is the struct's name. Pass a name to use another, which generic types must do:
 `@Record("Tag")`.
 
+### Changing a record
+
+Records keeps no schema versions, because CloudKit's schema only grows. Change a record this way:
+
+- **Rename** a type with `@Record("OldName")` and a field with `@Renamed("oldName")`.
+- **Add** a field as an optional or with a default, because records saved before it existed don't
+  have it.
+- **Stop using** a field by deleting the property. Its data stays in CloudKit.
+- **Never change a field's type.** Add a new field and stop writing the old one.
+
 ## References
 
 A property that points at other records is marked `@Reference`. It is never written as a field.
@@ -380,8 +390,7 @@ let album = try decoder.decode(Album.self, from: record, links: allLinks, target
 ```
 
 `links` can hold every link in the zone. The decoder uses the ones whose owner is this record, and,
-for `from:` properties, the ones that point at it. It skips links it can't read, such as ones
-written by a newer version of the app.
+for `from:` properties, the ones that point at it. It skips links it can't read.
 
 ## What loading returns
 

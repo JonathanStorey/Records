@@ -78,7 +78,6 @@ func invalidSignatureThrows(signature: String) {
     #expect(link.targetName == folderID.uuidString)
     #expect(link.deleteSelf)
     #expect(link.order == nil)
-    #expect(link.version == 1)
     #expect(try link.kind == .manyToOne)
 }
 
