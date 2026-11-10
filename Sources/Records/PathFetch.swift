@@ -183,9 +183,9 @@ extension RecordContext {
             guard let record = graph.records[root] else { continue }
             let reached = reachable(from: root, in: graph, hops: traversal.hops, infos: infos)
             var seen: Set<String> = []
-            let links = reached.flatMap(links(readBy:)).filter { seen.insert($0.recordID.recordName).inserted }
+            let reachedLinks = reached.flatMap(links(readBy:)).filter { seen.insert($0.recordID.recordName).inserted }
             let targets = reached.filter { $0 != root }.compactMap { graph.records[$0] }
-            let loaded = try decoder.decode(R.self, from: record, links: links, targets: targets, depth: traversal.hops)
+            let loaded = try decoder.decode(R.self, from: record, links: reachedLinks, targets: targets, depth: traversal.hops)
             if try predicate.evaluate(loaded) { matches.append((loaded, root)) }
         }
 
