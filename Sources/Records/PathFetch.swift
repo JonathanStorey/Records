@@ -215,7 +215,7 @@ extension RecordContext {
             guard let change = staged[key] else { continue }
             let node = NodeKey(recordType: key.recordType, name: key.name)
             overlay.staged.insert(node)
-            if change.kind == .save {
+            if !change.isDelete {
                 overlay.saved[node] = encoder.encode(change.record, in: zone)
                 overlay.links += encoder.links(for: change.record, in: zone)
             }
