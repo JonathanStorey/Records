@@ -71,6 +71,9 @@ final class RecordMacroTests: XCTestCase {
                         references: []
                     )
                 }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Note.id: "_name", \\Note.title: "title", \\Note.isPinned: "isPinned", \\Note.rating: "rating", \\Note.tags: "tags"]
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
@@ -125,6 +128,9 @@ final class RecordMacroTests: XCTestCase {
                         references: []
                     )
                 }
+                public static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\LegacyFolder.id: "_name", \\LegacyFolder.default: "default"]
+                }
                 public init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.`default` = try CKRecordDecoder.decode((Bool).self, forKey: "default", from: record)
@@ -170,6 +176,9 @@ final class RecordMacroTests: XCTestCase {
                         assets: [],
                         references: []
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Box.id: "_name", \\Box.value: "value"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -428,6 +437,9 @@ final class RecordMacroTests: XCTestCase {
                         ]
                     )
                 }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Article.id: "_name", \\Article.title: "title"]
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
@@ -613,6 +625,9 @@ final class RecordMacroTests: XCTestCase {
                         ]
                     )
                 }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Note.id: "_name"]
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self._tags = Records.ToMany(ids: [])
@@ -687,6 +702,9 @@ final class RecordMacroTests: XCTestCase {
                             Records.ReferenceSchema(property: "authorID", target: Person.self, isToMany: false, isSorted: false, holdsIDs: true),
                         ]
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Article.id: "_name"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -944,6 +962,9 @@ final class RecordMacroTests: XCTestCase {
                         ]
                     )
                 }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\User.id: "_name"]
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self._profile = Records.ToOne(id: nil)
@@ -1024,6 +1045,9 @@ final class RecordMacroTests: XCTestCase {
                             Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, isSorted: false, holdsIDs: true, inverseOf: "settingsID", deleteSelf: false),
                         ]
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Profile.id: "_name"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1192,6 +1216,9 @@ final class RecordMacroTests: XCTestCase {
                             Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, isSorted: false, holdsIDs: true, inverseOf: "shelf", deleteSelf: false),
                         ]
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Shelf.id: "_name"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1406,6 +1433,9 @@ final class RecordMacroTests: XCTestCase {
                         references: []
                     )
                 }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Note.id: "_name", \\Note.first: "first", \\Note.last: "last", \\Note.rating: "rating"]
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.first = try CKRecordDecoder.decode((String).self, forKey: "first", from: record)
@@ -1465,6 +1495,9 @@ final class RecordMacroTests: XCTestCase {
                         assets: [],
                         references: []
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Account.id: "_name", \\Account.name: "name", \\Account.note: "note", \\Account.pin: "pin"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1620,6 +1653,9 @@ final class RecordMacroTests: XCTestCase {
                         assets: ["image", "thumb"],
                         references: []
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Poster.id: "_name"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1801,6 +1837,9 @@ final class RecordMacroTests: XCTestCase {
                         references: []
                     )
                 }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Gig.id: "_name"]
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self._venue = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "venue", from: record.encryptedValues))
@@ -1885,6 +1924,9 @@ final class RecordMacroTests: XCTestCase {
                         assets: [],
                         references: []
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Memo.id: "_name"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1979,6 +2021,9 @@ final class RecordMacroTests: XCTestCase {
                         assets: [],
                         references: []
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Album.id: "_name", \\Album.year: "released"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -2443,6 +2488,9 @@ final class RecordMacroTests: XCTestCase {
                         assets: [],
                         references: []
                     )
+                }
+                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Note.id: "_name", \\Note.title: "title", \\Note.rating: "rating"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
