@@ -2433,6 +2433,17 @@ final class RecordMacroTests: XCTestCase {
                 static var recordType: CKRecord.RecordType {
                     "Note"
                 }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Note",
+                        fields: [
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false),
+                        ],
+                        assets: [],
+                        references: []
+                    )
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
