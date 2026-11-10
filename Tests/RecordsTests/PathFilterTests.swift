@@ -149,7 +149,9 @@ private let reviewPredicates: [Predicate<Review>] = [
     let library = Library()
     let context = try library.save()
     let lps = try context.fetch(RecordDescriptor<LP>(predicate: #Predicate { $0.musician?.name.contains("ov") == true }))
-    #expect(lps.map(\.id).sorted { $0.uuidString < $1.uuidString } == [library.lps[0].id, library.lps[3].id].sorted { $0.uuidString < $1.uuidString })
+    let fetched = Set(lps.map(\.id))
+    let expected: Set<UUID> = [library.lps[0].id, library.lps[3].id]
+    #expect(fetched == expected)
     for lp in lps {
         #expect(lp.musician == nil)
         #expect(lp.referenceStates.first { $0.property == "musician" }?.ids == [library.musicians[0].id])
