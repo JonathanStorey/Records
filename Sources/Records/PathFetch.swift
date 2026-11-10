@@ -69,16 +69,50 @@ private struct Graph {
     var records: [NodeKey: CKRecord] = [:]
     var linksByName: [String: [CKRecord]] = [:]
     var linksLoaded: Set<String> = []
+    private var linkNames: Set<String> = []
 
     /// Adds `link` under each record it names, once.
     mutating func add(link: CKRecord) {
-        let name = link.recordID.recordName
-        var touched: [String] = []
-        if let source = link["sourceName"] as? String { touched.append(source) }
-        if let target = link["targetName"] as? String, !touched.contains(target) { touched.append(target) }
-        for record in touched where !(linksByName[record]?.contains { $0.recordID.recordName == name } ?? false) {
-            linksByName[record, default: []].append(link)
-        }
+        guard linkNames.insert(link.recordID.recordName).inserted else { return }
+        let source = link["sourceName"] as? String
+        if let source { linksByName[source, default: []].append(link) }
+        if let target = link["targetName"] as? String, target != source { linksByName[target, default: []].append(link) }
+    }
+}
+
+/// What loading a path needs to know about one record type, read from its schema once.
+private struct PathInfo {
+    /// The traversed references the type declares, with the type each one reaches.
+    let traversed: [(link: PredicateTranslator.Link, target: CKRecord.RecordType)]
+    /// The `source` of every link the type reads from the target end, for its `from:` sides.
+    let inverseSources: Set<String>
+}
+
+/// `PathInfo` by record type, filled as types come up.
+private final class PathInfos {
+    private let types: [CKRecord.RecordType: any Record.Type]
+    private let traversal: Traversal
+    private var infos: [CKRecord.RecordType: PathInfo] = [:]
+
+    init(types: [CKRecord.RecordType: any Record.Type], traversal: Traversal) {
+        self.types = types
+        self.traversal = traversal
+    }
+
+    subscript(recordType: CKRecord.RecordType) -> PathInfo {
+        if let info = infos[recordType] { return info }
+        let references = types[recordType]?.schema.references ?? []
+        let info = PathInfo(
+            traversed: references.compactMap { reference in
+                guard traversal.contains(recordType, reference.property) else { return nil }
+                return (PredicateTranslator.Link(reference, of: recordType), reference.target.recordType)
+            },
+            inverseSources: Set(references.compactMap { reference in
+                reference.inverseOf.map { RecordLink.source(type: reference.target.recordType, property: $0) }
+            })
+        )
+        infos[recordType] = info
+        return info
     }
 }
 
@@ -111,11 +145,12 @@ extension RecordContext {
         let rows = try database.rows("SELECT * FROM \(database.quoted(R.recordType)) WHERE \(matching)", values)
         var roots: [NodeKey] = []
         var graph = Graph()
+        let schema = R.schema
         for row in rows {
             guard case .text(let name) = row["_name"] else { continue }
             let key = NodeKey(recordType: R.recordType, name: name)
             guard !overlay.staged.contains(key) else { continue }
-            graph.records[key] = R.schema.record(from: row, name: name, zone: zone)
+            graph.records[key] = schema.record(from: row, name: name, zone: zone)
             roots.append(key)
         }
         for key in stagedKeys(R.self) {
@@ -125,16 +160,25 @@ extension RecordContext {
                 roots.append(node)
             }
         }
-        try load(&graph, from: roots, through: traversal, overlay: overlay)
+        let infos = PathInfos(types: types, traversal: traversal)
+        try load(&graph, from: roots, through: traversal, infos: infos, overlay: overlay)
 
-        // Check each root with the records its paths reach loaded.
+        // Check each root with the records its paths reach loaded. Each record gets only the
+        // links it reads, so decoding stays proportional to what the paths reach.
         let decoder = CKRecordDecoder()
         var matches: [(loaded: R, root: NodeKey)] = []
         for root in roots {
             guard let record = graph.records[root] else { continue }
-            let reached = reachable(from: root, in: graph, through: traversal)
+            let reached = reachable(from: root, in: graph, hops: traversal.hops, infos: infos)
             var seen: Set<String> = []
-            let links = reached.flatMap { graph.linksByName[$0.name] ?? [] }.filter { seen.insert($0.recordID.recordName).inserted }
+            let links = reached.flatMap { node in
+                (graph.linksByName[node.name] ?? []).filter { link in
+                    guard let source = link["source"] as? String else { return false }
+                    let owns = link["sourceName"] as? String == node.name && source.hasPrefix(node.recordType + ".")
+                    let reads = link["targetName"] as? String == node.name && infos[node.recordType].inverseSources.contains(source)
+                    return owns || reads
+                }
+            }.filter { seen.insert($0.recordID.recordName).inserted }
             let targets = reached.filter { $0 != root }.compactMap { graph.records[$0] }
             let loaded = try decoder.decode(R.self, from: record, links: links, targets: targets, depth: traversal.hops)
             if try predicate.evaluate(loaded) { matches.append((loaded, root)) }
@@ -176,7 +220,9 @@ extension RecordContext {
 
     /// Loads the records `roots` reach through `traversal`, level by level, with every link
     /// that touches each record loaded.
-    private func load(_ graph: inout Graph, from roots: [NodeKey], through traversal: Traversal, overlay: Overlay) throws {
+    private func load(
+        _ graph: inout Graph, from roots: [NodeKey], through traversal: Traversal, infos: PathInfos, overlay: Overlay
+    ) throws {
         var frontier = roots
         for level in 0...traversal.hops {
             try loadLinks(for: frontier.map(\.name), into: &graph, overlay: overlay)
@@ -185,7 +231,7 @@ extension RecordContext {
             // The records the traversed references of the frontier point at.
             var next: [CKRecord.RecordType: Set<String>] = [:]
             for node in frontier {
-                for (link, target) in traversedLinks(of: node, through: traversal) {
+                for (link, target) in infos[node.recordType].traversed {
                     for record in graph.linksByName[node.name] ?? []
                     where record["source"] as? String == link.source && record[link.ownName] as? String == node.name {
                         if let other = record[link.otherName] as? String, graph.records[NodeKey(recordType: target, name: other)] == nil {
@@ -197,7 +243,7 @@ extension RecordContext {
 
             frontier = []
             for (recordType, names) in next {
-                guard let type = types[recordType] else { continue }
+                guard let schema = types[recordType]?.schema else { continue }
                 for name in names where overlay.staged.contains(NodeKey(recordType: recordType, name: name)) {
                     let node = NodeKey(recordType: recordType, name: name)
                     if let record = overlay.saved[node] {
@@ -216,7 +262,7 @@ extension RecordContext {
                     for row in rows {
                         guard case .text(let name) = row["_name"] else { continue }
                         let node = NodeKey(recordType: recordType, name: name)
-                        graph.records[node] = type.schema.record(from: row, name: name, zone: zone)
+                        graph.records[node] = schema.record(from: row, name: name, zone: zone)
                         frontier.append(node)
                     }
                 }
@@ -232,6 +278,7 @@ extension RecordContext {
         guard !missing.isEmpty else { return }
         graph.linksLoaded.formUnion(missing)
         let (current, zoneValues) = Self.matching(zone: zone, filter: nil)
+        let linkSchema = RecordLink.schema
         for chunk in missing.chunked(400) {
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
             let values = chunk.map(SQLValue.text)
@@ -244,7 +291,7 @@ extension RecordContext {
             )
             for row in rows {
                 guard case .text(let name) = row["_name"] else { continue }
-                let link = RecordLink.schema.record(from: row, name: name, zone: zone)
+                let link = linkSchema.record(from: row, name: name, zone: zone)
                 if !overlay.replaces(link) { graph.add(link: link) }
             }
         }
@@ -255,24 +302,15 @@ extension RecordContext {
         }
     }
 
-    /// The traversed references `node`'s type declares, with the type each one reaches.
-    private func traversedLinks(of node: NodeKey, through traversal: Traversal) -> [(PredicateTranslator.Link, CKRecord.RecordType)] {
-        guard let type = types[node.recordType] else { return [] }
-        return type.schema.references.compactMap { reference in
-            guard traversal.contains(node.recordType, reference.property) else { return nil }
-            return (PredicateTranslator.Link(reference, of: node.recordType), reference.target.recordType)
-        }
-    }
-
-    /// `root` and the records it reaches through `traversal`, at most `traversal.hops` deep.
-    private func reachable(from root: NodeKey, in graph: Graph, through traversal: Traversal) -> [NodeKey] {
+    /// `root` and the records it reaches through the traversed references, at most `hops` deep.
+    private func reachable(from root: NodeKey, in graph: Graph, hops: Int, infos: PathInfos) -> [NodeKey] {
         var found: [NodeKey] = [root]
         var seen: Set<NodeKey> = [root]
         var frontier = [root]
-        for _ in 0..<traversal.hops {
+        for _ in 0..<hops {
             var next: [NodeKey] = []
             for node in frontier {
-                for (link, target) in traversedLinks(of: node, through: traversal) {
+                for (link, target) in infos[node.recordType].traversed {
                     for record in graph.linksByName[node.name] ?? []
                     where record["source"] as? String == link.source && record[link.ownName] as? String == node.name {
                         guard let other = record[link.otherName] as? String else { continue }
