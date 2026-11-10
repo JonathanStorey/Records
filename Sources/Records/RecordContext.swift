@@ -24,14 +24,18 @@ public enum RecordContextError: Error, Equatable, CustomStringConvertible {
 /// record and its links are saved together or not at all.
 @MainActor
 public final class RecordContext {
-    /// The container whose database this context reads and writes.
-    public let container: RecordContainer
+    /// Every registered type by record type, shared with the container.
+    let types: [CKRecord.RecordType: any Record.Type]
+    /// The container's database. The context holds it, not the container, so the container can
+    /// keep its main context without the two keeping each other alive.
+    let database: Database
 
     /// The zone new records go to. Set it to switch zones at any time.
     public var zone: Zone = .records
 
     init(container: RecordContainer) {
-        self.container = container
+        types = container.types
+        database = container.database
     }
 
     /// Saves a new record to the current `zone`, with a link for each reference target and each
@@ -44,7 +48,7 @@ public final class RecordContext {
         let row = Row(zone: zone, now: Date())
         let values = record.columnValues()
         let links = Self.links(for: record).map { ($0.id, $0.columnValues()) }
-        let database = container.database
+        let database = self.database
         do {
             try database.transaction {
                 try Self.write(R.schema, name: record.id.uuidString, values: values, row: row, replacing: false, in: database)
@@ -114,7 +118,7 @@ public final class RecordContext {
     // MARK: - Types
 
     private func checkRegistered<R: Record>(_ type: R.Type) throws {
-        guard let registered = container.types[R.recordType], ObjectIdentifier(registered) == ObjectIdentifier(R.self) else {
+        guard let registered = types[R.recordType], ObjectIdentifier(registered) == ObjectIdentifier(R.self) else {
             throw RecordContextError.unregisteredType(R.recordType)
         }
     }

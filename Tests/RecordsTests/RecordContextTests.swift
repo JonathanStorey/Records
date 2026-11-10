@@ -12,7 +12,7 @@ private func makeContext(for types: any Record.Type...) throws -> RecordContext 
 /// The current row of `id` in `table`.
 @MainActor
 private func currentRow(_ table: String, _ id: UUID, in context: RecordContext) throws -> [String: SQLValue] {
-    let rows = try context.container.database.rows(
+    let rows = try context.database.rows(
         "SELECT * FROM \"\(table)\" WHERE \"_name\" = ? AND \"_isCurrent\" = 1", [.text(id.uuidString)]
     )
     return try #require(rows.first)
@@ -20,7 +20,7 @@ private func currentRow(_ table: String, _ id: UUID, in context: RecordContext) 
 
 @MainActor
 private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String: SQLValue]] {
-    try context.container.database.rows(
+    try context.database.rows(
         "SELECT * FROM \"RecordLink\" WHERE \"sourceName\" = ? ORDER BY \"order\"", [.text(id.uuidString)]
     )
 }
@@ -55,7 +55,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     #expect(row["_systemFields"] == .null)
     #expect(row["_deleted"] == .integer(0))
     #expect(row["_createdAt"] == row["_modifiedAt"])
-    let pending = try context.container.database.rows(
+    let pending = try context.database.rows(
         "SELECT \"_name\" FROM \"Page\" WHERE \"_isCurrent\" = 0 OR \"_systemFields\" IS NULL OR \"_deleted\" = 1"
     )
     #expect(pending.map { $0["_name"] } == [Optional(SQLValue.text(page.id.uuidString))])
@@ -130,7 +130,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     let context = try makeContext(for: Page.self)
     let label = Label(id: UUID(), name: "a")
     try context.insert(Page(id: UUID(), title: "Notes", labels: [label], pinnedIDs: []))
-    #expect(try context.container.database.rows("SELECT * FROM \"Label\"").isEmpty)
+    #expect(try context.database.rows("SELECT * FROM \"Label\"").isEmpty)
 }
 
 // MARK: - Errors
@@ -164,4 +164,19 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     #expect(FieldKind.bytes.recordValue(FieldKind.bytes.sqlValue(Data([1, 2]))) as? Data == Data([1, 2]))
     #expect(FieldKind.text.sqlValue(nil) == .null)
     #expect(FieldKind.text.recordValue(.null) == nil)
+}
+
+/// The context holds the database, not the container, so a container and its main context
+/// don't keep each other alive, and the context still works after the container is gone.
+@MainActor @Test func contextOutlivesContainer() throws {
+    weak var released: RecordContainer?
+    let context: RecordContext
+    do {
+        let container = try RecordContainer.inMemory(for: Venue.self)
+        released = container
+        context = container.mainContext
+    }
+    #expect(released == nil)
+    try context.insert(Venue(id: UUID(), name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: []))
+    #expect(try context.database.rows("SELECT * FROM \"Venue\"").count == 1)
 }

@@ -101,7 +101,8 @@ public final class RecordContainer: Sendable {
     /// The context the app's main actor reads and writes records through. The same context
     /// every time, so its `zone` stays set.
     ///
-    /// The context keeps the container alive, so a context is always safe to use.
+    /// The container keeps its main context, and the context keeps the database, so a context
+    /// stays safe to use even after its container is released.
     @MainActor public var mainContext: RecordContext {
         if let context = mainContextStorage { return context }
         let context = RecordContext(container: self)
