@@ -92,8 +92,9 @@ Read the dates the server keeps for every record with `@Timestamped`:
 ```
 
 They come from the server's clock, so they match on every device, and `.modified` is the one to sort
-a "recently updated" list by. They are `nil` until the record is first saved, never count as a
-change, and can't be assigned.
+a "recently updated" list by. They are `nil` until the record is first saved and never count as a
+change. A date set in code, such as one a preview passes to the initializer, is never uploaded, and
+the next fetch replaces it with the server's.
 
 A field can hold any type CloudKit stores, such as `String`, `Int`, `Double`, `Bool`, `Date`, `Data`,
 `CLLocation`, or an array of them. An enum with such a raw value is stored as its raw value, and any

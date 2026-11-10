@@ -43,3 +43,11 @@ private func setServerDate(_ date: Date, _ key: String, on record: CKRecord) thr
     #expect(memo.modifiedAt == modified)
     #expect(!memo.hasChanges)
 }
+
+@Test func aPreviewCanGiveARecordADate() {
+    let date = Date(timeIntervalSince1970: 1_700_000_000)
+    let memo = Memo(id: UUID(), text: "Call back", createdAt: date)
+    #expect(memo.createdAt == date)
+    #expect(memo.changedFields == ["text"])
+    #expect(CKRecordEncoder().encode(memo, in: .records).allKeys() == ["text"])
+}

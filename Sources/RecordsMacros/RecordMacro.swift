@@ -104,7 +104,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         }
         // The server keeps these dates outside the record's fields.
         for timestamp in try timestamps(in: structDecl.memberBlock) {
-            lines.append("        self.\(timestamp.storage) = record.\(timestamp.kind.recordProperty)")
+            lines.append("        self.\(timestamp.name) = record.\(timestamp.kind.recordProperty)")
         }
         // Links hold references, so a decoded record starts with none. `loadReference` fills them.
         for reference in references {
@@ -456,13 +456,13 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
 
     /// Whether `variable` carries `@Encrypted` or `@Records.Encrypted`.
     /// The valid `@Timestamped` properties. `@Timestamped` itself reports invalid ones.
-    private static func timestamps(in members: MemberBlockSyntax) throws -> [(storage: String, kind: TimestampedMacro.Kind)] {
+    private static func timestamps(in members: MemberBlockSyntax) throws -> [(name: String, kind: TimestampedMacro.Kind)] {
         members.members.compactMap { member in
             guard let variable = member.decl.as(VariableDeclSyntax.self),
                   let attribute = TimestampedMacro.attribute(on: variable),
                   let timestamp = try? TimestampedMacro.timestamp(variable, attribute: attribute)
             else { return nil }
-            return (timestamp.storage, timestamp.kind)
+            return (timestamp.name, timestamp.kind)
         }
     }
 
