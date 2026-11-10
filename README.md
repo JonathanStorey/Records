@@ -473,6 +473,11 @@ comparisons of numbers, Booleans, dates, enums, `nil`, and the `id`, string equa
 `||`, `!`, and `[...].contains($0.property)`. Everything else, such as `contains` on a string or
 a computed property, is checked in Swift on the rows read. Either way the results are the same.
 
+When the whole predicate runs in the database and every sort is by a number or a date, the
+database also sorts and applies `fetchLimit` and `fetchOffset`, so only the records returned are
+read. `fetchCount` then counts without reading any. Staged changes to the type, a string sort, or
+a predicate part Swift has to check keep the sorting and limiting in Swift.
+
 ## Saving and loading
 
 `CKRecordEncoder` turns a record into a `CKRecord`, plus a link record for each target its

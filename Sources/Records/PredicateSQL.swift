@@ -6,6 +6,16 @@ struct SQLFilter: Sendable {
     var values: [SQLValue]
 }
 
+/// The order and range of rows a query reads.
+struct SQLPage: Sendable {
+    /// The `ORDER BY` list.
+    var orderBy: String
+    /// The most rows to read, or `nil` for every row.
+    var limit: Int?
+    /// How many rows to skip first.
+    var offset: Int
+}
+
 /// Turns a `Predicate` into SQL a row must meet to match it.
 ///
 /// The SQL is a necessary condition, not always an exact one: every record that matches the
@@ -41,6 +51,24 @@ struct PredicateTranslator {
         guard let expression = predicate.expression as? any SQLPredicateExpression else { return nil }
         if let exact = expression.condition(exact: true, self) { return (exact, true) }
         return expression.condition(exact: false, self).map { ($0, false) }
+    }
+
+    /// An `ORDER BY` list that sorts rows as `sortBy` sorts records, or `nil` when SQL can't.
+    ///
+    /// Only numbers and dates sort the same in SQL and Swift: strings sort by Unicode rules
+    /// SQLite doesn't follow, and an enum by its own `<`. `nil` sorts first going forward in
+    /// both. The record name comes last, so equal records keep one order from query to query.
+    func orderBy<R>(_ sortBy: [SortDescriptor<R>]) -> String? {
+        var terms: [String] = []
+        for descriptor in sortBy {
+            guard let keyPath = descriptor.keyPath,
+                  let column = columns[keyPath],
+                  [.integer, .real, .date].contains(column.kind),
+                  sortsAsStored(type(of: keyPath).valueType)
+            else { return nil }
+            terms.append("\(quoted(column.name)) \(descriptor.order == .forward ? "ASC" : "DESC")")
+        }
+        return (terms + [#""_name" ASC"#]).joined(separator: ", ")
     }
 
     /// The column `keyPath` reads, when it reads a stored property of the predicate's input.
@@ -319,4 +347,18 @@ private func sqlValue(of value: Any) -> SQLValue? {
 
 private func quoted(_ name: String) -> String {
     "\"\(name.replacingOccurrences(of: "\"", with: "\"\""))\""
+}
+
+/// Whether values of `type` sort in Swift as their stored column does in SQL.
+private func sortsAsStored(_ type: Any.Type) -> Bool {
+    if let optional = type as? any SortableOptional.Type { return sortsAsStored(optional.wrappedType) }
+    return type is any BinaryInteger.Type || type == Double.self || type == Float.self || type == Date.self
+}
+
+private protocol SortableOptional {
+    static var wrappedType: Any.Type { get }
+}
+
+extension Optional: SortableOptional {
+    static var wrappedType: Any.Type { Wrapped.self }
 }

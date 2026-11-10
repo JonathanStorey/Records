@@ -145,6 +145,30 @@ struct RecordContextBenchmarks {
         #expect(time < 5_000)
     }
 
+    @Test func fetchTheFirstRecordsSortedByTheDatabase() throws {
+        let context = try RecordContainer(for: [Gauge.self], url: nil).mainContext
+        for index in 0..<Self.count {
+            context.insert(Gauge(
+                id: UUID(), name: "\(index)", level: Double(index), steps: (index * 7919) % Self.count, limit: 0,
+                checkedAt: .now, isOn: index.isMultiple(of: 2), mood: .calm, rating: nil, nickname: nil
+            ))
+        }
+        try context.save()
+        let descriptor = RecordDescriptor<Gauge>(
+            predicate: #Predicate { $0.isOn }, sortBy: [SortDescriptor(\.steps)], fetchLimit: 50
+        )
+        let fetchTime = try measure("fetch the first 50 of \(Self.count) records sorted by the database") {
+            let count = try context.fetch(descriptor).count
+            #expect(count == 50)
+        }
+        let countTime = try measure("count \(Self.count / 2) of \(Self.count) records in the database") {
+            let count = try context.fetchCount(RecordDescriptor<Gauge>(predicate: #Predicate { $0.isOn }))
+            #expect(count == Self.count / 2)
+        }
+        #expect(fetchTime < 5_000)
+        #expect(countTime < 5_000)
+    }
+
     @Test func fetchRecordsWithLinks() throws {
         let context = try RecordContainer(for: [Page.self], url: nil).mainContext
         let labels = (0..<10).map { Label(id: UUID(), name: "\($0)") }
