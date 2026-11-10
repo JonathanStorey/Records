@@ -42,7 +42,7 @@ public final class RecordContext {
     /// `@Asset`.
     ///
     /// Only `record` itself is saved. Records its references point at are saved by inserting
-    /// them too. Throws `RecordContextError.duplicateID` when a record with the same ID exists.
+    /// them too. Throws `RecordContextError.duplicateID` when a record with the same ID exists in the zone.
     public func insert<R: Record>(_ record: R) throws {
         try checkRegistered(R.self)
         let row = Row(zone: zone, now: Date())
@@ -74,8 +74,10 @@ public final class RecordContext {
     /// `NULL` until the first sync, which also marks the row as waiting to upload.
     private nonisolated static let writtenBookkeeping = ["_name", "_isCurrent", "_zoneName", "_zoneOwner", "_createdAt", "_modifiedAt"]
 
-    /// Writes the current row `name` of `schema`'s table. With `replacing`, an existing row
-    /// takes the new fields, zone, and modification date, and keeps the rest.
+    /// Writes the current row `name` of `schema`'s table in `row.zone`. A row is named by its zone
+    /// and name together, as a CloudKit record ID is, so the same name can be in several zones.
+    /// With `replacing`, an existing row takes the new fields and modification date, and keeps
+    /// the rest.
     private nonisolated static func write(
         _ schema: RecordSchema, name: String, values: [SQLValue], row: Row, replacing: Bool, in database: Database
     ) throws {
@@ -84,8 +86,8 @@ public final class RecordContext {
         let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
         var sql = "INSERT INTO \(database.quoted(schema.recordType)) (\(columns.joined(separator: ", "))) VALUES (\(placeholders))"
         if replacing {
-            let updated = ["\"_zoneName\"", "\"_zoneOwner\"", "\"_modifiedAt\""] + fieldColumns
-            sql += " ON CONFLICT (\"_name\", \"_isCurrent\") DO UPDATE SET "
+            let updated = ["\"_modifiedAt\""] + fieldColumns
+            sql += " ON CONFLICT (\"_zoneName\", \"_zoneOwner\", \"_name\", \"_isCurrent\") DO UPDATE SET "
                 + updated.map { "\($0) = excluded.\($0)" }.joined(separator: ", ")
         }
         let seconds = row.now.timeIntervalSince1970
