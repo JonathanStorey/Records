@@ -451,9 +451,10 @@ let album = try context.record(id: albumID, for: Album.self)   // Album?
 let any = try context.record(id: someID)                       // (any Record)?
 ```
 
-Both look in the context's `zone` and return `nil` when the record is missing or deleted. A
-staged change comes first: a staged insert returns the staged record, and a staged delete returns
-`nil`. References hold their targets' IDs. Without a type, one indexed query finds the table that
+Both look in the context's `zone` and return `nil` when the record is missing or deleted. Staged
+changes count as if saved: a staged insert returns the saved record with the draft's edits laid
+over it, so a change made elsewhere since to a field the draft didn't touch shows, and a staged
+delete returns `nil`. References hold their targets' IDs. Without a type, one indexed query finds the table that
 holds the ID.
 
 ## Fetching records
@@ -468,9 +469,10 @@ let count = try context.fetchCount(RecordDescriptor<Album>())
 ```
 
 `RecordDescriptor` takes Foundation's `#Predicate` and `SortDescriptor`, as SwiftData's
-`FetchDescriptor` does. `fetch` looks in the context's `zone` and includes staged changes: a
-staged insert is returned as staged, and a staged delete leaves its record out. References hold
-their targets' IDs.
+`FetchDescriptor` does. `fetch` looks in the context's `zone` and sees staged changes as `save()`
+would write them: a staged insert is the saved record with the draft's edits laid over it, and a
+staged delete leaves its record out. Nothing is saved by reading. References hold their targets'
+IDs.
 
 The parts of a predicate the database can check run there, so only matching rows are read:
 comparisons of numbers, Booleans, dates, enums, `nil`, and the `id`, string equality, `&&`,
@@ -488,13 +490,13 @@ Predicates can also read through references to records, at any depth:
 
 The database checks each path through the links, reaching only targets that are saved. When
 Swift has to check part of the predicate, fetch loads the records the paths reach, and only
-those, with staged changes laid over them. The records it returns still hold IDs. Everything else, such as `contains` on a string or
-a computed property, is checked in Swift on the rows read. Either way the results are the same.
+those. The records it returns still hold IDs. Everything else, such as `contains` on a string or a
+computed property, is checked in Swift on the rows read. Either way the results are the same.
 
 When the whole predicate runs in the database and every sort is by a number or a date, the
 database also sorts and applies `fetchLimit` and `fetchOffset`, so only the records returned are
-read. `fetchCount` then counts without reading any. Staged changes to the type, a string sort, or
-a predicate part Swift has to check keep the sorting and limiting in Swift.
+read. `fetchCount` then counts without reading any. A string sort or a predicate part Swift has to
+check keeps the sorting and limiting in Swift.
 
 ## Saving and loading
 
