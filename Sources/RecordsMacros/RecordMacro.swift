@@ -44,6 +44,7 @@ public struct RecordMacro: ExtensionMacro {
             "    \(access)static var recordType: CKRecord.RecordType {",
             "        \"\(recordType)\"",
             "    }",
+        ] + schemaLines(recordType: recordType, fields: fields, references: references, access: access) + [
             "    \(access)init(record: CKRecord) throws {",
             "        self.id = try CKRecordDecoder.decodeID(from: record)",
         ]
@@ -187,6 +188,50 @@ public struct RecordMacro: ExtensionMacro {
         let decl = DeclSyntax(stringLiteral: lines.joined(separator: "\n"))
         guard let extensionDecl = decl.as(ExtensionDeclSyntax.self) else { return [] }
         return [extensionDecl]
+    }
+
+    /// The static `schema` the container builds its tables from.
+    private static func schemaLines(
+        recordType: String,
+        fields: [StoredProperty],
+        references: [ReferenceMacro.Reference],
+        access: String
+    ) -> [String] {
+        var lines = [
+            "    \(access)static var schema: Records.RecordSchema {",
+            "        Records.RecordSchema(",
+            "            recordType: \"\(recordType)\",",
+        ]
+        let stored = fields.filter { !$0.isAsset }
+        if stored.isEmpty {
+            lines.append("            fields: [],")
+        } else {
+            lines.append("            fields: [")
+            for field in stored {
+                lines.append("                Records.FieldSchema(name: \"\(field.key)\", key: \"\(field.fieldKey)\", isOptional: \(field.wrappedType != nil), isEncrypted: \(field.isEncrypted)),")
+            }
+            lines.append("            ],")
+        }
+        let assets = fields.filter(\.isAsset).map { "\"\($0.fieldKey)\"" }
+        lines.append("            assets: [\(assets.joined(separator: ", "))],")
+        if references.isEmpty {
+            lines.append("            references: []")
+        } else {
+            lines.append("            references: [")
+            for reference in references {
+                var arguments = "property: \"\(reference.key)\", target: \(reference.target).self, isToMany: \(reference.isToMany), isSorted: \(reference.sort != nil), holdsIDs: \(reference.isID)"
+                if let owner = reference.ownerProperty {
+                    arguments += ", inverseOf: \"\(owner)\", deleteSelf: \(reference.deleteSelf)"
+                }
+                lines.append("                Records.ReferenceSchema(\(arguments)),")
+            }
+            lines.append("            ]")
+        }
+        lines += [
+            "        )",
+            "    }",
+        ]
+        return lines
     }
 
     /// `encode(to:)` and `init(from:)` for a struct that declares `Codable`, `Encodable`, or

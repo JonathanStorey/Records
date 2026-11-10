@@ -11,6 +11,7 @@ device and sync them through CloudKit with `CKSyncEngine`. Swift macros generate
 - [References](#references)
 - [Every relationship, by example](#every-relationship-by-example)
 - [Choosing the owner](#choosing-the-owner)
+- [Opening a container](#opening-a-container)
 - [Saving and loading](#saving-and-loading)
 - [What loading returns](#what-loading-returns)
 - [Not built yet](#not-built-yet)
@@ -373,6 +374,30 @@ The owner is the side your code edits, and the side whose order matters.
   side. To delete tracks with their album, the album must own the tracks.
 - **Only one `from:` side can name a given owner property.**
 
+## Opening a container
+
+`RecordContainer` keeps records on device in SQLite and will sync them with CloudKit.
+
+```swift
+let container = try RecordContainer(for: Album.self)
+```
+
+Every type a registered type refers to is registered too, so `Album` brings `Track`, `Artist`, and
+`Genre`. Opening checks the types against each other and throws a `RecordContainerError` that names
+the problem: two types with the same record type, a field name starting with an underscore, or a
+`@Reference(from:)` that names a property not pointing back. It then creates a table for each type,
+or updates the table when fields were added or removed.
+
+The database lives at `Application Support/Records/default.sqlite` and syncs with the app's default
+iCloud container. Tests and previews can use a throwaway one:
+
+```swift
+let container = try RecordContainer(
+    for: Album.self,
+    configuration: .init(storage: .inMemory, cloudKit: .none)
+)
+```
+
 ## Saving and loading
 
 `CKRecordEncoder` turns a record into a `CKRecord`, plus a link record for each target its
@@ -455,8 +480,10 @@ depth runs out, then holds only an ID.
 
 ## Not built yet
 
-- The SQLite store and `CKSyncEngine` sync. The store keeps the last synced copy of each record,
-  so it finds the fields and links that changed by comparing against it, and uploads only those.
+- Saving to and loading from the container. The tables exist, and the store will keep the last
+  synced copy of each record, so it finds the fields and links that changed by comparing against
+  it, and uploads only those.
+- `CKSyncEngine` sync.
 - Deletion with `deleteSelf`. The container knows the flag from each type's `@Reference(from:)`
   declaration, and the store will delete the targets.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store
