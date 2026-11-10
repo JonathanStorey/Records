@@ -219,3 +219,27 @@ private func novel(_ title: String, year: Int) -> Novel {
     here.rollback()
     #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1971)
 }
+
+/// A stale draft's links read as saving would write them, before it is saved.
+@MainActor
+@Test func aStaleDraftReadsWithLinksChangedElsewhere() throws {
+    let (here, elsewhere) = try twoContexts()
+    let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
+    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]], pinnedIDs: [])
+    here.insert(saved)
+    try here.save()
+
+    var draft = saved
+    draft.labels = [labels[0], labels[1], labels[2]]
+    here.insert(draft)
+
+    var remote = saved
+    remote.labels = [labels[0], labels[3]]
+    elsewhere.insert(remote)
+    try elsewhere.save()
+
+    let page = try #require(try here.record(id: saved.id, for: Page.self))
+    let ids = Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
+    #expect(ids == [labels[0].id, labels[2].id, labels[3].id])
+    #expect(here.hasChanges)
+}
