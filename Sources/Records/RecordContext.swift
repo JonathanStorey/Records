@@ -40,7 +40,7 @@ public final class RecordContext {
     public var zone: Zone = .records
 
     /// Staged changes by record, in the order they were first staged.
-    var staged: [RecordKey: StagedChange] = [:]
+    var staged: [RecordKey: RecordDifference] = [:]
     var stagedOrder: [RecordKey] = []
 
     init(container: RecordContainer) {
@@ -54,7 +54,7 @@ public final class RecordContext {
     /// The changes staged in the current `zone`, in the order they were first staged. A record
     /// appears at most once: staging it again replaces its change in place. `save()` writes the
     /// changes of every zone, not only these.
-    public var changes: [RecordChange] {
+    public var changes: [RecordDifference.Change] {
         stagedOrder.filter { $0.zone == zone }.compactMap { staged[$0]?.change }
     }
 
@@ -66,14 +66,14 @@ public final class RecordContext {
     /// the fields and links that differ from the saved copy. Only `record` itself is staged.
     /// Records its references point at are staged by inserting them too.
     public func insert(_ record: some Record) {
-        stage(record, .save)
+        stage(record, isDelete: false)
     }
 
     /// Stages deleting `record` from the current `zone`, with the links it owns. When saved, a
     /// record that never synced is removed outright, and a synced one is kept as a deletion until
     /// the server confirms it.
     public func delete(_ record: some Record) {
-        stage(record, .delete)
+        stage(record, isDelete: true)
     }
 
     /// Writes every staged change in one transaction, then clears them. If any write fails,
@@ -99,34 +99,52 @@ public final class RecordContext {
         stagedOrder.removeAll()
     }
 
-    private func stage<R: Record>(_ record: R, _ kind: StagedChange.Kind) {
+    /// Stages `record`. The first time, the saved record becomes the original that `save()`
+    /// compares with. Staging it again keeps that original.
+    private func stage<R: Record>(_ record: R, isDelete: Bool) {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        if staged.updateValue(Self.change(for: record, kind), forKey: key) == nil { stagedOrder.append(key) }
+        let original: R?
+        if let existing = staged[key] {
+            original = existing.original as? R
+        } else {
+            // A record that can't be read counts as unsaved, so save writes every field.
+            original = (try? Self.load(R.self, key: key, in: database)) ?? nil
+        }
+        let difference = Self.difference(for: record, original: original, isDelete: isDelete)
+        if staged.updateValue(difference, forKey: key) == nil { stagedOrder.append(key) }
     }
 
-    /// The change that saves or deletes `record`.
-    private static func change<R: Record>(for record: R, _ kind: StagedChange.Kind) -> StagedChange {
-        let linkKeys = RecordLink.schema.fields.map(\.key)
-        return StagedChange(
-            kind: kind,
-            record: record,
+    /// The difference that saves or deletes `record`, compared with `original`.
+    private static func difference<R: Record>(for record: R, original: R?, isDelete: Bool) -> RecordDifference {
+        let keys = R.schema.fields.map(\.key)
+        return RecordDifference(
+            change: isDelete ? .delete(record) : .insert(record),
+            original: original,
             schema: R.schema,
-            values: Dictionary(uniqueKeysWithValues: zip(R.schema.fields.map(\.key), record.columnValues())),
-            links: { orders in
-                Self.links(for: record, orders: orders).map { link in
-                    (link.id.uuidString, Dictionary(uniqueKeysWithValues: zip(linkKeys, link.columnValues())))
-                }
-            }
+            values: Dictionary(uniqueKeysWithValues: zip(keys, record.columnValues())),
+            originalValues: original.map { Dictionary(uniqueKeysWithValues: zip(keys, $0.columnValues())) },
+            links: linkRows(for: record),
+            originalLinks: original.map(linkRows(for:))
         )
+    }
+
+    /// `record`'s links as rows by name, given the saved order keys.
+    private static func linkRows<R: Record>(for record: R) -> ([String: String]) -> [(String, [String: SQLValue])] {
+        let linkKeys = RecordLink.schema.fields.map(\.key)
+        return { orders in
+            Self.links(for: record, orders: orders).map { link in
+                (link.id.uuidString, Dictionary(uniqueKeysWithValues: zip(linkKeys, link.columnValues())))
+            }
+        }
     }
 
     /// Inserts the loaded targets of the saved records that exist nowhere yet: not saved in the
     /// zone, deleted or not, and not staged. A target that exists is never written, so a stale
     /// copy can't overwrite it. New targets' own new targets are inserted too.
-    private func insertNewTargets(of changes: [(RecordKey, StagedChange)], now: Double, in database: Database) throws {
+    private func insertNewTargets(of changes: [(RecordKey, RecordDifference)], now: Double, in database: Database) throws {
         var visited = Set(changes.map(\.0))
-        var queue = changes.compactMap { key, change in change.kind == .save ? (key.zone, change.record) : nil }
+        var queue = changes.compactMap { key, change in change.isDelete ? nil : (key.zone, change.record) }
         while !queue.isEmpty {
             let (zone, record) = queue.removeFirst()
             for target in record.loadedTargets {
@@ -134,23 +152,40 @@ public final class RecordContext {
                 guard visited.insert(key).inserted,
                       try Self.currentRow(of: key, in: database) == nil
                 else { continue }
-                try Self.write(Self.change(for: target, .save), key: key, now: now, in: database)
+                try Self.write(Self.difference(for: target, original: nil, isDelete: false), key: key, now: now, in: database)
                 queue.append((zone, target))
             }
         }
     }
 
-    /// Writes one change: the record's row and its links.
-    private nonisolated static func write(_ change: StagedChange, key: RecordKey, now: Double, in database: Database) throws {
+    /// Writes one change: the record's row and its links. With an original, only the fields and
+    /// links that differ from it are written, so the saved record keeps anything changed
+    /// elsewhere since that the draft didn't touch.
+    private nonisolated static func write(_ change: RecordDifference, key: RecordKey, now: Double, in database: Database) throws {
         let savedLinks = try currentLinks(of: key, in: database)
-        switch change.kind {
-        case .save:
-            try writeRecord(change.schema, key: key, values: change.values, now: now, in: database)
-            try writeLinks(change.links(orders(of: savedLinks)), of: key, saved: savedLinks, now: now, in: database)
-        case .delete:
+        guard !change.isDelete else {
             try remove(key, now: now, in: database)
-            try writeLinks([], of: key, saved: savedLinks, now: now, in: database)
+            try writeLinks([], of: key, saved: savedLinks, removing: nil, now: now, in: database)
+            return
         }
+        // A record removed or deleted since it was staged comes back whole.
+        let savedRow = try currentRow(of: key, in: database)
+        let hasOriginal = savedRow != nil && savedRow?["_deleted"] != .integer(1) && change.original != nil
+        let edited = hasOriginal ? change.originalValues.map { original in change.values.filter { original[$0.key] != $0.value } } : nil
+        try writeRecord(change.schema, key: key, values: change.values, edited: edited, now: now, in: database)
+
+        let orders = orders(of: savedLinks)
+        let links = change.links(orders)
+        guard hasOriginal, let originalLinks = change.originalLinks?(orders) else {
+            try writeLinks(links, of: key, saved: savedLinks, removing: nil, now: now, in: database)
+            return
+        }
+        let original = Dictionary(originalLinks, uniquingKeysWith: { first, _ in first })
+        let kept = Set(links.map(\.0))
+        try writeLinks(
+            links.filter { !matches(original[$0.0], $0.1) }, of: key, saved: savedLinks,
+            removing: Set(original.keys.filter { !kept.contains($0) }), now: now, in: database
+        )
     }
 
     // MARK: - Reading
@@ -163,7 +198,7 @@ public final class RecordContext {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
         if let change = staged[key] {
-            return change.kind == .delete ? nil : change.record as? R
+            return change.isDelete ? nil : change.record as? R
         }
         return try Self.load(R.self, key: key, in: database)
     }
@@ -175,7 +210,7 @@ public final class RecordContext {
         let name = id.uuidString
         if let key = stagedOrder.first(where: { $0.name == name && $0.zone == zone && $0.recordType != RecordLink.recordType }),
            let change = staged[key] {
-            return change.kind == .delete ? nil : change.record
+            return change.isDelete ? nil : change.record
         }
         let lookup = recordTypeLookup
         let values = Array(repeating: RecordKey(recordType: "", name: name, zone: zone).values, count: lookup.tables).flatMap { $0 }
@@ -211,7 +246,7 @@ public final class RecordContext {
             let names = Set(stagedHere.map(\.name))
             records.removeAll { names.contains($0.id.uuidString) }
             records += stagedHere.compactMap { key in
-                guard let change = staged[key], change.kind == .save else { return nil }
+                guard let change = staged[key], !change.isDelete else { return nil }
                 return change.record as? R
             }
         }
@@ -387,24 +422,28 @@ public final class RecordContext {
     /// row first changes, it is copied to its base row, and once it matches its base again the
     /// base is dropped.
     private nonisolated static func writeRecord(
-        _ schema: RecordSchema, key: RecordKey, values: [String: SQLValue], now: Double, in database: Database
+        _ schema: RecordSchema, key: RecordKey, values: [String: SQLValue], edited: [String: SQLValue]?,
+        now: Double, in database: Database
     ) throws {
         guard let saved = try currentRow(of: key, in: database) else {
             try insertRow(schema.recordType, key: key, fields: values, now: now, in: database)
             return
         }
-        let fields = saved["_deleted"] == .integer(1) ? values : values.filter { saved[$0.key] != $0.value }
+        // A deleted row comes back whole. Otherwise only the edited fields count, or every field
+        // when there is no original to compare with.
+        let candidates = saved["_deleted"] == .integer(1) ? values : (edited ?? values)
+        let fields = saved["_deleted"] == .integer(1) ? values : candidates.filter { saved[$0.key] != $0.value }
         guard !fields.isEmpty else { return }
         try keepBase(of: key, in: database)
         try updateRow(key, fields: fields, now: now, in: database)
         try dropBaseIfUnchanged(key, schema: schema, in: database)
     }
 
-    /// Brings the links of `key` in line with `links`. A link that already matches is left alone.
-    /// A link that no longer appears is removed.
+    /// Writes `links` where they differ from the saved ones. Removes the saved links named in
+    /// `removing`, or, when it is `nil`, every saved link not in `links`.
     private nonisolated static func writeLinks(
         _ links: [(String, [String: SQLValue])], of key: RecordKey, saved: [String: [String: SQLValue]],
-        now: Double, in database: Database
+        removing: Set<String>?, now: Double, in database: Database
     ) throws {
         for (name, values) in links where !matches(saved[name], values) {
             let linkKey = RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone)
@@ -418,7 +457,7 @@ public final class RecordContext {
             }
         }
         let kept = Set(links.map(\.0))
-        for name in saved.keys where !kept.contains(name) {
+        for name in saved.keys where removing?.contains(name) ?? !kept.contains(name) {
             try remove(RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone), now: now, in: database)
         }
     }
@@ -574,47 +613,49 @@ struct RecordKey: Hashable, Sendable {
     var values: [SQLValue] { [.text(zone.name), .text(zone.ownerName), .text(name)] }
 }
 
-/// A change staged in a `RecordContext`, waiting for `save()`.
-public enum RecordChange {
-    /// The record is saved: added if new, or replacing the saved copy.
-    case insert(any Record)
-    /// The record is deleted with the links it owns.
-    case delete(any Record)
+/// A record staged in a `RecordContext`, waiting for `save()`: what is to change, and what
+/// the context needs to write only that.
+///
+/// The context keeps one per staged record. Apps see its `change` through `context.changes`.
+public struct RecordDifference {
+    /// What is to happen to a record when the context saves.
+    public enum Change {
+        /// The record is saved: added if new, or replacing the saved copy.
+        case insert(any Record)
+        /// The record is deleted with the links it owns.
+        case delete(any Record)
 
-    /// The record's ID.
-    public var id: UUID { record.id }
+        /// The record's ID.
+        public var id: UUID { record.id }
 
-    /// The record the change carries.
-    public var record: any Record {
-        switch self {
-        case .insert(let record), .delete(let record): record
+        /// The record the change carries.
+        public var record: any Record {
+            switch self {
+            case .insert(let record), .delete(let record): record
+            }
         }
     }
-}
 
-/// A change staged in a context and written by `save()`.
-struct StagedChange {
-    enum Kind {
-        /// Write the record's values and bring its links in line.
-        case save
-        /// Remove the record and its links.
-        case delete
-    }
-
-    let kind: Kind
-    let record: any Record
+    /// What is to happen.
+    public let change: Change
+    /// The saved record when this record was first staged, or `nil` when none was saved. `save()`
+    /// writes only the fields and links that differ from it, so a change made elsewhere since
+    /// to anything the draft didn't touch survives.
+    let original: (any Record)?
     let schema: RecordSchema
     /// Every field's column value, by field key.
     let values: [String: SQLValue]
+    /// `original`'s column values, by field key.
+    let originalValues: [String: SQLValue]?
     /// The record's links by name, given the saved order key of each target by
     /// `source|targetName`.
     let links: ([String: String]) -> [(String, [String: SQLValue])]
+    /// `original`'s links, the same way.
+    let originalLinks: (([String: String]) -> [(String, [String: SQLValue])])?
 
-    /// The public form of this change.
-    var change: RecordChange {
-        switch kind {
-        case .save: .insert(record)
-        case .delete: .delete(record)
-        }
+    var record: any Record { change.record }
+
+    var isDelete: Bool {
+        if case .delete = change { true } else { false }
     }
 }

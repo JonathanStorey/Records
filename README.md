@@ -419,12 +419,16 @@ try context.save()
 `insert` and `delete` stage changes in the context. Nothing reaches the database until `save()`,
 which writes every staged change in one transaction. `rollback()` discards them, and
 `hasChanges` tells you whether any are waiting. `changes` lists the current zone's staged
-changes, such as `.insert(album)`. Inserting a record again replaces its change, so each record
-appears once per zone. `save()` writes the changes of every zone.
+changes as `RecordDifference.Change` values, such as `.insert(album)`. Inserting a record again
+replaces its change, so each record appears once per zone. `save()` writes the changes of every
+zone.
 
-Inserting a record that is already saved makes the copy you pass its new value. Saving writes
-only the fields and links that differ from the saved copy, keeps the creation date, and removes
-links to targets the record no longer has.
+The first time a saved record is inserted, the context keeps the saved version as its original.
+Saving writes only the fields and links you changed from that original, keeps the creation date,
+and leaves everything else as the database holds it then. So if another context saves a new
+title while you edit the year, saving your copy keeps their title. A field both of you changed
+takes the value saved last. Inserting the same record again keeps the first original, and a
+record deleted in the meantime comes back whole.
 
 A reference that holds records can hold new ones. When saved, any target that exists nowhere yet
 (not saved in the zone and not staged) is inserted too, along with its own new targets. A target
