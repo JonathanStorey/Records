@@ -128,7 +128,7 @@ private func temporaryFile() -> URL {
     let from = Writer.schema.references[0]
     #expect(from.isFrom && from.inverseOf == "writers" && from.target.recordType == "Novel")
     #expect(Profile.schema.references[0].deleteSelf)
-    #expect(Crate.schema.references.allSatisfy(\.isSorted))
+    #expect(Crate.schema.references.allSatisfy { $0.isSorted })
 }
 
 // MARK: - Files
@@ -157,4 +157,10 @@ private func temporaryFile() -> URL {
 
 @Test func theContainerKeepsItsZone() throws {
     #expect(try RecordContainer(for: Page.self, zone: .inMemory).zone == .inMemory)
+}
+
+@Test func anUnknownAppGroupIsAnError() {
+    #expect(throws: RecordContainerError.appGroupUnavailable("group.example.missing")) {
+        try RecordContainer(for: Page.self, appGroup: "group.example.missing")
+    }
 }

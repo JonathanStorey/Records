@@ -398,6 +398,9 @@ let onDevice = try RecordContainer(for: Album.self, zone: .local)        // on t
 let preview = try RecordContainer(for: Album.self, zone: .inMemory)      // tests and previews
 ```
 
+To share the database with the app's extensions and widgets, pass its app group:
+`RecordContainer(for: Album.self, appGroup: "group.com.example.music")`.
+
 ## Saving and loading
 
 `CKRecordEncoder` turns a record into a `CKRecord`, plus a link record for each target its

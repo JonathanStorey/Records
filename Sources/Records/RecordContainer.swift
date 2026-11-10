@@ -11,6 +11,8 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
     case reservedFieldName(recordType: String, field: String)
     /// A `@Reference(from:)` names a property that doesn't point back at its type.
     case invalidInverse(recordType: String, property: String)
+    /// The app can't reach the app group, usually because its entitlements don't list it.
+    case appGroupUnavailable(String)
     /// SQLite reported an error.
     case database(String)
 
@@ -24,6 +26,8 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
             "\(type).\(field) starts with an underscore, which Records keeps for itself. Rename it or use @Renamed."
         case .invalidInverse(let type, let property):
             "\(type).\(property) names a property that doesn't point at \(type)."
+        case .appGroupUnavailable(let group):
+            "The app group '\(group)' isn't available. Add it to the app's entitlements."
         case .database(let message):
             "The database couldn't open: \(message)"
         }
@@ -42,9 +46,19 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
 public final class RecordContainer: Sendable {
     /// `Application Support/Records/default.records`.
     public static var defaultURL: URL {
-        URL.applicationSupportDirectory
-            .appending(path: "Records", directoryHint: .isDirectory)
-            .appending(path: "default.records", directoryHint: .notDirectory)
+        URL.applicationSupportDirectory.appending(path: fileName, directoryHint: .notDirectory)
+    }
+
+    /// Where the database lives, relative to its folder.
+    private static let fileName = "Records/default.records"
+
+    /// The database file in `appGroup`'s shared folder, or the default file without one.
+    static func url(appGroup: String?) throws -> URL {
+        guard let appGroup else { return defaultURL }
+        guard let folder = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            throw RecordContainerError.appGroupUnavailable(appGroup)
+        }
+        return folder.appending(path: fileName, directoryHint: .notDirectory)
     }
 
     /// The zone new records are saved to. `.local` and `.inMemory` mean the container doesn't
@@ -55,13 +69,18 @@ public final class RecordContainer: Sendable {
     let database: Database
 
     /// Opens a container for `types` and every type they refer to, saving new records to `zone`.
-    public convenience init(for types: any Record.Type..., zone: Zone = .records) throws {
-        try self.init(for: types, zone: zone)
+    /// Pass `appGroup` to keep the database in that group's shared folder, so the app's
+    /// extensions and widgets can open it too.
+    public convenience init(for types: any Record.Type..., zone: Zone = .records, appGroup: String? = nil) throws {
+        try self.init(for: types, zone: zone, appGroup: appGroup)
     }
 
     /// Opens a container for `types` and every type they refer to, saving new records to `zone`.
-    public convenience init(for types: [any Record.Type], zone: Zone = .records) throws {
-        try self.init(for: types, zone: zone, url: zone.storage == .inMemory ? nil : Self.defaultURL)
+    /// Pass `appGroup` to keep the database in that group's shared folder, so the app's
+    /// extensions and widgets can open it too.
+    public convenience init(for types: [any Record.Type], zone: Zone = .records, appGroup: String? = nil) throws {
+        let url = zone.storage == .inMemory ? nil : try Self.url(appGroup: appGroup)
+        try self.init(for: types, zone: zone, url: url)
     }
 
     /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
