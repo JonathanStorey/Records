@@ -72,3 +72,47 @@ private func venue() -> Venue {
         try CKRecordDecoder().decode(Venue.self, from: record)
     }
 }
+
+// MARK: - Stable JSON
+
+struct Shape: Codable, Equatable {
+    var zoom: Double
+    var counts: [String: Int]
+    var note: String?
+    var inner: Inner
+
+    struct Inner: Codable, Equatable {
+        var visible: Bool
+        var label: String
+    }
+}
+
+private func json(_ shape: Shape) throws -> String {
+    let data = try #require(FieldCoding.value(shape) as? Data)
+    return String(decoding: data, as: UTF8.self)
+}
+
+/// The store finds changes by comparing stored bytes, so equal values must encode identically.
+@Test func codableFieldsEncodeToFixedBytes() throws {
+    let shape = Shape(zoom: 1.5, counts: ["b": 2, "a": 1, "c": 3], note: nil, inner: .init(visible: true, label: "x/y"))
+    #expect(try json(shape) == #"{"counts":{"a":1,"b":2,"c":3},"inner":{"label":"x\/y","visible":true},"zoom":1.5}"#)
+}
+
+@Test func equalCodableValuesEncodeToEqualBytes() throws {
+    let keys = (0..<50).map { "key\($0)" }
+    let first = try json(Shape(zoom: 0.1, counts: Dictionary(uniqueKeysWithValues: keys.map { ($0, 1) }), note: "n", inner: .init(visible: false, label: "")))
+    for _ in 0..<20 {
+        var counts: [String: Int] = [:]
+        for key in keys.shuffled() { counts[key] = 1 }
+        #expect(try json(Shape(zoom: 0.1, counts: counts, note: "n", inner: .init(visible: false, label: ""))) == first)
+    }
+}
+
+@Test func nilAndValueEncodeDifferently() throws {
+    let empty = Shape(zoom: 0, counts: [:], note: nil, inner: .init(visible: false, label: ""))
+    var noted = empty
+    noted.note = ""
+    #expect(try json(empty) != json(noted))
+    noted.note = nil
+    #expect(try json(empty) == json(noted))
+}

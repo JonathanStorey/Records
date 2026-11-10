@@ -128,3 +128,25 @@ private func link(
     let record = CKRecordEncoder().encode(link(reference("author", to: "Person")), in: "Notes")
     #expect(!record.allKeys().contains("order"))
 }
+
+// MARK: - Fixed IDs
+
+/// Link IDs are stored in CloudKit, so the same inputs must give the same ID forever. If one of
+/// these changes, every link already synced would be orphaned.
+@Test func linkIDsNeverChange() {
+    let source = "00000000-0000-0000-0000-00000000000A"
+    let target = "00000000-0000-0000-0000-00000000000B"
+    let id = { (kind: Relationship) in
+        RecordLink.id(source: "Album.tracks", kind: kind, sourceName: source, targetName: target).uuidString
+    }
+    #expect(id(.oneToOne) == "517FD3D4-BD65-87DC-9477-49F405E6253A")
+    #expect(id(.manyToOne) == "517FD3D4-BD65-87DC-9477-49F405E6253A")
+    #expect(id(.oneToMany) == "AF241C24-FAC0-853E-9BF7-0459C08CB8A9")
+    #expect(id(.manyToMany) == "25B987EA-080B-8F2E-9F39-2E48426701A4")
+
+    let asset = RecordLink(
+        asset: AssetState(property: "cover", id: nil, fileURL: nil), assetID: UUID(),
+        sourceType: "Album", sourceID: UUID(uuidString: source)!
+    )
+    #expect(asset.id.uuidString == "B308A57E-3AD9-81D6-9252-AB80BB9E83CD")
+}
