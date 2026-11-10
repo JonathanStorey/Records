@@ -7,8 +7,7 @@ import SwiftSyntaxMacros
 /// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
 /// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
 /// each stored property except `id` under its own name. A struct with `@Reference` properties
-/// also gets `referenceStates`, `loadReference(_:to:from:links:depth:)`, and `markReferencesSaved()`,
-/// one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
+/// also gets `referenceStates` and `loadReference(_:to:from:links:depth:)`, one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
 /// `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
 ///
 /// An `@Asset` field is stored as a `CKAsset`. An `@Encrypted` field is read from and written to the record's `encryptedValues`.
@@ -151,12 +150,7 @@ public struct RecordMacro: ExtensionMacro {
                 "            break",
                 "        }",
                 "    }",
-                "    \(access)mutating func markReferencesSaved() {",
             ]
-            for reference in references {
-                lines.append("        self.\(reference.storage).markSaved()")
-            }
-            lines.append("    }")
         }
         lines.append("}")
 

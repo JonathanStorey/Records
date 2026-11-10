@@ -1,14 +1,6 @@
 import CloudKit
 
-/// Why a `Record` could not be written into an existing `CKRecord`.
-public enum CKRecordEncodingError: Error, Equatable {
-    /// The `CKRecord`'s type is not the `Record`'s `recordType`.
-    case recordTypeMismatch(expected: String, found: String)
-    /// The `CKRecord`'s name is not the `Record`'s `id`.
-    case recordNameMismatch(expected: String, found: String)
-}
-
-/// Converts a `Record` into a `CKRecord`.
+/// Converts a `Record` into a `CKRecord`, and its references into link records.
 ///
 /// The record name is the record's `id` as a UUID string, the record type comes from
 /// `@Record`, and the zone is supplied by the caller.
@@ -24,59 +16,34 @@ public struct CKRecordEncoder: Sendable {
         return ckRecord
     }
 
-    /// Writes every field of `record` into an existing `CKRecord`, keeping its system fields and
-    /// change tag so CloudKit treats the save as an update. Optional properties set to `nil` clear
-    /// their field.
-    ///
-    /// Throws when `ckRecord` has a different record type or a record name other than `record.id`.
-    public func encode(_ record: some Record, into ckRecord: CKRecord) throws {
-        let expectedType = type(of: record).recordType
-        guard ckRecord.recordType == expectedType else {
-            throw CKRecordEncodingError.recordTypeMismatch(expected: expectedType, found: ckRecord.recordType)
-        }
-        let expectedName = record.id.uuidString
-        guard ckRecord.recordID.recordName == expectedName else {
-            throw CKRecordEncodingError.recordNameMismatch(
-                expected: expectedName, found: ckRecord.recordID.recordName
-            )
-        }
-        record.encodeFields(into: ckRecord)
-    }
-
     // MARK: Links
 
-    /// The links to save for `record`'s references that changed since it was loaded or saved.
+    /// Every link `record`'s references point through now, one per target.
     ///
-    /// A to-one reference that now points somewhere writes its link, which overwrites the link
-    /// it had before. A to-many reference writes a link for each added target and each target
-    /// whose order key changed, so moving one target rewrites only that target's link.
-    ///
-    /// Save these along with the record, then call `markReferencesSaved()` on it.
-    public func linksToSave<R: Record>(for record: R, in zone: Zone) -> [CKRecord] {
-        record.referenceStates.flatMap { reference -> [CKRecord] in
-            guard reference.hasChanges else { return [] }
-            let unchanged = Set(reference.loaded)
-            return reference.targets
-                .filter { reference.isToMany ? !unchanged.contains($0) : true }
-                .map { target in
-                    let link = RecordLink(reference: reference, sourceType: R.recordType, sourceID: record.id, target: target)
-                    return encode(link, in: zone)
-                }
+    /// A to-many reference orders its links with order keys. Pass the links the record already
+    /// has in `existing`, and each target keeps its key wherever it still sorts in place, so moving
+    /// one target changes only that target's link. Comparing the result with `existing` gives the
+    /// links to write and the ones to delete. `@Reference(from:)` properties write no links.
+    public func links<R: Record>(for record: R, in zone: Zone, existing: [CKRecord] = []) -> [CKRecord] {
+        let decoder = CKRecordDecoder()
+        var keys: [String: String] = [:]
+        for link in existing {
+            if let decoded = try? decoder.decode(RecordLink.self, from: link), let order = decoded.order {
+                keys[link.recordID.recordName] = order
+            }
         }
-    }
-
-    /// The IDs of links to delete for `record`'s references: a to-one reference that was
-    /// cleared, and each target removed from a to-many reference.
-    public func linkIDsToDelete<R: Record>(for record: R, in zone: Zone) -> [CKRecord.ID] {
-        record.referenceStates.flatMap { reference -> [CKRecord.ID] in
-            guard reference.hasChanges else { return [] }
-            let current = Set(reference.targets.map(\.id))
-            let removed = reference.isToMany
-                ? reference.loaded.filter { !current.contains($0.id) }
-                : (current.isEmpty ? Array(reference.loaded.prefix(1)) : [])
-            return removed.map { target in
-                let id = RecordLink.id(reference: reference, sourceType: R.recordType, sourceID: record.id, targetID: target.id)
-                return CKRecord.ID(recordName: id.uuidString, zoneID: zone.zoneID)
+        return record.referenceStates.flatMap { reference -> [CKRecord] in
+            let linkIDs = reference.ids.map {
+                RecordLink.id(reference: reference, sourceType: R.recordType, sourceID: record.id, targetID: $0)
+            }
+            // A sorted reference is ordered by its records' fields, so its links carry no keys.
+            let orders: [String?] = reference.isToMany && !reference.isSorted
+                ? OrderKey.assign(linkIDs.map { keys[$0.uuidString] })
+                : linkIDs.map { _ in nil }
+            return zip(reference.ids, orders).map { id, order in
+                let target = ReferenceTarget(id: id, order: order)
+                let link = RecordLink(reference: reference, sourceType: R.recordType, sourceID: record.id, target: target)
+                return encode(link, in: zone)
             }
         }
     }

@@ -42,29 +42,29 @@ private let kid = disc("Kid A", 2000, 4)
 
 @Test func sortedReferencesWriteNoOrderKeys() {
     let crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
-    let links = CKRecordEncoder().linksToSave(for: crate, in: .records)
+    let links = CKRecordEncoder().links(for: crate, in: .records)
     #expect(links.count == 2)
     #expect(links.allSatisfy { $0["order"] == nil })
 }
 
 @Test func reorderingASortedReferenceChangesNothing() {
     var crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
-    crate.markReferencesSaved()
+    let links = CKRecordEncoder().links(for: crate, in: .records)
     crate.discs = [kid, blue]
-    #expect(CKRecordEncoder().linksToSave(for: crate, in: .records).isEmpty)
+    #expect(CKRecordEncoder().changes(for: crate, from: links).isEmpty)
 }
 
 @Test func sortedReferencesRoundTrip() throws {
     let crate = Crate(id: UUID(), name: "Vinyl", discs: [kid, blue, abbey], newest: [], rated: [], oldest: [])
     let encoder = CKRecordEncoder()
-    let links = encoder.linksToSave(for: crate, in: .records)
+    let links = encoder.links(for: crate, in: .records)
     let targets = [kid, blue, abbey].map { encoder.encode($0, in: .records) }
 
     let decoded = try CKRecordDecoder().decode(
         Crate.self, from: encoder.encode(crate, in: .records), links: links, targets: targets
     )
     #expect(decoded.discs.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
-    #expect(encoder.linksToSave(for: decoded, in: .records).isEmpty)
+    #expect(encoder.changes(for: decoded, from: links).isEmpty)
 
     let readBack = try CKRecordDecoder().decode(Disc.self, from: targets[0], links: links)
     #expect(readBack.crateIDs == [crate.id])

@@ -91,7 +91,7 @@ public struct Inverse: Hashable, Sendable {
     }
 }
 
-/// The state of one `@Reference`, as the encoder needs it to write links.
+/// One `@Reference` as the encoder needs it to write links.
 public struct ReferenceState: Equatable, Sendable {
     /// The property name, such as `author`.
     public let property: String
@@ -99,15 +99,12 @@ public struct ReferenceState: Equatable, Sendable {
     public let targetType: CKRecord.RecordType
     /// Whether the property holds many targets.
     public let isToMany: Bool
+    /// Whether a to-many property sorts its records, so its links carry no order keys.
+    public let isSorted: Bool
     /// The target's `@Reference(from:)` side, when the relationship is two-way.
     public let inverse: Inverse?
-    /// The targets now, in order, each with the order key it will be saved with.
-    public let targets: [ReferenceTarget]
-    /// The targets when the record was last loaded or saved. Empty for a record never saved.
-    public let loaded: [ReferenceTarget]
-
-    /// Whether the reference changed since it was loaded or saved.
-    public var hasChanges: Bool { targets != loaded }
+    /// The targets' IDs, in order.
+    public let ids: [UUID]
 }
 
 // MARK: - To one
@@ -115,14 +112,11 @@ public struct ReferenceState: Equatable, Sendable {
 /// Storage behind a to-one `@Reference` property. `@Reference` generates it, named with a
 /// leading underscore, so code never needs to touch it.
 ///
-/// It keeps the target's ID, the ID when the record was last loaded or saved, and, for
-/// `@Reference var author: Person?`, the loaded record. Two values are equal when they point at
-/// the same target, whether or not it is loaded.
+/// It keeps the target's ID and, for `@Reference var author: Person?`, the loaded record. Two
+/// values are equal when they point at the same target, whether or not it is loaded.
 public struct ToOne<Target: Record> {
     /// The target the reference points at now.
     public var id: UUID?
-    /// The target when the record was last loaded or saved.
-    public private(set) var loadedID: UUID?
     /// The loaded target. A class, so a record can refer to its own type.
     private var box: Box?
 
@@ -149,31 +143,23 @@ public struct ToOne<Target: Record> {
         }
     }
 
-    /// Sets the reference as read from storage, so it starts out unchanged. Uses the first of
-    /// `targets`. When `depth` is at least 1 and `records` holds the target, decodes it with
+    /// Sets the reference as read from storage. Uses the first of `targets`. When `depth` is at least 1 and `records` holds the target, decodes it with
     /// `depth - 1`, so its own references hold records `depth - 1` levels further.
     public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int = 1) throws {
         id = targets.first?.id
-        loadedID = id
         guard depth > 0 else { box = nil; return }
         box = try id
             .flatMap { id in records.first { Target.matches($0, id: id) } }
             .map { Box(try CKRecordDecoder().decode(Target.self, from: $0, links: links, targets: records, depth: depth - 1)) }
     }
 
-    /// Records that the current target was saved.
-    public mutating func markSaved() {
-        loadedID = id
-    }
-
     /// The reference's state for the encoder. `owner` is the record type that declares it, used
     /// to find the target's `@Reference(from:)` side.
     public func state(property: String, owner: CKRecord.RecordType) -> ReferenceState {
         ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: false,
+            property: property, targetType: Target.recordType, isToMany: false, isSorted: false,
             inverse: Target.inverse(of: property, in: owner),
-            targets: id.map { [ReferenceTarget(id: $0)] } ?? [],
-            loaded: loadedID.map { [ReferenceTarget(id: $0)] } ?? []
+            ids: id.map { [$0] } ?? []
         )
     }
 
@@ -203,14 +189,11 @@ extension ToOne: @unchecked Sendable where Target: Sendable {}
 /// Storage behind a to-many `@Reference` property. `@Reference` generates it, named with a
 /// leading underscore, so code never needs to touch it.
 ///
-/// It keeps the target IDs in order, the targets and their order keys when the record was last
-/// loaded or saved, and, for `@Reference var tags: [Tag]`, the loaded records. Each target
-/// appears once: a repeated ID keeps its first position. Two values are equal when they point at
-/// the same targets in the same order.
+/// It keeps the target IDs in order and, for `@Reference var tags: [Tag]`, the loaded records.
+/// Each target appears once: a repeated ID keeps its first position. Two values are equal when
+/// they point at the same targets in the same order.
 public struct ToMany<Target: Record> {
     private var storedIDs: [UUID] = []
-    /// The targets when the record was last loaded or saved, with their order keys.
-    public private(set) var loaded: [ReferenceTarget] = []
     /// The loaded targets by ID. A class, so a record can refer to its own type.
     private var box: Box?
     /// Whether the property sorts its records, so its links carry no order keys.
@@ -254,17 +237,11 @@ public struct ToMany<Target: Record> {
         }
     }
 
-    /// Sets the reference as read from storage, so it starts out unchanged. `targets` must
-    /// already be in order. When `depth` is at least 1, decodes each target whose record
+    /// Sets the reference as read from storage. `targets` must already be in order. When `depth` is at least 1, decodes each target whose record
     /// `records` holds with `depth - 1`, so its own references hold records `depth - 1` levels
     /// further.
     public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int = 1) throws {
         ids = targets.map(\.id)
-        var seen = Set<UUID>()
-        loaded = targets.filter { seen.insert($0.id).inserted }
-        if isSorted {
-            loaded = Self.unordered(loaded.map { ReferenceTarget(id: $0.id) })
-        }
 
         var values: [UUID: Target] = [:]
         if depth > 0 {
@@ -279,39 +256,14 @@ public struct ToMany<Target: Record> {
         box = values.isEmpty ? nil : Box(values)
     }
 
-    /// Records that the current targets were saved, with the order keys they were saved with.
-    public mutating func markSaved() {
-        loaded = plannedTargets
-    }
-
     /// The reference's state for the encoder. `owner` is the record type that declares it, used
     /// to find the target's `@Reference(from:)` side.
     public func state(property: String, owner: CKRecord.RecordType) -> ReferenceState {
         ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: true,
+            property: property, targetType: Target.recordType, isToMany: true, isSorted: isSorted,
             inverse: Target.inverse(of: property, in: owner),
-            targets: plannedTargets, loaded: loaded
+            ids: storedIDs
         )
-    }
-
-    /// The current targets with order keys: loaded keys where they still sort correctly, new
-    /// keys for added and moved targets. A sorted reference keeps no order, so it has no keys.
-    private var plannedTargets: [ReferenceTarget] {
-        if isSorted {
-            return Self.unordered(storedIDs.map { ReferenceTarget(id: $0) })
-        }
-        var keys: [UUID: String] = [:]
-        for target in loaded {
-            if let order = target.order { keys[target.id] = order }
-        }
-        return zip(storedIDs, OrderKey.assign(storedIDs.map { keys[$0] }))
-            .map { ReferenceTarget(id: $0, order: $1) }
-    }
-
-    /// A sorted reference's targets in a fixed order, so the order they were added or loaded in
-    /// never counts as a change.
-    private static func unordered(_ targets: [ReferenceTarget]) -> [ReferenceTarget] {
-        targets.sorted { $0.id.uuidString < $1.id.uuidString }
     }
 
     private final class Box {

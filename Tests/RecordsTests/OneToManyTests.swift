@@ -58,23 +58,23 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 @Test func manySideWritesTheLinks() throws {
     let shelf = makeShelf()
     let books = ["Dune", "Emma"].map { Book(id: UUID(), title: $0, shelf: shelf) }
-    let links = try books.flatMap { encoder.linksToSave(for: $0, in: .records) }.map(link)
+    let links = try books.flatMap { encoder.links(for: $0, in: .records) }.map(link)
 
     #expect(links.count == 2)
     #expect(links.allSatisfy { $0.relationship == "Book.shelf:Shelf <-> Shelf.bookIDs:[Book]" })
     #expect(try links.allSatisfy { try $0.kind == .manyToOne })
     #expect(links.allSatisfy { !$0.deleteSelf && $0.targetName == shelf.id.uuidString })
-    #expect(encoder.linksToSave(for: shelf, in: .records).isEmpty)
+    #expect(encoder.links(for: shelf, in: .records).isEmpty)
 }
 
 @Test func addingAToManyInverseKeepsLinkIDs() {
     let sourceID = UUID(), targetID = UUID()
     let oneWay = ReferenceState(
-        property: "shelf", targetType: "Shelf", isToMany: false, inverse: nil, targets: [], loaded: []
+        property: "shelf", targetType: "Shelf", isToMany: false, isSorted: false, inverse: nil, ids: []
     )
     let twoWay = ReferenceState(
-        property: "shelf", targetType: "Shelf", isToMany: false,
-        inverse: Inverse(many: \Book.shelf, to: Shelf.self, property: "bookIDs"), targets: [], loaded: []
+        property: "shelf", targetType: "Shelf", isToMany: false, isSorted: false,
+        inverse: Inverse(many: \Book.shelf, to: Shelf.self, property: "bookIDs"), ids: []
     )
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "Book", sourceID: sourceID, targetID: targetID)
@@ -85,13 +85,13 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 @Test func oneSideDecodesItsOwners() throws {
     let shelf = makeShelf()
     let books = ["Dune", "Emma"].map { Book(id: UUID(), title: $0, shelf: shelf) }
-    let links = books.flatMap { encoder.linksToSave(for: $0, in: .records) }
+    let links = books.flatMap { encoder.links(for: $0, in: .records) }
     let bookRecords = books.map { encoder.encode($0, in: .records) }
     let shelfRecord = encoder.encode(shelf, in: .records)
 
     let shelfAgain = try decoder.decode(Shelf.self, from: shelfRecord, links: links, targets: bookRecords)
     #expect(Set(shelfAgain.bookIDs) == Set(books.map(\.id)))
-    #expect(encoder.linksToSave(for: shelfAgain, in: .records).isEmpty)
+    #expect(encoder.links(for: shelfAgain, in: .records).isEmpty)
 
     let bookAgain = try decoder.decode(Book.self, from: bookRecords[0], links: links, targets: [shelfRecord])
     #expect(bookAgain.shelf?.name == "Fiction")
@@ -101,13 +101,13 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 @Test func movingABookMovesItBetweenShelves() throws {
     let first = makeShelf("Fiction"), second = makeShelf("History")
     var book = Book(id: UUID(), title: "Dune", shelf: first)
-    let original = encoder.linksToSave(for: book, in: .records)
-    book.markReferencesSaved()
+    let original = encoder.links(for: book, in: .records)
 
     book.shelf = second
-    let moved = encoder.linksToSave(for: book, in: .records)
+    let changes = encoder.changes(for: book, from: original)
+    let moved = changes.saves
     #expect(moved.map(\.recordID) == original.map(\.recordID))
-    #expect(encoder.linkIDsToDelete(for: book, in: .records).isEmpty)
+    #expect(changes.deletes.isEmpty)
 
     let firstAgain = try decoder.decode(Shelf.self, from: encoder.encode(first, in: .records), links: moved)
     let secondAgain = try decoder.decode(Shelf.self, from: encoder.encode(second, in: .records), links: moved)
@@ -120,7 +120,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 @Test func oneSideWritesOrderedLinks() throws {
     let tracks = ["Intro", "Song", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
     let album = Release(id: UUID(), tracks: tracks)
-    let links = encoder.linksToSave(for: album, in: .records)
+    let links = encoder.links(for: album, in: .records)
     let read = try links.map(link)
 
     #expect(read.count == 3)
@@ -128,7 +128,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     #expect(try read.allSatisfy { try $0.kind == .oneToMany })
     #expect(read.allSatisfy { $0.deleteSelf })
     #expect(Song.deleteSelfReferences == ["albumID"])
-    #expect(tracks.allSatisfy { encoder.linksToSave(for: $0, in: .records).isEmpty })
+    #expect(tracks.allSatisfy { encoder.links(for: $0, in: .records).isEmpty })
 
     let trackRecords = tracks.map { encoder.encode($0, in: .records) }
     let albumRecord = encoder.encode(album, in: .records)
@@ -148,8 +148,8 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     // One-to-many links leave out the owner, so adding the track to a second album
     // overwrites its link to the first.
     #expect(
-        encoder.linksToSave(for: first, in: .records).map(\.recordID)
-            == encoder.linksToSave(for: second, in: .records).map(\.recordID)
+        encoder.links(for: first, in: .records).map(\.recordID)
+            == encoder.links(for: second, in: .records).map(\.recordID)
     )
 }
 
@@ -158,7 +158,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 @Test func managersReadTheirReportsIDs() throws {
     let boss = Staff(id: UUID(), name: "Ada", manager: nil, reportIDs: [])
     let reports = ["Grace", "Linus"].map { Staff(id: UUID(), name: $0, manager: boss, reportIDs: []) }
-    let links = reports.flatMap { encoder.linksToSave(for: $0, in: .records) }
+    let links = reports.flatMap { encoder.links(for: $0, in: .records) }
     #expect(try links.map { try link($0).relationship } == Array(repeating: "Staff.manager:Staff <-> Staff.reportIDs:[Staff]", count: 2))
 
     let bossRecord = encoder.encode(boss, in: .records)

@@ -68,6 +68,6 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 
     gig.$venue = nil
     #expect(gig.venue == nil)
-    try CKRecordEncoder().encode(gig, into: record)
+    gig.encodeFields(into: record)
     #expect(record.encryptedValues["venue"] == nil)
 }

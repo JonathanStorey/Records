@@ -37,7 +37,7 @@ private struct Fixture {
     }
 
     var links: [CKRecord] {
-        encoder.linksToSave(for: first, in: .records) + encoder.linksToSave(for: second, in: .records)
+        encoder.links(for: first, in: .records) + encoder.links(for: second, in: .records)
     }
 
     func record(_ topic: Topic) -> CKRecord { encoder.encode(topic, in: .records) }
@@ -51,17 +51,17 @@ private struct Fixture {
     #expect(links.allSatisfy { $0.relationship == "Post.topics:[Topic] <-> Topic.postIDs:[Post]" })
     #expect(try links.allSatisfy { try $0.kind == .manyToMany })
     #expect(links.allSatisfy { !$0.deleteSelf })
-    #expect(encoder.linksToSave(for: fixture.swift, in: .records).isEmpty)
+    #expect(encoder.links(for: fixture.swift, in: .records).isEmpty)
 }
 
 @Test func addingAManyToManyInverseKeepsLinkIDs() {
     let sourceID = UUID(), targetID = UUID()
     let oneWay = ReferenceState(
-        property: "topics", targetType: "Topic", isToMany: true, inverse: nil, targets: [], loaded: []
+        property: "topics", targetType: "Topic", isToMany: true, isSorted: false, inverse: nil, ids: []
     )
     let twoWay = ReferenceState(
-        property: "topics", targetType: "Topic", isToMany: true,
-        inverse: Inverse(many: \Post.topics, to: Topic.self, property: "postIDs"), targets: [], loaded: []
+        property: "topics", targetType: "Topic", isToMany: true, isSorted: false,
+        inverse: Inverse(many: \Post.topics, to: Topic.self, property: "postIDs"), ids: []
     )
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "Post", sourceID: sourceID, targetID: targetID)
@@ -85,18 +85,19 @@ private struct Fixture {
     #expect(Set(swiftAgain.postIDs) == [fixture.first.id, fixture.second.id])
     let iosAgain = try decoder.decode(Topic.self, from: topicRecords[1], links: links)
     #expect(iosAgain.postIDs == [fixture.first.id])
-    #expect(encoder.linksToSave(for: swiftAgain, in: .records).isEmpty)
+    #expect(encoder.links(for: swiftAgain, in: .records).isEmpty)
 }
 
 @Test func removingATopicRemovesThePostFromIt() throws {
     let fixture = Fixture()
+    let saved = encoder.links(for: fixture.first, in: .records)
     var post = try decoder.decode(
         Post.self, from: encoder.encode(fixture.first, in: .records),
         links: fixture.links, targets: [fixture.record(fixture.swift), fixture.record(fixture.ios)]
     )
     post.topics = [fixture.swift]
 
-    let removed = encoder.linkIDsToDelete(for: post, in: .records)
+    let removed = encoder.changes(for: post, from: saved).deletes
     #expect(removed.count == 1)
     let remaining = fixture.links.filter { !removed.contains($0.recordID) }
     let iosAgain = try decoder.decode(Topic.self, from: fixture.record(fixture.ios), links: remaining)

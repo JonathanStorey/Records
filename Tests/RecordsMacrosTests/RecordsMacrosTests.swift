@@ -404,9 +404,6 @@ final class RecordMacroTests: XCTestCase {
                         break
                     }
                 }
-                mutating func markReferencesSaved() {
-                    self._author.markSaved()
-                }
             }
             """,
             macroSpecs: macroSpecs
@@ -583,10 +580,6 @@ final class RecordMacroTests: XCTestCase {
                         break
                     }
                 }
-                mutating func markReferencesSaved() {
-                    self._tags.markSaved()
-                    self._pinnedIDs.markSaved()
-                }
             }
             """,
             macroSpecs: macroSpecs
@@ -647,9 +640,6 @@ final class RecordMacroTests: XCTestCase {
                     default:
                         break
                     }
-                }
-                mutating func markReferencesSaved() {
-                    self._authorID.markSaved()
                 }
             }
             """,
@@ -897,9 +887,6 @@ final class RecordMacroTests: XCTestCase {
                         break
                     }
                 }
-                mutating func markReferencesSaved() {
-                    self._profile.markSaved()
-                }
             }
             """,
             macroSpecs: macroSpecs
@@ -984,10 +971,6 @@ final class RecordMacroTests: XCTestCase {
                     default:
                         break
                     }
-                }
-                mutating func markReferencesSaved() {
-                    self._userID.markSaved()
-                    self._accountID.markSaved()
                 }
             }
             """,
@@ -1142,10 +1125,6 @@ final class RecordMacroTests: XCTestCase {
                     default:
                         break
                     }
-                }
-                mutating func markReferencesSaved() {
-                    self._bookIDs.markSaved()
-                    self._crateIDs.markSaved()
                 }
             }
             """,

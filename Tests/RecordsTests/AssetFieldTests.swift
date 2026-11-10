@@ -51,7 +51,7 @@ private let png = Data("not really a png".utf8)
     poster.image = nil
     #expect(poster.$image == nil)
 
-    try CKRecordEncoder().encode(poster, into: record)
+    poster.encodeFields(into: record)
     #expect(record["image"] == nil)
 }
 

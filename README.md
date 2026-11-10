@@ -174,8 +174,7 @@ never writes anything. `$tags` lists the IDs unsorted, because sorting needs the
 ## Every relationship, by example
 
 These examples build one music library: artists, albums, tracks, artwork, genres, tags,
-playlists, and listeners. The full model, with tests that round-trip it through CKRecords, is in
-[`Tests/RecordsTests/MusicLibraryTests.swift`](Tests/RecordsTests/MusicLibraryTests.swift).
+playlists, and listeners.
 
 ```swift
 @Record
@@ -350,34 +349,28 @@ The owner is the side your code edits, and the side whose order matters.
 
 ## Saving and loading
 
-`CKRecordEncoder` turns a record into a `CKRecord`, plus the link records that changed since the
-record was loaded or last saved. `CKRecordDecoder` turns them back.
+`CKRecordEncoder` turns a record into a `CKRecord`, plus a link record for each target its
+references point at. `CKRecordDecoder` turns them back.
 
 ```swift
 let zone: Zone = "Music"
 let encoder = CKRecordEncoder()
 
-var album = Album(
+let album = Album(
     id: UUID(), title: "Signal Fires", year: 2019,
     artist: nova, tracks: [ignition, bloom], cover: art, genreID: indie.id
 )
 
-let record = encoder.encode(album, in: zone)               // the album's fields
-let links = encoder.linksToSave(for: album, in: zone)      // new and changed links
-let removed = encoder.linkIDsToDelete(for: album, in: zone) // links to delete
-// ...save them...
-album.markReferencesSaved()
+let record = encoder.encode(album, in: zone)                      // the album's fields
+let links = encoder.links(for: album, in: zone, existing: saved)  // every link it has now
 ```
 
-After `markReferencesSaved()`, the encoder reports only the links that change next. Reordering tracks
-rewrites only the links of the tracks that moved. Pointing a to-one reference somewhere else
-overwrites its one link. A link is deleted only if the record was loaded or saved with it, so a
-record decoded before all its links arrived never deletes the ones it hasn't seen.
-
-`encode(_:in:)` makes a new `CKRecord` for a record that has never been saved. `encode(_:into:)`
-writes every field into the `CKRecord` you loaded, keeping its system fields so the save is an
-update. A record saves only its own fields and links, so a record loaded inside another, such as
-`album.tracks[0]`, is saved on its own.
+Pass the links the record already has as `existing`, and each track keeps its order key wherever it
+still sorts in place, so reordering tracks changes only the links of the tracks that moved.
+Pointing a to-one reference somewhere else keeps its link's ID and changes its target. Comparing
+the result with `existing` gives the links to write and the ones to delete. A record's links cover
+only its own references, so a record loaded inside another, such as `album.tracks[0]`, is saved
+on its own.
 
 To decode, pass the record, the links, and any target records you have:
 
@@ -406,10 +399,9 @@ track.playlistIDs            // every playlist's ID
 track.tags                   // []: level two doesn't load records
 ```
 
-A record-form reference at level two reads as `nil` or `[]` even when it has targets. Saving it
-never deletes those targets, because only links the record was loaded with can be deleted. To
-tell "empty" from "not loaded", read the reference's `$` projection, which holds the IDs either
-way:
+A record-form reference at level two reads as `nil` or `[]` even when it has targets, but it still
+holds their IDs, so its links stay the same. To tell "empty" from "not loaded", read the
+reference's `$` projection, which holds the IDs either way:
 
 ```swift
 track.tags               // []: the records weren't loaded at this level
@@ -439,7 +431,7 @@ depth runs out, then holds only an ID.
 ## Not built yet
 
 - The SQLite store and `CKSyncEngine` sync. The store keeps the last synced copy of each record,
-  so it finds what changed by comparing against it and uploads only those fields.
+  so it finds the fields and links that changed by comparing against it, and uploads only those.
 - Deletion with `deleteSelf`. The flag is stored on each link, and the store will delete the
   targets.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store

@@ -28,13 +28,13 @@ struct Vault: Equatable {
     #expect(decoded == vault)
 }
 
-@Test func encryptedFieldsAreWrittenIntoAnExistingRecord() throws {
+@Test func encryptedFieldsAreWrittenIntoTheirRecord() throws {
     let record = CKRecordEncoder().encode(Vault(id: UUID(), name: "Home", secret: "a", pin: 1, codes: []), in: .records)
     var vault = try CKRecordDecoder().decode(Vault.self, from: record)
 
     vault.secret = "b"
     vault.pin = nil
-    try CKRecordEncoder().encode(vault, into: record)
+    vault.encodeFields(into: record)
 
     #expect(record.encryptedValues["secret"] as? String == "b")
     #expect(record.encryptedValues["pin"] == nil)
