@@ -30,3 +30,8 @@ extension CKRecordEncoder {
         LinkChanges(links(for: record, in: .records, existing: existing), from: existing)
     }
 }
+
+/// The signatures of `record`'s references, computed from their declarations.
+func signatures<R: Record>(of record: R) -> [String] {
+    record.referenceStates.map { RecordLink.signature(of: $0, in: R.recordType) }
+}

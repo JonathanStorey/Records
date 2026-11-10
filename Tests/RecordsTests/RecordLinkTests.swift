@@ -2,180 +2,129 @@ import CloudKit
 import Testing
 @testable import Records
 
-/// Record types for link tests, namespaced so they don't clash with other test records.
-enum LinkFixtures {
-    @Record struct User { var id: UUID }
-    @Record struct Profile { var id: UUID }
-    @Record struct Note { var id: UUID }
-    @Record struct Folder { var id: UUID }
-    @Record struct Tag { var id: UUID }
-    @Record struct Person { var id: UUID }
+/// A `@Reference` as its declarations describe it. `inverse` is the target's `from:` side.
+private func reference(
+    _ property: String, to target: String, many: Bool = false, inverse: (name: String, many: Bool)? = nil
+) -> ReferenceState {
+    ReferenceState(
+        property: property, targetType: target, isToMany: many, isSorted: false,
+        inverse: inverse.map { Inverse(property: $0.name, isToMany: $0.many, deleteSelf: false) },
+        ids: []
+    )
 }
 
-/// Short name for the fixtures. Bare names like `Note` clash with other test records.
-private typealias F = LinkFixtures
-
-// MARK: - Signatures
-
-@Test(arguments: [
-    ("User.profile:Profile <-> Profile.user:User", Relationship.oneToOne),
-    ("Note.folder:Folder <-> Folder.notes:[Note]", .manyToOne),
-    ("Folder.notes:[Note] <-> Note.folder:Folder", .oneToMany),
-    ("Note.tags:[Tag] <-> Tag.notes:[Note]", .manyToMany),
-    ("Note.author:Person", .manyToOne),
-    ("Note.tags:[Tag]", .manyToMany),
-])
-func signatureKind(signature: String, kind: Relationship) throws {
-    #expect(try Relationship(signature: signature) == kind)
+private func link(
+    _ reference: ReferenceState, from sourceType: String = "Note", id sourceID: UUID = UUID(),
+    to targetID: UUID = UUID(), order: String? = nil
+) -> RecordLink {
+    RecordLink(reference: reference, sourceType: sourceType, sourceID: sourceID, target: ReferenceTarget(id: targetID, order: order))
 }
 
-@Test(arguments: [
-    "",
-    "Note.tags",
-    "Note:[Tag]",
-    "Note.tags:[Tag",
-    "Note.tags:[Tag]<->Tag.notes:[Note]",
-    "Note.tags:[Tag] <-> Tag.notes:[Folder]",
-    "Note.tags:[Tag] <-> Tag.notes:[Note] <-> Note.x:Tag",
-    "Note.my tags:[Tag]",
-])
-func invalidSignatureThrows(signature: String) {
-    #expect(throws: RecordLinkError.invalidSignature(signature)) {
-        try Relationship(signature: signature)
-    }
-}
+// MARK: - Computed from the declarations
 
-// MARK: - Factories
-
-@Test func factoriesBuildCanonicalSignatures() throws {
-    let user = F.User(id: UUID()), note = F.Note(id: UUID()), folder = F.Folder(id: UUID())
-
-    let cases: [(RecordLink, String)] = try [
-        (RecordLink.oneToOne(from: user, property: "profile", to: F.Profile.self, id: UUID(), inverse: "user"),
-         "User.profile:Profile <-> Profile.user:User"),
-        (RecordLink.oneToMany(from: folder, property: "notes", to: F.Note.self, id: UUID(), inverse: "folder", order: "a0"),
-         "Folder.notes:[Note] <-> Note.folder:Folder"),
-        (RecordLink.manyToOne(from: note, property: "folder", to: F.Folder.self, id: UUID(), inverse: "notes"),
-         "Note.folder:Folder <-> Folder.notes:[Note]"),
-        (RecordLink.manyToOne(from: note, property: "author", to: F.Person.self, id: UUID()),
-         "Note.author:Person"),
-        (RecordLink.manyToMany(from: note, property: "tags", to: F.Tag.self, id: UUID(), inverse: "notes", order: "a0"),
-         "Note.tags:[Tag] <-> Tag.notes:[Note]"),
-        (RecordLink.manyToMany(from: note, property: "tags", to: F.Tag.self, id: UUID(), order: "a0"),
-         "Note.tags:[Tag]"),
+@Test func signatureIsComputedFromTheDeclarations() {
+    let cases: [(ReferenceState, String, String)] = [
+        (reference("profile", to: "Profile", inverse: ("user", false)), "User", "User.profile:Profile <-> Profile.user:User"),
+        (reference("folder", to: "Folder", inverse: ("notes", true)), "Note", "Note.folder:Folder <-> Folder.notes:[Note]"),
+        (reference("notes", to: "Note", many: true, inverse: ("folder", false)), "Folder", "Folder.notes:[Note] <-> Note.folder:Folder"),
+        (reference("tags", to: "Tag", many: true, inverse: ("notes", true)), "Note", "Note.tags:[Tag] <-> Tag.notes:[Note]"),
+        (reference("author", to: "Person"), "Note", "Note.author:Person"),
+        (reference("tags", to: "Tag", many: true), "Note", "Note.tags:[Tag]"),
     ]
-    for (link, signature) in cases {
-        #expect(link.relationship == signature)
+    for (reference, sourceType, signature) in cases {
+        #expect(RecordLink.signature(of: reference, in: sourceType) == signature)
     }
 }
 
-@Test func linkStoresItsFields() throws {
-    let note = F.Note(id: UUID()), folderID = UUID()
-    let link = try RecordLink.manyToOne(
-        from: note, property: "folder", to: F.Folder.self, id: folderID, inverse: "notes"
-    )
-    #expect(link.sourceName == note.id.uuidString)
-    #expect(link.targetName == folderID.uuidString)
-    #expect(link.order == nil)
-    #expect(try link.kind == .manyToOne)
+@Test func kindComesFromBothSides() {
+    #expect(Relationship(reference("profile", to: "Profile", inverse: ("user", false))) == .oneToOne)
+    #expect(Relationship(reference("folder", to: "Folder", inverse: ("notes", true))) == .manyToOne)
+    #expect(Relationship(reference("notes", to: "Note", many: true, inverse: ("folder", false))) == .oneToMany)
+    #expect(Relationship(reference("tags", to: "Tag", many: true, inverse: ("notes", true))) == .manyToMany)
+    #expect(Relationship(reference("author", to: "Person")) == .manyToOne)
+    #expect(Relationship(reference("tags", to: "Tag", many: true)) == .manyToMany)
 }
 
-@Test func invalidPropertyNameThrows() {
-    #expect(throws: RecordLinkError.invalidSignature("Note.my tags:[Tag]")) {
-        try RecordLink.manyToMany(from: F.Note(id: UUID()), property: "my tags", to: F.Tag.self, id: UUID(), order: "a0")
-    }
+// MARK: - Stored data
+
+@Test func linkStoresOnlyItsSourceAndTarget() {
+    let noteID = UUID(), folderID = UUID()
+    let stored = link(reference("folder", to: "Folder", inverse: ("notes", true)), id: noteID, to: folderID)
+    #expect(stored.source == "Note.folder")
+    #expect(stored.sourceType == "Note")
+    #expect(stored.sourceProperty == "folder")
+    #expect(stored.sourceName == noteID.uuidString)
+    #expect(stored.targetName == folderID.uuidString)
+    #expect(stored.order == nil)
+    #expect(stored.assetID == nil)
 }
 
-@Test func oneToManyKeepsTheOwningSideAsSource() throws {
-    let folder = F.Folder(id: UUID()), noteID = UUID()
-    let link = try RecordLink.oneToMany(
-        from: folder, property: "notes", to: F.Note.self, id: noteID, inverse: "folder", order: "a0"
-    )
-    #expect(link.sourceName == folder.id.uuidString)
-    #expect(link.targetName == noteID.uuidString)
-    #expect(link.order == "a0")
+@Test func renamingAnInverseChangesNothingStored() {
+    let noteID = UUID(), tagID = UUID()
+    let before = link(reference("tags", to: "Tag", many: true, inverse: ("notes", true)), id: noteID, to: tagID, order: "a0")
+    let after = link(reference("tags", to: "Tag", many: true, inverse: ("pages", true)), id: noteID, to: tagID, order: "a0")
+    #expect(before == after)
 }
 
 // MARK: - Identity
 
-@Test func idIsAValidVersion8UUID() throws {
-    let link = try RecordLink.manyToOne(from: F.Note(id: UUID()), property: "author", to: F.Person.self, id: UUID())
-    let bytes = link.id.uuid
+@Test func idIsAValidVersion8UUID() {
+    let bytes = link(reference("author", to: "Person")).id.uuid
     #expect(bytes.6 >> 4 == 0x8)
     #expect(bytes.8 >> 6 == 0b10)
-    #expect(UUID(uuidString: link.id.uuidString) == link.id)
 }
 
-@Test func toOneLinkKeepsItsIDWhenTargetChanges() throws {
-    let note = F.Note(id: UUID())
-    let first = try RecordLink.manyToOne(from: note, property: "folder", to: F.Folder.self, id: UUID())
-    let second = try RecordLink.manyToOne(from: note, property: "folder", to: F.Folder.self, id: UUID())
-    #expect(first.id == second.id)
+@Test func toOneLinkKeepsItsIDWhenTargetChanges() {
+    let noteID = UUID(), folder = reference("folder", to: "Folder")
+    #expect(link(folder, id: noteID).id == link(folder, id: noteID).id)
 }
 
-@Test func oneToManyLinkKeepsItsIDWhenSourceChanges() throws {
-    let noteID = UUID()
-    let first = try RecordLink.oneToMany(
-        from: F.Folder(id: UUID()), property: "notes", to: F.Note.self, id: noteID, inverse: "folder", order: "a0"
-    )
-    let second = try RecordLink.oneToMany(
-        from: F.Folder(id: UUID()), property: "notes", to: F.Note.self, id: noteID, inverse: "folder", order: "a0"
-    )
-    #expect(first.id == second.id)
+@Test func oneToManyLinkKeepsItsIDWhenSourceChanges() {
+    let noteID = UUID(), notes = reference("notes", to: "Note", many: true, inverse: ("folder", false))
+    #expect(link(notes, from: "Folder", to: noteID).id == link(notes, from: "Folder", to: noteID).id)
 }
 
-@Test func manyToManyLinkIsOnePerPair() throws {
-    let note = F.Note(id: UUID()), tag1 = UUID(), tag2 = UUID()
-    let a = try RecordLink.manyToMany(from: note, property: "tags", to: F.Tag.self, id: tag1, order: "a0")
-    let b = try RecordLink.manyToMany(from: note, property: "tags", to: F.Tag.self, id: tag1, order: "b0")
-    let c = try RecordLink.manyToMany(from: note, property: "tags", to: F.Tag.self, id: tag2, order: "a0")
-    #expect(a.id == b.id)
-    #expect(a.id != c.id)
+@Test func manyToManyLinkIsOnePerPair() {
+    let noteID = UUID(), tagID = UUID(), tags = reference("tags", to: "Tag", many: true)
+    #expect(link(tags, id: noteID, to: tagID, order: "a0").id == link(tags, id: noteID, to: tagID, order: "b0").id)
+    #expect(link(tags, id: noteID, to: tagID).id != link(tags, id: noteID, to: UUID()).id)
 }
 
-@Test func differentPropertiesToSameTargetDoNotCollide() throws {
-    let note = F.Note(id: UUID()), personID = UUID()
-    let author = try RecordLink.manyToOne(from: note, property: "author", to: F.Person.self, id: personID)
-    let editor = try RecordLink.manyToOne(from: note, property: "editor", to: F.Person.self, id: personID)
+@Test func differentPropertiesToSameTargetDoNotCollide() {
+    let noteID = UUID(), personID = UUID()
+    let author = link(reference("author", to: "Person"), id: noteID, to: personID)
+    let editor = link(reference("editor", to: "Person"), id: noteID, to: personID)
     #expect(author.id != editor.id)
 }
 
-@Test func addingAnInverseKeepsLinkIDs() throws {
-    let note = F.Note(id: UUID()), tagID = UUID(), personID = UUID()
-
-    let tagsBefore = try RecordLink.manyToMany(from: note, property: "tags", to: F.Tag.self, id: tagID, order: "a0")
-    let tagsAfter = try RecordLink.manyToMany(
-        from: note, property: "tags", to: F.Tag.self, id: tagID, inverse: "notes", order: "a0"
+@Test func addingAnInverseKeepsLinkIDs() {
+    let noteID = UUID(), tagID = UUID(), personID = UUID()
+    #expect(
+        link(reference("tags", to: "Tag", many: true), id: noteID, to: tagID).id
+            == link(reference("tags", to: "Tag", many: true, inverse: ("notes", true)), id: noteID, to: tagID).id
     )
-    #expect(tagsBefore.id == tagsAfter.id)
-
-    let authorBefore = try RecordLink.manyToOne(from: note, property: "author", to: F.Person.self, id: personID)
-    let authorAfter = try RecordLink.manyToOne(
-        from: note, property: "author", to: F.Person.self, id: personID, inverse: "notes"
+    #expect(
+        link(reference("author", to: "Person"), id: noteID, to: personID).id
+            == link(reference("author", to: "Person", inverse: ("notes", true)), id: noteID, to: personID).id
     )
-    #expect(authorBefore.id == authorAfter.id)
 }
 
 // MARK: - Encoding
 
 @Test func linkEncodesAndDecodesLikeAnyRecord() throws {
-    let link = try RecordLink.manyToMany(
-        from: F.Note(id: UUID()), property: "tags", to: F.Tag.self, id: UUID(), inverse: "notes", order: "a0"
-    )
-    let record = CKRecordEncoder().encode(link, in: "Notes")
+    let stored = link(reference("tags", to: "Tag", many: true, inverse: ("notes", true)), order: "a0")
+    let record = CKRecordEncoder().encode(stored, in: "Notes")
 
     #expect(record.recordType == "RecordLink")
-    #expect(record.recordID.recordName == link.id.uuidString)
+    #expect(record.recordID.recordName == stored.id.uuidString)
     #expect(record.recordID.zoneID.zoneName == "Notes")
-    #expect(record["relationship"] as? String == "Note.tags:[Tag] <-> Tag.notes:[Note]")
-    #expect(record["deleteSelf"] == nil)
-    #expect(record["order"] as? String == "a0")
+    #expect(Set(record.allKeys()) == ["source", "sourceName", "targetName", "order"])
+    #expect(record["source"] as? String == "Note.tags")
     #expect(record.parent == nil)
-    #expect(try CKRecordDecoder().decode(RecordLink.self, from: record) == link)
+    #expect(try CKRecordDecoder().decode(RecordLink.self, from: record) == stored)
 }
 
-@Test func toOneLinkLeavesOrderUnset() throws {
-    let link = try RecordLink.manyToOne(from: F.Note(id: UUID()), property: "author", to: F.Person.self, id: UUID())
-    let record = CKRecordEncoder().encode(link, in: "Notes")
+@Test func toOneLinkLeavesOrderUnset() {
+    let record = CKRecordEncoder().encode(link(reference("author", to: "Person")), in: "Notes")
     #expect(!record.allKeys().contains("order"))
 }

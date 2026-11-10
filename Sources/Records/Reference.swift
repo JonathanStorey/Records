@@ -84,7 +84,7 @@ public struct Inverse: Hashable, Sendable {
         self.init(property: property, isToMany: true, deleteSelf: false)
     }
 
-    private init(property: String, isToMany: Bool, deleteSelf: Bool) {
+    init(property: String, isToMany: Bool, deleteSelf: Bool) {
         self.property = property
         self.isToMany = isToMany
         self.deleteSelf = deleteSelf

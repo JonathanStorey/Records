@@ -76,7 +76,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
     let links = try decodedLinks(encoder.links(for: page, in: .records))
 
-    #expect(links.map(\.relationship) == Array(repeating: "Page.labels:[Label]", count: 3))
+    #expect(links.map(\.source) == Array(repeating: "Page.labels", count: 3))
     #expect(links.map(\.targetName) == items.map { Optional($0.id.uuidString) })
     let orders = links.compactMap(\.order)
     #expect(orders.count == 3)
@@ -89,8 +89,8 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     let records = encoder.links(for: page, in: .records)
     #expect(Set(records.map(\.recordID)).count == 2)
 
-    let factory = try RecordLink.manyToMany(from: page, property: "labels", to: Label.self, id: items[0].id, order: "x")
-    #expect(records[0].recordID.recordName == factory.id.uuidString)
+    let id = RecordLink.id(source: "Page.labels", kind: .manyToMany, sourceName: page.id.uuidString, targetName: items[0].id.uuidString)
+    #expect(records[0].recordID.recordName == id.uuidString)
 }
 
 @Test func loadedToManyKeepsItsOrderKeys() throws {
@@ -144,7 +144,8 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     let ids = [UUID(), UUID()]
     let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: ids)
     let links = encoder.links(for: page, in: .records)
-    #expect(try decodedLinks(links).map(\.relationship) == ["Page.pinnedIDs:[Label]", "Page.pinnedIDs:[Label]"])
+    #expect(try decodedLinks(links).map(\.source) == ["Page.pinnedIDs", "Page.pinnedIDs"])
+    #expect(signatures(of: page) == ["Page.labels:[Label]", "Page.pinnedIDs:[Label]"])
 
     let decoded = try decoder.decode(Page.self, from: encoder.encode(page, in: .records), links: links.reversed())
     #expect(decoded.pinnedIDs == ids)

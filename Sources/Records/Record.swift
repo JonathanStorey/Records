@@ -151,11 +151,12 @@ public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(m
 /// chose them. This side is a back-pointer: anything can point at a record, so loading every
 /// owner would have no limit. To show an owner's fields, fetch it by ID, or make this side the
 /// owner instead.
-/// The owner writes the links, and their signature includes this side, such as
-/// `User.profile:Profile <-> Profile.userID:User`. This side never writes links. It is filled from
-/// the owner's links when the record is decoded, and can only be set when the record is made. A
-/// to-many side lists its owners in the order their links were created. With `deleteSelf: true`,
-/// which needs a to-one side, the record is deleted when its owner is deleted.
+/// The owner writes the links, each naming only the owner's property, such as `User.profile`. This
+/// side never writes links, so renaming it never rewrites one. Adding a to-one side to a to-many
+/// owner does change its link IDs, because a one-to-many link leaves out the source. This side is
+/// filled from the owner's links when the record is decoded, and can only be set when the record
+/// is made. A to-many side lists its owners in the order their links were created. With
+/// `deleteSelf: true`, which needs a to-one side, the record is deleted when its owner is deleted.
 @attached(accessor, names: named(init), named(get))
 @attached(peer, names: prefixed(_))
 public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, deleteSelf: Bool = false) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
@@ -191,7 +192,7 @@ public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "Encryp
 /// album.cover              // read from the file only when asked for
 /// ```
 ///
-/// The asset isn't a field of the record. It is stored on its own link, `Album.cover:_Asset`, so
+/// The asset isn't a field of the record. It is stored on its own link for `Album.cover`, so
 /// saving the record's other fields never uploads it again. Each new value gets a new ID and its
 /// own `<ID>.asset` file in `AssetField.directory`. CloudKit can't encrypt an asset, so a property
 /// can't be both `@Asset` and `@Encrypted`.

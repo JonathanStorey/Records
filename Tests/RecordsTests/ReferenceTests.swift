@@ -49,7 +49,8 @@ private func savedArticle(
     #expect(employee.manager == boss)
 
     let links = encoder.links(for: employee, in: .records)
-    #expect(try links.map { try link($0).relationship } == ["Employee.manager:Employee"])
+    #expect(try links.map { try link($0).source } == ["Employee.manager"])
+    #expect(signatures(of: employee) == ["Employee.manager:Employee"])
 
     let decoded = try decoder.decode(
         Employee.self, from: encoder.encode(employee, in: .records),
@@ -81,18 +82,11 @@ private func savedArticle(
     #expect(links.allSatisfy { $0.recordType == "RecordLink" && $0.recordID.zoneID == Zone.records.zoneID })
 
     let decoded = try links.map(link)
-    #expect(decoded.map(\.relationship) == ["Article.author:Person", "Article.editorID:Person"])
+    #expect(decoded.map(\.source) == ["Article.author", "Article.editorID"])
+    #expect(signatures(of: article) == ["Article.author:Person", "Article.editorID:Person"])
     #expect(decoded.map(\.sourceName) == [article.id.uuidString, article.id.uuidString])
     #expect(decoded.map(\.targetName) == [ada.id.uuidString, editorID.uuidString])
     #expect(decoded.allSatisfy { $0.order == nil })
-}
-
-@Test func referenceLinkMatchesTheFactory() throws {
-    let ada = Person(id: UUID(), name: "Ada")
-    let article = Article(id: UUID(), title: "Notes", author: ada, editorID: nil)
-    let written = try link(#require(encoder.links(for: article, in: .records).first))
-    let built = try RecordLink.manyToOne(from: article, property: "author", to: Person.self, id: ada.id)
-    #expect(written == built)
 }
 
 @Test func emptyReferencesWriteNoLinks() {

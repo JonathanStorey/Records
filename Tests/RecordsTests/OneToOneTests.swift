@@ -65,15 +65,12 @@ private func makeProfile() -> Profile {
     let links = try encoder.links(for: user, in: .records).map(link)
     #expect(links.count == 1)
     let written = try #require(links.first)
-    #expect(written.relationship == "User.profile:Profile <-> Profile.userID:User")
-    #expect(try written.kind == .oneToOne)
+    #expect(written.source == "User.profile")
     #expect(written.sourceName == user.id.uuidString)
     #expect(written.targetName == profile.id.uuidString)
 
-    let built = try RecordLink.oneToOne(
-        from: user, property: "profile", to: Profile.self, id: profile.id, inverse: "userID"
-    )
-    #expect(written == built)
+    #expect(signatures(of: user) == ["User.profile:Profile <-> Profile.userID:User"])
+    #expect(Relationship(user.referenceStates[0]) == .oneToOne)
 }
 
 @Test func fromSideWritesNoLinks() {
@@ -138,7 +135,8 @@ private func makeProfile() -> Profile {
     let settings = Settings(id: UUID(), accountID: nil)
     let account = Account(id: UUID(), settingsID: settings.id)
     let links = encoder.links(for: account, in: .records)
-    #expect(try links.map { try link($0).relationship } == ["Account.settingsID:Settings <-> Settings.accountID:Account"])
+    #expect(try links.map { try link($0).source } == ["Account.settingsID"])
+    #expect(signatures(of: account) == ["Account.settingsID:Settings <-> Settings.accountID:Account"])
 
     let settingsAgain = try decoder.decode(Settings.self, from: encoder.encode(settings, in: .records), links: links)
     #expect(settingsAgain.accountID == account.id)
@@ -180,7 +178,8 @@ private func makeProfile() -> Profile {
     let crest = Crest(id: UUID(), teamID: nil)
     let team = Team(id: UUID(), crest: crest)
     let teamLinks = encoder.links(for: team, in: .records)
-    #expect(try teamLinks.map { try link($0).relationship } == ["Team.crest:Crest <-> Crest.teamID:Team"])
+    #expect(try teamLinks.map { try link($0).source } == ["Team.crest"])
+    #expect(signatures(of: team) == ["Team.crest:Crest <-> Crest.teamID:Team"])
     let crestAgain = try decoder.decode(Crest.self, from: encoder.encode(crest, in: .records), links: teamLinks)
     #expect(crestAgain.teamID == team.id)
 }
