@@ -92,7 +92,9 @@ public final class RecordContainer: Sendable {
         self.types = try Self.register(types)
         try Self.validate(self.types)
         database = try Database(configuration.storage)
-        try database.createTables(for: self.types.values.map(\.schema))
+        // A closure, not `\.schema`: a key path to a static member of an existential metatype
+        // crashes the Swift 6.1 compiler.
+        try database.createTables(for: self.types.values.map { $0.schema })
     }
 
     /// The record types this container stores, sorted.
