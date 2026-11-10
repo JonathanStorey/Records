@@ -2,7 +2,7 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// `@Location` on a `Coordinate?` property of a `@Record`, stored as a `CLLocation`.
+/// `@Location` on a `Coordinate?` property of a `@Record`, stored as an encrypted `CLLocation`.
 ///
 /// Turns the property into a computed one backed by a `Records.LocationField` named with a leading
 /// underscore, which keeps the `CLLocation` itself. `$name` reads and sets that `CLLocation`. An

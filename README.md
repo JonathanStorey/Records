@@ -81,7 +81,8 @@ gig.$venue                // the CLLocation, with every detail it was saved with
 gig.$venue = gpsFix       // keeps the fix's timestamp and accuracy
 ```
 
-Setting either one marks the field changed. A location can be `@Encrypted`.
+Setting either one marks the field changed. A location says where someone is, so it is always
+encrypted end to end, with no `@Encrypted` needed.
 
 A field can hold any type CloudKit stores, such as `String`, `Int`, `Double`, `Bool`, `Date`, `Data`,
 `CLLocation`, or an array of them. An enum with such a raw value is stored as its raw value, and any

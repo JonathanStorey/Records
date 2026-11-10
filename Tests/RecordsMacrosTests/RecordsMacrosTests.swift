@@ -1822,11 +1822,11 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self._venue = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "venue", from: record))
+                    self._venue = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "venue", from: record.encryptedValues))
                     self._home = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "home", from: record.encryptedValues))
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["venue"] = self._venue.location
+                    record.encryptedValues["venue"] = self._venue.location
                     record.encryptedValues["home"] = self._home.location
                 }
                 var changedFields: Set<String> {
@@ -1841,7 +1841,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeChangedFields(into record: CKRecord) {
                     if self._venue.isChanged {
-                        record["venue"] = self._venue.location
+                        record.encryptedValues["venue"] = self._venue.location
                     }
                     if self._home.isChanged {
                         record.encryptedValues["home"] = self._home.location

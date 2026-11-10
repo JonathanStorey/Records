@@ -296,7 +296,7 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
         /// Whether it is marked `@Asset`, so it is stored as a `CKAsset`.
         let isAsset: Bool
 
-        /// Whether it is marked `@Location`, so it is stored as a `CLLocation`.
+        /// Whether it is marked `@Location`, so it is stored as an encrypted `CLLocation`.
         let isLocation: Bool
 
         /// Where the generated code writes the field.
@@ -334,9 +334,10 @@ public struct RecordMacro: ExtensionMacro, MemberAttributeMacro {
             guard let variable = member.decl.as(VariableDeclSyntax.self),
                   !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) })
             else { continue }
-            let isEncrypted = isEncrypted(variable)
             let isAsset = AssetMacro.isAsset(variable)
             let isLocation = LocationMacro.isLocation(variable)
+            // A location says where someone is, so it is always encrypted.
+            let isEncrypted = isEncrypted(variable) || isLocation
             let renamed = try renamedKey(variable)
             if ReferenceMacro.isReference(variable) {
                 // Links hold references, not fields.

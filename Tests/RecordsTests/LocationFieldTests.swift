@@ -17,7 +17,7 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 @Test func aCoordinateIsStoredAsACLLocation() throws {
     let gig = Gig(id: UUID(), title: "Proms", venue: hall, home: nil)
     let record = CKRecordEncoder().encode(gig, in: .records)
-    let stored = try #require(record["venue"] as? CLLocation)
+    let stored = try #require(record.encryptedValues["venue"] as? CLLocation)
     #expect(stored.coordinate.latitude == hall.latitude)
     #expect(stored.coordinate.longitude == hall.longitude)
     #expect(stored.altitude == 30)
@@ -34,9 +34,12 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
     #expect(decoded == gig)
 }
 
-@Test func anEncryptedLocationIsStoredEncrypted() throws {
-    let gig = Gig(id: UUID(), title: "Proms", venue: nil, home: hall)
+@Test func aLocationIsAlwaysEncrypted() throws {
+    let gig = Gig(id: UUID(), title: "Proms", venue: hall, home: hall)
     let record = CKRecordEncoder().encode(gig, in: .records)
+    #expect(record["venue"] == nil)
+    #expect(record.encryptedValues["venue"] is CLLocation)
+    // `@Encrypted` on a location is allowed and changes nothing.
     #expect(record["home"] == nil)
     #expect(record.encryptedValues["home"] is CLLocation)
 }
@@ -71,5 +74,5 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
     #expect(gig.venue == nil)
     #expect(gig.changedFields == ["venue"])
     try CKRecordEncoder().encode(gig, into: record)
-    #expect(record["venue"] == nil)
+    #expect(record.encryptedValues["venue"] == nil)
 }

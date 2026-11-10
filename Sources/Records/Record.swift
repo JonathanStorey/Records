@@ -231,11 +231,14 @@ public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "Encryp
 @attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Asset() = #externalMacro(module: "RecordsMacros", type: "AssetMacro")
 
-/// Stores a `Coordinate?` property as a location, which a query can search by distance.
+/// Stores a `Coordinate?` property as an encrypted location.
 ///
 /// The property reads and sets a `Coordinate`, a plain value that is easy to compare and encode.
 /// `$name` reads and sets the full `CLLocation`, keeping its timestamp, accuracy, course, and speed
 /// for code that needs them. Setting either one marks the field changed.
+///
+/// A location says where someone is, so it is always end-to-end encrypted. `@Encrypted` on it is
+/// allowed but changes nothing.
 ///
 /// ```swift
 /// @Location var venue: Coordinate?
