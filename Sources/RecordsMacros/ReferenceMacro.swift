@@ -182,7 +182,8 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         // macro-backed properties would make the compiler expand each macro to resolve the other.
         var typeArgument: ExprSyntax?
         var keyPath: (root: String, property: String)?
-        if let first = arguments.first, first.label?.text != "sort" {
+        let firstIsTarget = arguments.first.map { $0.label == nil || $0.label?.text == "from" } ?? false
+        if firstIsTarget, let first = arguments.first {
             let keyPathExpr = first.expression.as(KeyPathExprSyntax.self)
             switch first.label?.text {
             case nil:
@@ -198,14 +199,14 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
                 }
                 keyPath = try parse(keyPathExpr, owner: owner)
             default:
-                throw MacroExpansionErrorMessage("@Reference takes a record type or 'from:'")
+                break
             }
         }
         let isFrom = keyPath != nil
         var deleteSelf = false
         var sortArgument: ExprSyntax?
         var orderArgument: ExprSyntax?
-        let rest = arguments.first?.label?.text == "sort" ? arguments[...] : arguments.dropFirst()
+        let rest = firstIsTarget ? arguments.dropFirst() : arguments[...]
         for argument in rest {
             switch argument.label?.text {
             case "deleteSelf":

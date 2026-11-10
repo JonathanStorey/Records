@@ -2198,4 +2198,275 @@ final class RecordMacroTests: XCTestCase {
         throw XCTSkip("macros are only supported when running tests for the host platform")
         #endif
     }
+
+    func testLocationMustBeVar() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Location let venue: Coordinate?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                let venue: Coordinate?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Location needs a 'var'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testTimestampedMustBeVar() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Timestamped(.created) let createdAt: Date?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                let createdAt: Date?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Timestamped needs a 'var'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testTimestampedCannotHaveAnInitialValue() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Timestamped(.created) var createdAt: Date? = nil
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var createdAt: Date? = nil
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "The server sets @Timestamped dates, so remove the initial value", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testDeleteSelfNeedsABooleanLiteral() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference(from: \\Album.tracks, deleteSelf: maybe) var albumID: UUID?
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var albumID: UUID?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'deleteSelf:' must be 'true' or 'false'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testOrderNeedsSort() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference(order: .reverse) var tags: [Tag]
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var tags: [Tag]
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'order:' goes with 'sort:', e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testReferenceRejectsUnknownArguments() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Note {
+                @Reference(color: 1) var tags: [Tag]
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var tags: [Tag]
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Reference doesn't take 'color:'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRecordNameMustBeALiteral() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record(name)
+            struct Note {
+                var id: UUID
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Record name must be a string literal", line: 1, column: 1),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testIDCannotBeRenamed() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note {
+                @Renamed("ident") var id: UUID
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'id' is the record name, so it has no field to rename", line: 1, column: 1),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testRenamedNeedsAValidFieldName() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note {
+                var id: UUID
+                @Renamed("bad name") var title: String
+            }
+            """,
+            expandedSource: """
+            struct Note {
+                var id: UUID
+                var title: String
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "'bad name' is not a valid field name; use letters, digits, and underscores, starting with a letter", line: 1, column: 1),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testCodableRecordGetsEncodeAndDecode() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note: Codable {
+                var id: UUID
+                var title: String
+                var rating: Int?
+            }
+            """,
+            expandedSource: """
+            struct Note: Codable {
+                var id: UUID
+                var title: String
+                var rating: Int?
+            }
+
+            extension Note: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Note"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
+                    self.rating = try CKRecordDecoder.decodeIfPresent((Int).self, forKey: "rating", from: record)
+                }
+                func encodeFields(into record: CKRecord) {
+                    record["title"] = Records.FieldCoding.value(self.title)
+                    record["rating"] = self.rating.flatMap {
+                        Records.FieldCoding.value($0)
+                    }
+                }
+                private enum _RecordCodingKeys: String, CodingKey {
+                    case `id`
+                    case `title`
+                    case `rating`
+                }
+                func encode(to encoder: any Encoder) throws {
+                    var container = encoder.container(keyedBy: _RecordCodingKeys.self)
+                    try container.encode(self.id, forKey: .`id`)
+                    try container.encode(self.title, forKey: .`title`)
+                    try container.encodeIfPresent(self.rating, forKey: .`rating`)
+                }
+                init(from decoder: any Decoder) throws {
+                    let container = try decoder.container(keyedBy: _RecordCodingKeys.self)
+                    self.id = try container.decode((UUID).self, forKey: .`id`)
+                    self.title = try container.decode((String).self, forKey: .`title`)
+                    self.rating = try container.decodeIfPresent((Int).self, forKey: .`rating`)
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
 }

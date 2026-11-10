@@ -226,3 +226,61 @@ private func wellOrdered(_ keys: [String], maxLength length: Int) -> Bool {
     #expect(inserted.first == "a1" && inserted.last == "a2")
     #expect(wellOrdered(inserted, maxLength: 5))
 }
+
+/// A small seeded generator, so a failing run can be repeated.
+private struct SplitMix64: RandomNumberGenerator {
+    var state: UInt64
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE5_E9B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+@Test(arguments: [1, 2, 3])
+func randomEditsKeepKeysOrdered(seed: UInt64) {
+    var generator = SplitMix64(state: seed)
+    var keys: [String] = []
+    func insert(at index: Int) {
+        let lower = index > 0 ? keys[index - 1] : nil
+        let upper = index < keys.count ? keys[index] : nil
+        keys.insert(OrderKey.between(lower, upper), at: index)
+    }
+    for _ in 0..<5_000 {
+        let choice = keys.isEmpty ? 0 : Int.random(in: 0..<10, using: &generator)
+        switch choice {
+        case 0..<5:
+            insert(at: Int.random(in: 0...keys.count, using: &generator))
+        case 5..<7:
+            keys.remove(at: Int.random(in: 0..<keys.count, using: &generator))
+        default:
+            // A move: remove one target and give it a new key elsewhere.
+            keys.remove(at: Int.random(in: 0..<keys.count, using: &generator))
+            insert(at: Int.random(in: 0...keys.count, using: &generator))
+        }
+    }
+    #expect(!keys.isEmpty)
+    #expect(wellOrdered(keys, maxLength: 16))
+}
+
+@Test(arguments: [1, 2, 3])
+func assignAfterAShuffleChangesOnlyWhatItMust(seed: UInt64) {
+    var generator = SplitMix64(state: seed)
+    let original = OrderKey.assign([String?](repeating: nil, count: 200))
+    var current: [String?] = original
+    // Move ten targets to random places, and add five new ones.
+    for _ in 0..<10 {
+        let key = current.remove(at: Int.random(in: 0..<current.count, using: &generator))
+        current.insert(key, at: Int.random(in: 0...current.count, using: &generator))
+    }
+    for _ in 0..<5 {
+        current.insert(nil, at: Int.random(in: 0...current.count, using: &generator))
+    }
+
+    let assigned = OrderKey.assign(current)
+    #expect(wellOrdered(assigned, maxLength: 8))
+    let kept = zip(current, assigned).filter { $0 == $1 }.count
+    #expect(kept >= 200 - 10) // at most the moved targets change
+}
