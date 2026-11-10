@@ -63,7 +63,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     #expect(links.count == 2)
     #expect(links.allSatisfy { $0.relationship == "Book.shelf:Shelf <-> Shelf.bookIDs:[Book]" })
     #expect(try links.allSatisfy { try $0.kind == .manyToOne })
-    #expect(links.allSatisfy { !$0.deleteSelf && $0.targetName == shelf.id.uuidString })
+    #expect(links.allSatisfy { $0.targetName == shelf.id.uuidString })
     #expect(encoder.links(for: shelf, in: .records).isEmpty)
 }
 
@@ -126,7 +126,6 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     #expect(read.count == 3)
     #expect(read.allSatisfy { $0.relationship == "Release.tracks:[Song] <-> Song.albumID:Release" })
     #expect(try read.allSatisfy { try $0.kind == .oneToMany })
-    #expect(read.allSatisfy { $0.deleteSelf })
     #expect(Song.deleteSelfReferences == ["albumID"])
     #expect(tracks.allSatisfy { encoder.links(for: $0, in: .records).isEmpty })
 

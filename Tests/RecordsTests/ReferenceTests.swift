@@ -84,7 +84,7 @@ private func savedArticle(
     #expect(decoded.map(\.relationship) == ["Article.author:Person", "Article.editorID:Person"])
     #expect(decoded.map(\.sourceName) == [article.id.uuidString, article.id.uuidString])
     #expect(decoded.map(\.targetName) == [ada.id.uuidString, editorID.uuidString])
-    #expect(decoded.allSatisfy { $0.order == nil && !$0.deleteSelf })
+    #expect(decoded.allSatisfy { $0.order == nil })
 }
 
 @Test func referenceLinkMatchesTheFactory() throws {

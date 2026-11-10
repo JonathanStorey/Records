@@ -67,12 +67,11 @@ private func makeProfile() -> Profile {
     let written = try #require(links.first)
     #expect(written.relationship == "User.profile:Profile <-> Profile.userID:User")
     #expect(try written.kind == .oneToOne)
-    #expect(written.deleteSelf)
     #expect(written.sourceName == user.id.uuidString)
     #expect(written.targetName == profile.id.uuidString)
 
     let built = try RecordLink.oneToOne(
-        from: user, property: "profile", to: Profile.self, id: profile.id, inverse: "userID", deleteSelf: true
+        from: user, property: "profile", to: Profile.self, id: profile.id, inverse: "userID"
     )
     #expect(written == built)
 }
@@ -182,7 +181,6 @@ private func makeProfile() -> Profile {
     let team = Team(id: UUID(), crest: crest)
     let teamLinks = encoder.links(for: team, in: .records)
     #expect(try teamLinks.map { try link($0).relationship } == ["Team.crest:Crest <-> Crest.teamID:Team"])
-    #expect(try teamLinks.map { try link($0).deleteSelf } == [true])
     let crestAgain = try decoder.decode(Crest.self, from: encoder.encode(crest, in: .records), links: teamLinks)
     #expect(crestAgain.teamID == team.id)
 }

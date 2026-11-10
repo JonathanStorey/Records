@@ -13,8 +13,6 @@ public enum RecordLinkError: Error, Equatable {
     /// The signature does not match `Type.property:Type` or `Type.property:[Type]`,
     /// optionally followed by ` <-> ` and the inverse side.
     case invalidSignature(String)
-    /// `deleteSelf` needs an inverse, because only a two-way relationship can delete.
-    case deleteSelfRequiresInverse
 }
 
 extension Relationship {
@@ -91,9 +89,8 @@ private struct SignatureSide {
 /// names, so the signature is always canonical. The `id` is derived from the link's identity,
 /// so creating the same link twice, on any device, produces the same record.
 ///
-/// `deleteSelf` belongs to the inverse side: when true, deleting the source also deletes the
-/// target, like `CKRecord.Reference.Action.deleteSelf` on a child. It needs an inverse, because a
-/// one-way reference never deletes anything. Records enforces it, never CloudKit.
+/// A link holds no `deleteSelf` flag. That belongs to the target's `@Reference(from:)` declaration,
+/// which the container knows from each type's schema.
 ///
 /// ```swift
 /// let link = try RecordLink.manyToOne(
@@ -111,8 +108,6 @@ struct RecordLink: Equatable, Sendable {
     var sourceName: String
     /// The target record's name, its `id` as a UUID string. `nil` on an asset's link.
     var targetName: String?
-    /// Delete the target when the source is deleted.
-    var deleteSelf: Bool
     /// Fractional index key. Required on to-many links, empty on to-one links.
     var order: String?
     /// The asset's ID as a UUID string, on an `@Asset`'s link only. The asset itself is the
@@ -137,12 +132,12 @@ struct RecordLink: Equatable, Sendable {
     static func oneToOne<Source: Record, Target: Record>(
         from source: Source, property: String,
         to target: Target.Type, id targetID: UUID,
-        inverse: String, deleteSelf: Bool = false
+        inverse: String
     ) throws -> RecordLink {
         try make(
             .oneToOne, source: source, property: property, sourceIsToMany: false,
             target: target, targetID: targetID, inverse: inverse, inverseIsToMany: false,
-            deleteSelf: deleteSelf, order: nil
+            order: nil
         )
     }
 
@@ -152,12 +147,12 @@ struct RecordLink: Equatable, Sendable {
     static func oneToMany<Source: Record, Target: Record>(
         from source: Source, property: String,
         to target: Target.Type, id targetID: UUID,
-        inverse: String, deleteSelf: Bool = false, order: String
+        inverse: String, order: String
     ) throws -> RecordLink {
         try make(
             .oneToMany, source: source, property: property, sourceIsToMany: true,
             target: target, targetID: targetID, inverse: inverse, inverseIsToMany: false,
-            deleteSelf: deleteSelf, order: order
+            order: order
         )
     }
 
@@ -166,12 +161,12 @@ struct RecordLink: Equatable, Sendable {
     static func manyToOne<Source: Record, Target: Record>(
         from source: Source, property: String,
         to target: Target.Type, id targetID: UUID,
-        inverse: String? = nil, deleteSelf: Bool = false
+        inverse: String? = nil
     ) throws -> RecordLink {
         try make(
             .manyToOne, source: source, property: property, sourceIsToMany: false,
             target: target, targetID: targetID, inverse: inverse, inverseIsToMany: true,
-            deleteSelf: deleteSelf, order: nil
+            order: nil
         )
     }
 
@@ -181,12 +176,12 @@ struct RecordLink: Equatable, Sendable {
     static func manyToMany<Source: Record, Target: Record>(
         from source: Source, property: String,
         to target: Target.Type, id targetID: UUID,
-        inverse: String? = nil, deleteSelf: Bool = false, order: String
+        inverse: String? = nil, order: String
     ) throws -> RecordLink {
         try make(
             .manyToMany, source: source, property: property, sourceIsToMany: true,
             target: target, targetID: targetID, inverse: inverse, inverseIsToMany: true,
-            deleteSelf: deleteSelf, order: order
+            order: order
         )
     }
 
@@ -214,13 +209,8 @@ struct RecordLink: Equatable, Sendable {
         targetID: UUID,
         inverse: String?,
         inverseIsToMany: Bool,
-        deleteSelf: Bool,
         order: String?
     ) throws -> RecordLink {
-        guard !deleteSelf || inverse != nil else {
-            throw RecordLinkError.deleteSelfRequiresInverse
-        }
-
         let relationship = signature(
             sourceType: Source.recordType, property: property, sourceIsToMany: sourceIsToMany,
             targetType: Target.recordType, inverse: inverse, inverseIsToMany: inverseIsToMany
@@ -242,7 +232,6 @@ struct RecordLink: Equatable, Sendable {
             relationship: relationship,
             sourceName: sourceName,
             targetName: targetName,
-            deleteSelf: deleteSelf,
             order: order
         )
     }
@@ -290,7 +279,6 @@ extension RecordLink {
             ),
             sourceName: sourceID.uuidString,
             targetName: target.id.uuidString,
-            deleteSelf: reference.inverse?.deleteSelf ?? false,
             order: target.order
         )
     }
@@ -355,7 +343,6 @@ extension RecordLink {
             relationship: relationship,
             sourceName: sourceID.uuidString,
             targetName: nil,
-            deleteSelf: false,
             order: nil,
             assetID: assetID.uuidString
         )
