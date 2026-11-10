@@ -191,7 +191,7 @@ public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "Encryp
 /// album.cover              // read from the file only when asked for
 /// ```
 ///
-/// The asset isn't a field of the record. It is stored on its own link, `Album.cover:Asset`, so
+/// The asset isn't a field of the record. It is stored on its own link, `Album.cover:_Asset`, so
 /// saving the record's other fields never uploads it again. Each new value gets a new ID and its
 /// own `<ID>.asset` file in `AssetField.directory`. CloudKit can't encrypt an asset, so a property
 /// can't be both `@Asset` and `@Encrypted`.

@@ -121,8 +121,9 @@ struct RecordLink: Equatable, Sendable {
 
     /// The field that holds an asset link's `CKAsset`.
     static let assetKey = "asset"
-    /// The target type in an asset link's signature, as in `Album.cover:Asset`.
-    static let assetType = "Asset"
+    /// The target type in an asset link's signature, as in `Album.cover:_Asset`. A record type
+    /// must start with a letter, so it never collides with one.
+    static let assetType = "_Asset"
 
     /// The relationship's shape, read from its signature.
     var kind: Relationship {
@@ -342,7 +343,7 @@ extension RecordLink {
 // MARK: - Assets
 
 extension RecordLink {
-    /// The link an `@Asset` writes, such as `Album.cover:Asset`. Like any to-one link, its ID
+    /// The link an `@Asset` writes, such as `Album.cover:_Asset`. Like any to-one link, its ID
     /// leaves out the target, so a new value overwrites the same link.
     init(asset: AssetState, assetID: UUID, sourceType: CKRecord.RecordType, sourceID: UUID) {
         let relationship = Self.signature(

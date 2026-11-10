@@ -60,7 +60,7 @@ artwork.$image            // that file's URL, ready for an image view
 artwork.image             // read from the file only when asked for
 ```
 
-The asset isn't a field of the record. It rides on its own link, `Artwork.image:Asset`, so
+The asset isn't a field of the record. It rides on its own link, `Artwork.image:_Asset`, so
 editing the record's other fields never uploads it again. Each new value gets a new ID and its own
 `<ID>.asset` file in `Application Support/Records/Assets`, and the link carries that ID, so two
 devices can tell whether they hold the same image without comparing the data. Loading a list never

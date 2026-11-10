@@ -57,7 +57,7 @@ private let decoder = CKRecordDecoder()
 
     let record = try #require(links.first)
     let link = try decoder.decode(RecordLink.self, from: record)
-    #expect(link.relationship == "Poster.image:Asset")
+    #expect(link.relationship == "Poster.image:_Asset")
     #expect(link.sourceName == poster.id.uuidString)
     #expect(link.targetName == nil)
     #expect(link.assetID == poster._image.id?.uuidString)
