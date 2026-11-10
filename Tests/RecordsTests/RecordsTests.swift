@@ -40,6 +40,10 @@ struct Article {
     @Reference(Person.self) var editorID: UUID?
 }
 
+extension Zone {
+    static let records: Zone = "Records"
+}
+
 private func zone() -> CKRecordZone.ID {
     Zone.records.zoneID
 }

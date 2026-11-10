@@ -379,7 +379,7 @@ The owner is the side your code edits, and the side whose order matters.
 `RecordContainer` keeps records on device in SQLite and will sync them with CloudKit.
 
 ```swift
-let container = try RecordContainer(for: Album.self)
+let container = try RecordContainer(for: Album.self, initialZone: "Music")
 ```
 
 Every type a registered type refers to is registered too, so `Album` brings `Track`, `Artist`, and
@@ -388,18 +388,17 @@ the problem: two types with the same record type, a field name starting with an 
 `@Reference(from:)` that names a property not pointing back. It then creates a table for each type,
 or updates the table when fields were added or removed.
 
-The database lives at `Application Support/Records/default.records`. New records go to the zone
-the container opens with, `Records` unless you name another, and sync with the app's default iCloud
-container. Two zones never sync:
+The database lives at `Application Support/Records/default.records` and syncs with the app's default
+iCloud container. One container holds every zone. New records go to `initialZone` unless a save
+names another, and `Zone.local` keeps records on this device without syncing them. Tests and
+previews can use a throwaway database:
 
 ```swift
-let container = try RecordContainer(for: Album.self, zone: "Music")      // a zone of your own
-let onDevice = try RecordContainer(for: Album.self, zone: .local)        // on this device only
-let preview = try RecordContainer(for: Album.self, zone: .inMemory)      // tests and previews
+let preview = try RecordContainer.inMemory(for: Album.self)
 ```
 
 To share the database with the app's extensions and widgets, pass its app group:
-`RecordContainer(for: Album.self, appGroup: "group.com.example.music")`.
+`RecordContainer(for: Album.self, initialZone: "Music", appGroup: "group.com.example.music")`.
 
 ## Saving and loading
 

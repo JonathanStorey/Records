@@ -11,29 +11,12 @@ import CloudKit
 public struct Zone: Hashable, Sendable, ExpressibleByStringLiteral, CustomStringConvertible {
     public let name: String
     public let ownerName: String
-    /// Where the container keeps the zone's records.
-    let storage: Storage
+    /// Whether the zone's records sync with CloudKit.
+    public let isSynced: Bool
 
-    /// Where the container keeps a zone's records.
-    enum Storage: Hashable, Sendable {
-        /// On device, synced with CloudKit.
-        case synced
-        /// On device only.
-        case local
-        /// In memory only, gone when the container is.
-        case inMemory
-    }
-
-    /// The zone a container uses unless told otherwise, named `Records`.
-    public static let records: Zone = "Records"
-
-    /// Records kept on this device only and never synced. A container opened with it doesn't
-    /// sync.
-    public static let local = Zone(reserved: "_local", storage: .local)
-
-    /// Records kept in memory and never synced, for tests and previews. A container opened with
-    /// it starts empty every time.
-    public static let inMemory = Zone(reserved: "_inMemory", storage: .inMemory)
+    /// Records kept on this device only and never synced. It sits beside synced zones in the
+    /// same container.
+    public static let local = Zone(reserved: "_local")
 
     init(_ name: String, ownerName: String = CKCurrentUserDefaultName) {
         precondition(
@@ -42,18 +25,15 @@ public struct Zone: Hashable, Sendable, ExpressibleByStringLiteral, CustomString
         )
         self.name = name
         self.ownerName = ownerName
-        storage = .synced
+        isSynced = true
     }
 
     /// One of Records' own zones, which never reach CloudKit.
-    private init(reserved name: String, storage: Storage) {
+    private init(reserved name: String) {
         self.name = name
         ownerName = CKCurrentUserDefaultName
-        self.storage = storage
+        isSynced = false
     }
-
-    /// Whether the zone's records sync with CloudKit.
-    public var isSynced: Bool { storage == .synced }
 
     public init(stringLiteral name: String) {
         self.init(name)

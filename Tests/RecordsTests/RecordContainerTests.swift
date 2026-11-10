@@ -45,17 +45,17 @@ private func temporaryFile() -> URL {
 // MARK: - Registering types
 
 @Test func relatedTypesAreRegistered() throws {
-    let container = try RecordContainer(for: Page.self, zone: .inMemory)
+    let container = try RecordContainer.inMemory(for: Page.self)
     #expect(container.recordTypes == ["Label", "Page", "RecordLink"])
 }
 
 @Test func bothSidesOfAnInverseAreRegistered() throws {
-    let container = try RecordContainer(for: Profile.self, zone: .inMemory)
+    let container = try RecordContainer.inMemory(for: Profile.self)
     #expect(container.recordTypes == ["Profile", "RecordLink", "User"])
 }
 
 @Test func namingATypeTwiceIsFine() throws {
-    let container = try RecordContainer(for: [Label.self, Page.self, Label.self], zone: .inMemory)
+    let container = try RecordContainer.inMemory(for: Label.self, Page.self, Label.self)
     #expect(container.recordTypes == ["Label", "Page", "RecordLink"])
 }
 
@@ -63,44 +63,44 @@ private func temporaryFile() -> URL {
 
 @Test func twoTypesCantShareARecordType() {
     #expect(throws: RecordContainerError.duplicateRecordType("Gadget")) {
-        try RecordContainer(for: GadgetV1.self, GadgetV2.self, zone: .inMemory)
+        try RecordContainer.inMemory(for: GadgetV1.self, GadgetV2.self)
     }
 }
 
 @Test func recordLinkIsReserved() {
     #expect(throws: RecordContainerError.reservedRecordType("RecordLink")) {
-        try RecordContainer(for: FakeLink.self, zone: .inMemory)
+        try RecordContainer.inMemory(for: FakeLink.self)
     }
 }
 
 @Test func fieldsCantStartWithAnUnderscore() {
     #expect(throws: RecordContainerError.reservedFieldName(recordType: "Underscored", field: "_hidden")) {
-        try RecordContainer(for: Underscored.self, zone: .inMemory)
+        try RecordContainer.inMemory(for: Underscored.self)
     }
 }
 
 @Test func anInverseMustPointBack() {
     #expect(throws: RecordContainerError.invalidInverse(recordType: "Imposter", property: "accountID")) {
-        try RecordContainer(for: Imposter.self, zone: .inMemory)
+        try RecordContainer.inMemory(for: Imposter.self)
     }
 }
 
 // MARK: - Tables
 
 @Test func eachTypeGetsATable() throws {
-    let container = try RecordContainer(for: Page.self, zone: .inMemory)
+    let container = try RecordContainer.inMemory(for: Page.self)
     #expect(try container.database.tableNames() == ["Label", "Page", "RecordLink", "_SyncState"])
 }
 
 @Test func aTableHasBookkeepingThenFields() throws {
-    let container = try RecordContainer(for: Book.self, zone: .inMemory)
+    let container = try RecordContainer.inMemory(for: Book.self)
     let bookkeeping = Database.bookkeeping.map(\.name)
     #expect(try container.database.columnNames("Book") == bookkeeping + ["title"])
     #expect(try container.database.columnNames("RecordLink") == bookkeeping + ["source", "sourceName", "targetName", "order", "assetID"])
 }
 
 @Test func renamedFieldsUseTheirStoredName() throws {
-    let container = try RecordContainer(for: Novel.self, zone: .inMemory)
+    let container = try RecordContainer.inMemory(for: Novel.self)
     let columns = try container.database.columnNames("Novel")
     #expect(columns.contains("released") && !columns.contains("year"))
     #expect(!columns.contains("cover")) // assets live on links
@@ -108,7 +108,7 @@ private func temporaryFile() -> URL {
 }
 
 @Test func tablesGetTheirIndexes() throws {
-    let container = try RecordContainer(for: Page.self, zone: .inMemory)
+    let container = try RecordContainer.inMemory(for: Page.self)
     #expect(try container.database.indexNames("Page") == ["Page_pending"])
     #expect(try container.database.indexNames("RecordLink") == ["RecordLink_pending", "RecordLink_source", "RecordLink_target"])
 }
@@ -135,27 +135,27 @@ private func temporaryFile() -> URL {
 
 @Test func reopeningAFileKeepsItsTables() throws {
     let url = temporaryFile()
-    _ = try RecordContainer(for: [Page.self], zone: .local, url: url)
-    let reopened = try RecordContainer(for: [Page.self], zone: .local, url: url)
+    _ = try RecordContainer(for: [Page.self], initialZone: .local, url: url)
+    let reopened = try RecordContainer(for: [Page.self], initialZone: .local, url: url)
     #expect(try reopened.database.tableNames() == ["Label", "Page", "RecordLink", "_SyncState"])
 }
 
 @Test func changedFieldsAddAndDropColumns() throws {
     let url = temporaryFile()
-    _ = try RecordContainer(for: [GadgetV1.self], zone: .local, url: url)
-    let updated = try RecordContainer(for: [GadgetV2.self], zone: .local, url: url)
+    _ = try RecordContainer(for: [GadgetV1.self], initialZone: .local, url: url)
+    let updated = try RecordContainer(for: [GadgetV2.self], initialZone: .local, url: url)
     #expect(try updated.database.columnNames("Gadget") == Database.bookkeeping.map(\.name) + ["name", "size"])
 }
 
 // MARK: - Zones
 
-@Test func theDefaultZoneSyncs() throws {
-    #expect(Zone.records.name == "Records" && Zone.records.isSynced)
-    #expect(!Zone.local.isSynced && !Zone.inMemory.isSynced)
+@Test func localZonesDontSync() {
+    #expect(!Zone.local.isSynced)
+    #expect(Zone("Music").isSynced)
     #expect(RecordContainer.defaultURL.lastPathComponent == "default.records")
 }
 
-@Test func theContainerKeepsItsZone() throws {
-    #expect(try RecordContainer(for: Page.self, zone: .inMemory).zone == .inMemory)
+@Test func theContainerKeepsItsInitialZone() throws {
+    #expect(try RecordContainer.inMemory(for: Page.self).initialZone == .local)
+    #expect(try RecordContainer.inMemory(for: Page.self, initialZone: "Music").initialZone == "Music")
 }
-

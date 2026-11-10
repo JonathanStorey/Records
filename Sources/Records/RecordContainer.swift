@@ -37,7 +37,7 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
 /// Stores `@Record` values on device and keeps them in sync with CloudKit.
 ///
 /// ```swift
-/// let container = try RecordContainer(for: Album.self, Artist.self)
+/// let container = try RecordContainer(for: Album.self, Artist.self, initialZone: "Music")
 /// ```
 ///
 /// Every type a registered type refers to is registered too, so naming the types an app starts
@@ -61,31 +61,35 @@ public final class RecordContainer: Sendable {
         return folder.appending(path: fileName, directoryHint: .notDirectory)
     }
 
-    /// The zone new records are saved to. `.local` and `.inMemory` mean the container doesn't
-    /// sync.
-    public let zone: Zone
+    /// The zone new records are saved to unless a save names another.
+    public let initialZone: Zone
     /// Every registered type by record type, including related types and Records' own.
     let types: [CKRecord.RecordType: any Record.Type]
     let database: Database
 
-    /// Opens a container for `types` and every type they refer to, saving new records to `zone`.
-    /// Pass `appGroup` to keep the database in that group's shared folder, so the app's
-    /// extensions and widgets can open it too.
-    public convenience init(for types: any Record.Type..., zone: Zone = .records, appGroup: String? = nil) throws {
-        try self.init(for: types, zone: zone, appGroup: appGroup)
+    /// Opens a container for `types` and every type they refer to. New records go to
+    /// `initialZone` unless a save names another. Pass `appGroup` to keep the database in that
+    /// group's shared folder, so the app's extensions and widgets can open it too.
+    public convenience init(for types: any Record.Type..., initialZone: Zone, appGroup: String? = nil) throws {
+        try self.init(for: types, initialZone: initialZone, appGroup: appGroup)
     }
 
-    /// Opens a container for `types` and every type they refer to, saving new records to `zone`.
-    /// Pass `appGroup` to keep the database in that group's shared folder, so the app's
-    /// extensions and widgets can open it too.
-    public convenience init(for types: [any Record.Type], zone: Zone = .records, appGroup: String? = nil) throws {
-        let url = zone.storage == .inMemory ? nil : try Self.url(appGroup: appGroup)
-        try self.init(for: types, zone: zone, url: url)
+    /// Opens a container for `types` and every type they refer to. New records go to
+    /// `initialZone` unless a save names another. Pass `appGroup` to keep the database in that
+    /// group's shared folder, so the app's extensions and widgets can open it too.
+    public convenience init(for types: [any Record.Type], initialZone: Zone, appGroup: String? = nil) throws {
+        try self.init(for: types, initialZone: initialZone, url: Self.url(appGroup: appGroup))
+    }
+
+    /// A container whose database lives in memory and never syncs, for tests and previews. It
+    /// starts empty every time.
+    public static func inMemory(for types: any Record.Type..., initialZone: Zone = .local) throws -> RecordContainer {
+        try RecordContainer(for: types, initialZone: initialZone, url: nil)
     }
 
     /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
-    init(for types: [any Record.Type], zone: Zone, url: URL?) throws {
-        self.zone = zone
+    init(for types: [any Record.Type], initialZone: Zone, url: URL?) throws {
+        self.initialZone = initialZone
         self.types = try Self.register(types)
         try Self.validate(self.types)
         database = try Database(url: url)
