@@ -201,9 +201,10 @@ public struct RecordMacro: ExtensionMacro {
         references: [ReferenceMacro.Reference],
         access: String
     ) -> [String] {
-        let inherited = Set(decl.inheritanceClause?.inheritedTypes.map {
-            $0.type.trimmedDescription.replacingOccurrences(of: "Swift.", with: "")
-        } ?? [])
+        let inherited = Set((decl.inheritanceClause?.inheritedTypes ?? []).map { inherited -> String in
+            let name = inherited.type.trimmedDescription
+            return name.hasPrefix("Swift.") ? String(name.dropFirst(6)) : name
+        })
         let methods = decl.memberBlock.members.map(\.decl)
         let writesEncode = methods.contains {
             guard let function = $0.as(FunctionDeclSyntax.self) else { return false }
