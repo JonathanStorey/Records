@@ -49,9 +49,8 @@ private let kid = disc("Kid A", 2000, 4)
 
 @Test func reorderingASortedReferenceChangesNothing() {
     var crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
-    crate.markSaved()
+    crate.markReferencesSaved()
     crate.discs = [kid, blue]
-    #expect(!crate.hasChanges)
     #expect(CKRecordEncoder().linksToSave(for: crate, in: .records).isEmpty)
 }
 
@@ -65,7 +64,7 @@ private let kid = disc("Kid A", 2000, 4)
         Crate.self, from: encoder.encode(crate, in: .records), links: links, targets: targets
     )
     #expect(decoded.discs.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
-    #expect(!decoded.hasChanges)
+    #expect(encoder.linksToSave(for: decoded, in: .records).isEmpty)
 
     let readBack = try CKRecordDecoder().decode(Disc.self, from: targets[0], links: links)
     #expect(readBack.crateIDs == [crate.id])

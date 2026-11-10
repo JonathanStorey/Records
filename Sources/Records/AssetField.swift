@@ -1,8 +1,7 @@
 import CloudKit
 import Foundation
 
-/// The storage behind an `@Asset` property: the file that holds its data, and whether it changed
-/// since the record was loaded or last saved.
+/// The storage behind an `@Asset` property: the file that holds its data.
 ///
 /// Setting the property writes the data to a new `.asset` file in `directory` right away, so
 /// `$name` always has a URL to hand to a view. Reading the property reads that file, so a record
@@ -22,23 +21,14 @@ public struct AssetField {
 
     private var source: Source
 
-    /// When the data was last set, or `nil` if it hasn't been since the record was loaded or last
-    /// saved.
-    public private(set) var changedAt: Date?
-
-    /// Whether the data was set since the record was loaded or last saved.
-    public var isChanged: Bool { changedAt != nil }
-
-    /// Data set in code, which counts as changed.
+    /// Data set in code, written to a new file.
     public init(_ data: Data?) {
         source = Self.source(for: data)
-        changedAt = Date()
     }
 
-    /// An asset read from storage, which counts as unchanged.
+    /// An asset read from storage, which keeps CloudKit's file.
     public init(saved asset: CKAsset?) {
         source = asset?.fileURL.map(Source.file) ?? .none
-        changedAt = nil
     }
 
     /// The asset's data, read from its file each time. Setting it writes a new file.
@@ -52,7 +42,6 @@ public struct AssetField {
         }
         set {
             source = Self.source(for: newValue)
-            changedAt = Date()
         }
     }
 
@@ -71,11 +60,6 @@ public struct AssetField {
             guard let url = try? Self.write(data) else { return nil }
             return CKAsset(fileURL: url)
         }
-    }
-
-    /// Marks the data as saved, so it reports no change until it is set again.
-    public mutating func markSaved() {
-        changedAt = nil
     }
 
     private static func source(for data: Data?) -> Source {

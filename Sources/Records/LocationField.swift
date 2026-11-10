@@ -33,8 +33,7 @@ public struct Coordinate: Hashable, Codable, Sendable {
     }
 }
 
-/// The storage behind a `@Location` property: the `CLLocation` CloudKit stores, and whether it
-/// changed since the record was loaded or last saved.
+/// The storage behind a `@Location` property: the `CLLocation` CloudKit stores.
 ///
 /// The property reads it as a `Coordinate`. `$name` reads and sets the `CLLocation` itself, keeping
 /// its timestamp, accuracy, course, and speed.
@@ -43,38 +42,22 @@ public struct LocationField: @unchecked Sendable {
     public typealias Stored = CLLocation
 
     /// The stored location, with every detail it was saved with.
-    public var location: CLLocation? {
-        didSet { changedAt = Date() }
-    }
+    public var location: CLLocation?
 
-    /// When the location was last set, or `nil` if it hasn't been since the record was loaded or
-    /// last saved.
-    public private(set) var changedAt: Date?
-
-    /// Whether the location was set since the record was loaded or last saved.
-    public var isChanged: Bool { changedAt != nil }
-
-    /// A location set in code, which counts as changed.
+    /// A location set in code, at `coordinate`.
     public init(_ coordinate: Coordinate?) {
         location = coordinate?.location
-        changedAt = Date()
     }
 
-    /// A location read from storage, which counts as unchanged.
+    /// A location read from storage, with every detail it was saved with.
     public init(saved location: CLLocation?) {
         self.location = location
-        changedAt = nil
     }
 
     /// The location as a value. Setting it stores a new `CLLocation` at that coordinate.
     public var coordinate: Coordinate? {
         get { location.map(Coordinate.init) }
         set { location = newValue?.location }
-    }
-
-    /// Marks the location as saved, so it reports no change until it is set again.
-    public mutating func markSaved() {
-        changedAt = nil
     }
 }
 

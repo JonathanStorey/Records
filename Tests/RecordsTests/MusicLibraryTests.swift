@@ -119,7 +119,7 @@ private struct Saved {
         records[ckRecord.recordID] = ckRecord
         for link in encoder.linksToSave(for: record, in: .records) { records[link.recordID] = link }
         for id in encoder.linkIDsToDelete(for: record, in: .records) { records[id] = nil }
-        record.markSaved()
+        record.markReferencesSaved()
     }
 
     func load<R: Record>(_ type: R.Type, _ id: UUID, depth: Int = 1) throws -> R {
@@ -525,15 +525,14 @@ private func expectSame(_ decoded: Listener, _ original: Listener) {
     let library = Library()
     var saved = library.saved()
     var album = try saved.load(Album.self, library.signal.id)
-    #expect(!album.hasChanges)
 
+    // Editing a track leaves the album's links alone.
     album.tracks[0].title = "Ignition (Live)"
-    #expect(!album.hasChanges)
-    #expect(album.tracks[0].changedFields == ["title"])
+    #expect(CKRecordEncoder().linksToSave(for: album, in: .records).isEmpty)
+    #expect(CKRecordEncoder().linkIDsToDelete(for: album, in: .records).isEmpty)
 
     // The album's save doesn't cover its tracks, so the track is saved on its own.
     var track = album.tracks[0]
     saved.save(&track)
-    #expect(!track.hasChanges)
     #expect(try saved.load(Track.self, track.id).title == "Ignition (Live)")
 }

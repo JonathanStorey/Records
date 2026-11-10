@@ -17,9 +17,8 @@ struct Memo: Equatable {
     #expect(memo.modifiedAt == nil)
 }
 
-@Test func timestampsAreNeitherFieldsNorChanges() {
+@Test func timestampsAreNotFields() {
     let memo = Memo(id: UUID(), text: "Call back")
-    #expect(memo.changedFields == ["text"])
     let record = CKRecordEncoder().encode(memo, in: .records)
     #expect(record.allKeys() == ["text"])
 }
@@ -31,7 +30,6 @@ struct Memo: Equatable {
     let memo = try CKRecordDecoder().decode(Memo.self, from: record)
     #expect(memo.createdAt == nil)
     #expect(memo.modifiedAt == nil)
-    #expect(!memo.hasChanges)
 }
 
 @Test func theMemberwiseInitializerLeavesTimestampsOut() {

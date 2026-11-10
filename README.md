@@ -81,8 +81,8 @@ gig.$venue                // the CLLocation, with every detail it was saved with
 gig.$venue = gpsFix       // keeps the fix's timestamp and accuracy
 ```
 
-Setting either one marks the field changed. A location says where someone is, so it is always
-encrypted end to end, with no `@Encrypted` needed.
+A location says where someone is, so it is always encrypted end to end, with no `@Encrypted`
+needed.
 
 Read the dates the server keeps for every record with `@Timestamped`:
 
@@ -92,8 +92,8 @@ Read the dates the server keeps for every record with `@Timestamped`:
 ```
 
 They come from the server's clock, so they match on every device, and `.modified` is the one to sort
-a "recently updated" list by. They are `nil` until the record is first saved and never count as a
-change. They can't be assigned and stay out of the memberwise initializer.
+a "recently updated" list by. They are `nil` until the record is first saved. They can't be assigned
+and stay out of the memberwise initializer.
 
 A field can hold any type CloudKit stores, such as `String`, `Int`, `Double`, `Bool`, `Date`, `Data`,
 `CLLocation`, or an array of them. An enum with such a raw value is stored as its raw value, and any
@@ -366,45 +366,18 @@ let record = encoder.encode(album, in: zone)               // the album's fields
 let links = encoder.linksToSave(for: album, in: zone)      // new and changed links
 let removed = encoder.linkIDsToDelete(for: album, in: zone) // links to delete
 // ...save them...
-album.markSaved()
+album.markReferencesSaved()
 ```
 
-After `markSaved()`, the encoder reports only what changes next. Reordering tracks
+After `markReferencesSaved()`, the encoder reports only the links that change next. Reordering tracks
 rewrites only the links of the tracks that moved. Pointing a to-one reference somewhere else
 overwrites its one link. A link is deleted only if the record was loaded or saved with it, so a
 record decoded before all its links arrived never deletes the ones it hasn't seen.
 
-### Tracking changes
-
-Every stored `var` except `id` notes when it is set. A record you make starts with every field
-changed, and a decoded record starts with none.
-
-```swift
-var album = try decoder.decode(Album.self, from: record, links: links, targets: targets)
-album.hasChanges            // false
-album.title = "Signal Fires (Deluxe)"
-album.changedFields         // ["title"]
-album.hasChanges            // true: a field or a link changed
-
-try encoder.encode(album, into: record)   // writes only "title"
-album.markSaved()
-```
-
-`encode(_:into:)` updates the `CKRecord` you loaded with only the changed fields, so an edit on
-another device to a different field survives. `encode(_:in:)` makes a new `CKRecord` with every
-field, for a record that has never been saved.
-
-Each record tracks only its own fields and links. Editing a record loaded inside another, such as
-`album.tracks[0].title`, marks the track, not the album, so save the track on its own:
-
-```swift
-album.tracks[0].title = "Ignition (Live)"
-album.hasChanges             // false
-album.tracks[0].hasChanges   // true
-```
-
-Declare each tracked `var` on its own line, without `willSet` or `didSet`. `@Record` turns it into a
-computed property backed by its own storage, the same way `@Reference` does.
+`encode(_:in:)` makes a new `CKRecord` for a record that has never been saved. `encode(_:into:)`
+writes every field into the `CKRecord` you loaded, keeping its system fields so the save is an
+update. A record saves only its own fields and links, so a record loaded inside another, such as
+`album.tracks[0]`, is saved on its own.
 
 To decode, pass the record, the links, and any target records you have:
 
@@ -415,7 +388,7 @@ let album = try decoder.decode(Album.self, from: record, links: allLinks, target
 
 `links` can hold every link in the zone. The decoder uses the ones whose owner is this record, and,
 for `from:` properties, the ones that point at it. It skips links it can't read, such as ones
-written by a newer version of the app. A decoded record starts out unchanged.
+written by a newer version of the app.
 
 ## What loading returns
 
@@ -465,8 +438,8 @@ depth runs out, then holds only an ID.
 
 ## Not built yet
 
-- The SQLite store and `CKSyncEngine` sync. The store's save will walk the records loaded inside
-  the one you save and save each that `hasChanges`.
+- The SQLite store and `CKSyncEngine` sync. The store keeps the last synced copy of each record,
+  so it finds what changed by comparing against it and uploads only those fields.
 - Deletion with `deleteSelf`. The flag is stored on each link, and the store will delete the
   targets.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store

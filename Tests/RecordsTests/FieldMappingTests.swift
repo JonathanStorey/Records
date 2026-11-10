@@ -58,11 +58,6 @@ private func venue() -> Venue {
     let original = venue()
     let decoded = try CKRecordDecoder().decode(Venue.self, from: CKRecordEncoder().encode(original, in: .records))
     #expect(decoded == original)
-
-    var changed = decoded
-    changed.name = "Arena"
-    changed.rating = nil
-    #expect(changed.changedFields == ["name", "rating"])
 }
 
 @Test func stringsStayStringsEvenThoughTheyAreCodable() {
