@@ -45,6 +45,25 @@ struct Listener {
 An encrypted field can't be a `CKAsset` and can't be queried on the server, and once its schema is
 deployed it can't switch between encrypted and plain.
 
+Mark a `Data?` field `@Asset` to store it as a `CKAsset`, for images and files too large for the
+record itself:
+
+```swift
+@Record
+struct Artwork {
+    var id: UUID
+    @Asset var image: Data?
+}
+
+artwork.image = pngData   // written to a new .asset file right away
+artwork.$image            // that file's URL, ready for an image view
+artwork.image             // read from the file only when asked for
+```
+
+Each new value gets its own `<UUID>.asset` file in `Application Support/Records/Assets`. A decoded
+record points at the file CloudKit downloaded, so loading a list never reads the data until you
+ask for it. An asset can't be `@Encrypted`.
+
 The record type is the struct's name. Pass a name to use another, which generic types must do:
 `@Record("Tag")`.
 

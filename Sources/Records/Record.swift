@@ -179,6 +179,27 @@ public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, 
 @attached(peer)
 public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "EncryptedMacro")
 
+/// Stores a `Data?` field of a `@Record` as a `CKAsset`, for images and files too large to keep
+/// in the record itself.
+///
+/// ```swift
+/// @Record struct Album {
+///     var id: UUID
+///     @Asset var cover: Data?
+/// }
+///
+/// album.cover = pngData    // written to a new .asset file right away
+/// album.$cover             // that file's URL
+/// album.cover              // read from the file only when asked for
+/// ```
+///
+/// Each new value gets its own `<UUID>.asset` file in `AssetField.directory`. A record decoded from
+/// CloudKit points at the file CloudKit downloaded. CloudKit can't encrypt an asset, so a property
+/// can't be both `@Asset` and `@Encrypted`.
+@attached(accessor, names: named(init), named(get), named(set))
+@attached(peer, names: prefixed(_), prefixed(`$`))
+public macro Asset() = #externalMacro(module: "RecordsMacros", type: "AssetMacro")
+
 /// Backs a stored property of a `@Record` with a `Records.Field`, which notes when it is set.
 /// `@Record` adds it to each stored `var` except `id`, so you don't write it yourself.
 @attached(accessor, names: named(init), named(get), named(set))

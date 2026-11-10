@@ -11,6 +11,7 @@ private var macroSpecs: [String: MacroSpec] {
         "Record": MacroSpec(type: RecordMacro.self, conformances: ["Record"]),
         "Reference": MacroSpec(type: ReferenceMacro.self),
         "Encrypted": MacroSpec(type: EncryptedMacro.self),
+        "Asset": MacroSpec(type: AssetMacro.self),
     ]
 }
 #endif
@@ -1590,6 +1591,145 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(message: "@Encrypted applies to fields, not to a @Reference", line: 1, column: 1),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    // MARK: - Assets
+
+    func testAssetIsBackedByAFile() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Poster {
+                var id: UUID
+                @Asset var image: Data?
+            }
+            """,
+            expandedSource: """
+            struct Poster {
+                var id: UUID
+                var image: Data? {
+                    @storageRestrictions(initializes: _image)
+                    init(initialValue) {
+                        _image = Records.AssetField(initialValue)
+                    }
+                    get {
+                        _image.data
+                    }
+                    set {
+                        _image.data = newValue
+                    }
+                }
+
+                var _image: Records.AssetField
+
+                var $image: URL? {
+                    _image.fileURL
+                }
+            }
+
+            extension Poster: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Poster"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._image = try Records.AssetField(saved: CKRecordDecoder.decodeIfPresent((CKAsset).self, forKey: "image", from: record))
+                }
+                func encodeFields(into record: CKRecord) {
+                    record["image"] = self._image.asset
+                }
+                var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._image.isChanged {
+                        fields.insert("image")
+                    }
+                    return fields
+                }
+                func encodeChangedFields(into record: CKRecord) {
+                    if self._image.isChanged {
+                        record["image"] = self._image.asset
+                    }
+                }
+                mutating func markFieldsSaved() {
+                    self._image.markSaved()
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testAssetMustHoldOptionalData() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Poster {
+                @Asset var image: Data
+            }
+            """,
+            expandedSource: """
+            struct Poster {
+                var image: Data
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Asset holds 'Data?', e.g. 'var cover: Data?'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testAssetMustBeVar() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Poster {
+                @Asset let image: Data?
+            }
+            """,
+            expandedSource: """
+            struct Poster {
+                let image: Data?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Asset needs a 'var'", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testAssetCannotBeEncrypted() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Poster {
+                @Asset @Encrypted var image: Data?
+            }
+            """,
+            expandedSource: """
+            struct Poster {
+                var image: Data?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "CloudKit can't encrypt an asset, so a property can't be both @Asset and @Encrypted", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
