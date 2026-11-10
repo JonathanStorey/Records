@@ -40,8 +40,8 @@ public final class RecordContext {
     public var zone: Zone = .records
 
     /// Staged changes by record, in the order they were first staged.
-    private var staged: [RecordKey: StagedChange] = [:]
-    private var stagedOrder: [RecordKey] = []
+    var staged: [RecordKey: StagedChange] = [:]
+    var stagedOrder: [RecordKey] = []
 
     init(container: RecordContainer) {
         types = container.types
@@ -196,6 +196,11 @@ public final class RecordContext {
             return try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: page, in: database)
         }
 
+        if let predicate = descriptor.predicate, let traversal = plan.traversal {
+            // The predicate reads through references, so Swift needs the records it reaches.
+            return try fetch(descriptor, matching: predicate, through: traversal, filter: plan.filter)
+        }
+
         // The SQL narrows the rows read. The predicate still decides the result below, so a part
         // of it SQL can't express only widens the query.
         var records = try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: nil, in: database)
@@ -238,17 +243,24 @@ public final class RecordContext {
     }
 
     /// The staged changes to records of `R` in the current zone.
-    private func stagedKeys<R: Record>(_ type: R.Type) -> [RecordKey] {
+    func stagedKeys<R: Record>(_ type: R.Type) -> [RecordKey] {
         stagedOrder.filter { $0.zone == zone && $0.recordType == R.recordType }
     }
 
     /// The SQL for `descriptor`: a filter that narrows the rows read, and, when the database can
-    /// answer the whole descriptor alone, the order and range of rows to read.
+    /// answer the whole descriptor alone, the order and range of rows to read. When the
+    /// predicate reads through references to records, also the references it reads.
     ///
     /// The database answers alone when the predicate translates exactly, every sort translates,
-    /// and no change to `R` is staged in this zone.
-    private func plan<R: Record>(for descriptor: RecordDescriptor<R>) -> (filter: SQLFilter?, page: SQLPage?) {
-        let translator = PredicateTranslator(for: R.self)
+    /// and no change to `R` is staged in this zone. A path into linked records is left to Swift
+    /// when a change to a type it could reach is staged, since the database doesn't hold it.
+    private func plan<R: Record>(
+        for descriptor: RecordDescriptor<R>
+    ) -> (filter: SQLFilter?, page: SQLPage?, traversal: Traversal?) {
+        let traversal = descriptor.predicate.map { Traversal($0.expression) }.flatMap { $0.isEmpty ? nil : $0 }
+        let reachable = traversal == nil ? [] : Self.reachableTypes(from: R.self)
+        let allowsPaths = !stagedOrder.contains { $0.zone == zone && reachable.contains($0.recordType) }
+        let translator = PredicateTranslator(for: R.self, allowsPaths: allowsPaths)
         var filter: SQLFilter?
         var isExact = true
         if let predicate = descriptor.predicate {
@@ -257,18 +269,30 @@ public final class RecordContext {
             isExact = translated?.isExact ?? false
         }
         guard isExact, stagedKeys(R.self).isEmpty, let order = translator.orderBy(descriptor.sortBy) else {
-            return (filter, nil)
+            return (filter, nil, traversal)
         }
         let page = SQLPage(
             orderBy: order,
             limit: descriptor.fetchLimit.map { max($0, 0) },
             offset: max(descriptor.fetchOffset ?? 0, 0)
         )
-        return (filter, page)
+        return (filter, page, traversal)
+    }
+
+    /// Every record type a reference of `R` reaches, directly or through other records.
+    private nonisolated static func reachableTypes<R: Record>(from type: R.Type) -> Set<CKRecord.RecordType> {
+        var found: Set<CKRecord.RecordType> = [R.recordType]
+        var pending: [any Record.Type] = [R.self]
+        while let next = pending.popLast() {
+            for reference in next.schema.references where found.insert(reference.target.recordType).inserted {
+                pending.append(reference.target)
+            }
+        }
+        return found
     }
 
     /// The condition for current, undeleted rows in `zone` that meet `filter`, and its values.
-    private nonisolated static func matching(zone: Zone, filter: SQLFilter?) -> (sql: String, values: [SQLValue]) {
+    nonisolated static func matching(zone: Zone, filter: SQLFilter?) -> (sql: String, values: [SQLValue]) {
         let current = "\"_zoneName\" = ? AND \"_zoneOwner\" = ? AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
         let zoneValues: [SQLValue] = [.text(zone.name), .text(zone.ownerName)]
         return (current + (filter.map { " AND \($0.sql)" } ?? ""), zoneValues + (filter?.values ?? []))

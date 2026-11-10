@@ -21,15 +21,15 @@ private func orderBy(_ sortBy: [SortDescriptor<Gauge>]) -> String? {
 }
 
 @Test func numbersAndDatesSortInSQL() {
-    #expect(orderBy([]) == #""_name" ASC"#)
-    #expect(orderBy([SortDescriptor(\.steps)]) == #""steps" ASC, "_name" ASC"#)
+    #expect(orderBy([]) == #""Gauge"."_name" ASC"#)
+    #expect(orderBy([SortDescriptor(\.steps)]) == #""Gauge"."steps" ASC, "Gauge"."_name" ASC"#)
     #expect(orderBy([SortDescriptor(\.level, order: .reverse), SortDescriptor(\.checkedAt)])
-        == #""level" DESC, "checkedAt" ASC, "_name" ASC"#)
+        == #""Gauge"."level" DESC, "Gauge"."checkedAt" ASC, "Gauge"."_name" ASC"#)
 }
 
 @Test func optionalNumbersSortInSQL() {
     let translator = PredicateTranslator(for: Note.self)
-    #expect(translator.orderBy([SortDescriptor(\Note.rating)]) == #""rating" ASC, "_name" ASC"#)
+    #expect(translator.orderBy([SortDescriptor(\Note.rating)]) == #""Note"."rating" ASC, "Note"."_name" ASC"#)
 }
 
 @MainActor

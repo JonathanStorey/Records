@@ -470,7 +470,21 @@ their targets' IDs.
 
 The parts of a predicate the database can check run there, so only matching rows are read:
 comparisons of numbers, Booleans, dates, enums, `nil`, and the `id`, string equality, `&&`,
-`||`, `!`, and `[...].contains($0.property)`. Everything else, such as `contains` on a string or
+`||`, `!`, `[...].contains($0.property)`, and references that hold IDs, such as
+`$0.artistID == id` or `$0.trackIDs.contains(id)`.
+
+Predicates can also read through references to records, at any depth:
+
+```swift
+#Predicate<Review> { $0.album?.artist?.name == "Nova" }
+#Predicate<Album> { $0.tracks.contains { $0.seconds > 300 } }
+#Predicate<Album> { $0.tracks.allSatisfy { $0.seconds < 400 } }
+#Predicate<Review> { ($0.album?.tracks.contains { $0.title == "Bloom" }) ?? false }
+```
+
+The database checks each path through the links, reaching only targets that are saved. When
+Swift has to check part of the predicate, fetch loads the records the paths reach, and only
+those, with staged changes laid over them. The records it returns still hold IDs. Everything else, such as `contains` on a string or
 a computed property, is checked in Swift on the rows read. Either way the results are the same.
 
 When the whole predicate runs in the database and every sort is by a number or a date, the
