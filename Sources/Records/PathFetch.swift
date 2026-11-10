@@ -3,8 +3,8 @@ import Foundation
 
 // Fetching with a predicate that reads through references to records, such as
 // `$0.album?.artist?.name == "Nova"`. The database narrows the rows as usual. Swift then checks
-// each one with the records its paths reach loaded, read from the database with staged changes
-// laid over them, so drafts count at every level.
+// each one with the records its paths reach loaded. Staged changes are in the database while a
+// fetch reads it, so drafts count at every level.
 
 /// The references to records a predicate reads through.
 struct Traversal {
@@ -116,31 +116,12 @@ private final class PathInfos {
     }
 }
 
-/// The context's staged changes in one zone, as the database would hold them after `save()`.
-private struct Overlay {
-    /// Every staged record, saved or deleted. Its own links in the database no longer count.
-    var staged: Set<NodeKey> = []
-    /// Staged saves, as records.
-    var saved: [NodeKey: CKRecord] = [:]
-    /// The links staged saves own.
-    var links: [CKRecord] = []
-
-    /// Whether the database's copy of `link` is replaced by a staged change to its source.
-    func replaces(_ link: CKRecord) -> Bool {
-        guard let source = link["source"] as? String, let sourceName = link["sourceName"] as? String else { return false }
-        let sourceType = String(source.split(separator: ".", maxSplits: 1).first ?? "")
-        return staged.contains(NodeKey(recordType: sourceType, name: sourceName))
-    }
-}
-
 extension RecordContext {
     /// `fetch` for a predicate that reads through references to records.
     func fetch<R: Record>(
         _ descriptor: RecordDescriptor<R>, matching predicate: Predicate<R>, through traversal: Traversal, filter: SQLFilter?
     ) throws -> [R] {
-        let overlay = overlay()
-
-        // The rows the SQL lets through, with staged records of `R` in place of their rows.
+        // The rows the SQL lets through.
         let (matching, values) = Self.matching(zone: zone, filter: filter)
         let rows = try database.rows("SELECT * FROM \(database.quoted(R.recordType)) WHERE \(matching)", values)
         var roots: [NodeKey] = []
@@ -149,19 +130,11 @@ extension RecordContext {
         for row in rows {
             guard case .text(let name) = row["_name"] else { continue }
             let key = NodeKey(recordType: R.recordType, name: name)
-            guard !overlay.staged.contains(key) else { continue }
             graph.records[key] = schema.record(from: row, name: name, zone: zone)
             roots.append(key)
         }
-        for key in stagedKeys(R.self) {
-            let node = NodeKey(recordType: R.recordType, name: key.name)
-            if let record = overlay.saved[node] {
-                graph.records[node] = record
-                roots.append(node)
-            }
-        }
         let infos = PathInfos(types: types, traversal: traversal)
-        try load(&graph, from: roots, through: traversal, infos: infos, overlay: overlay)
+        try load(&graph, from: roots, through: traversal, infos: infos)
 
         // Check each root with the records its paths reach loaded. Each record gets only the
         // links it reads, so decoding stays proportional to what the paths reach.
@@ -196,41 +169,21 @@ extension RecordContext {
         let start = min(max(descriptor.fetchOffset ?? 0, 0), matches.count)
         let end = descriptor.fetchLimit.map { min(start + max($0, 0), matches.count) } ?? matches.count
 
-        // Return records as `fetch` always does: staged as staged, saved with references holding IDs.
+        // Return records as `fetch` always does, with references holding IDs.
         return try matches[start..<end].map { match in
-            if let change = staged[RecordKey(recordType: R.recordType, name: match.root.name, zone: zone)],
-               let record = change.record as? R {
-                return record
-            }
             guard let record = graph.records[match.root] else { return match.loaded }
             return try decoder.decode(R.self, from: record, links: graph.linksByName[match.root.name] ?? [], depth: 0)
         }
     }
 
-    /// The staged changes in the current zone.
-    private func overlay() -> Overlay {
-        var overlay = Overlay()
-        let encoder = CKRecordEncoder()
-        for key in stagedOrder where key.zone == zone {
-            guard let change = staged[key] else { continue }
-            let node = NodeKey(recordType: key.recordType, name: key.name)
-            overlay.staged.insert(node)
-            if !change.isDelete {
-                overlay.saved[node] = encoder.encode(change.record, in: zone)
-                overlay.links += encoder.links(for: change.record, in: zone)
-            }
-        }
-        return overlay
-    }
-
     /// Loads the records `roots` reach through `traversal`, level by level, with every link
     /// that touches each record loaded.
     private func load(
-        _ graph: inout Graph, from roots: [NodeKey], through traversal: Traversal, infos: PathInfos, overlay: Overlay
+        _ graph: inout Graph, from roots: [NodeKey], through traversal: Traversal, infos: PathInfos
     ) throws {
         var frontier = roots
         for level in 0...traversal.hops {
-            try loadLinks(for: frontier.map(\.name), into: &graph, overlay: overlay)
+            try loadLinks(for: frontier.map(\.name), into: &graph)
             guard level < traversal.hops else { break }
 
             // The records the traversed references of the frontier point at.
@@ -249,15 +202,7 @@ extension RecordContext {
             frontier = []
             for (recordType, names) in next {
                 guard let schema = types[recordType]?.schema else { continue }
-                for name in names where overlay.staged.contains(NodeKey(recordType: recordType, name: name)) {
-                    let node = NodeKey(recordType: recordType, name: name)
-                    if let record = overlay.saved[node] {
-                        graph.records[node] = record
-                        frontier.append(node)
-                    }
-                }
-                let saved = names.filter { !overlay.staged.contains(NodeKey(recordType: recordType, name: $0)) }
-                for chunk in Array(saved).chunked(400) {
+                for chunk in Array(names).chunked(400) {
                     let (current, zoneValues) = Self.matching(zone: zone, filter: nil)
                     let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
                     let rows = try database.rows(
@@ -276,9 +221,8 @@ extension RecordContext {
         }
     }
 
-    /// Loads every link that touches the records named `names`, with staged links in place of
-    /// the saved links of staged records.
-    private func loadLinks(for names: [String], into graph: inout Graph, overlay: Overlay) throws {
+    /// Loads every link that touches the records named `names`.
+    private func loadLinks(for names: [String], into graph: inout Graph) throws {
         let missing = Array(Set(names).subtracting(graph.linksLoaded))
         guard !missing.isEmpty else { return }
         graph.linksLoaded.formUnion(missing)
@@ -297,13 +241,8 @@ extension RecordContext {
             for row in rows {
                 guard case .text(let name) = row["_name"] else { continue }
                 let link = linkSchema.record(from: row, name: name, zone: zone)
-                if !overlay.replaces(link) { graph.add(link: link) }
+                graph.add(link: link)
             }
-        }
-        let wanted = Set(missing)
-        for link in overlay.links {
-            let source = link["sourceName"] as? String, target = link["targetName"] as? String
-            if source.map(wanted.contains) == true || target.map(wanted.contains) == true { graph.add(link: link) }
         }
     }
 

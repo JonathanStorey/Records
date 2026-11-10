@@ -80,15 +80,7 @@ public final class RecordContext {
     /// nothing is written and the changes stay staged.
     public func save() throws {
         guard hasChanges else { return }
-        let changes = stagedOrder.compactMap { key in staged[key].map { (key, $0) } }
-        let now = Date().timeIntervalSince1970
-        let database = self.database
-        try database.transaction {
-            for (key, change) in changes {
-                try Self.write(change, key: key, now: now, in: database)
-            }
-            try insertNewTargets(of: changes, now: now, in: database)
-        }
+        try database.transaction { try writeStaged() }
         staged.removeAll()
         stagedOrder.removeAll()
     }
@@ -97,6 +89,34 @@ public final class RecordContext {
     public func rollback() {
         staged.removeAll()
         stagedOrder.removeAll()
+    }
+
+    /// Writes every staged change, as `save()` does, inside the caller's transaction.
+    private func writeStaged() throws {
+        let changes = stagedOrder.compactMap { key in staged[key].map { (key, $0) } }
+        let now = Date().timeIntervalSince1970
+        for (key, change) in changes {
+            try Self.write(change, key: key, now: now, in: database)
+        }
+        try insertNewTargets(of: changes, now: now, in: database)
+    }
+
+    /// Thrown to undo a transaction that only previews the staged changes.
+    private struct Preview: Error {}
+
+    /// Runs `read` against the database as `save()` would leave it, then undoes every write, so
+    /// reads see each draft laid over the latest saved record exactly as saving would write it.
+    private func readingStaged<T>(_ read: () throws -> T) throws -> T {
+        guard hasChanges else { return try read() }
+        var result: T?
+        do {
+            try database.transaction {
+                try writeStaged()
+                result = try read()
+                throw Preview()
+            }
+        } catch is Preview {}
+        return result!
     }
 
     /// Stages `record`. The first time, the saved record becomes the original that `save()`
@@ -195,28 +215,26 @@ public final class RecordContext {
 
     // MARK: - Reading
 
-    /// The `R` with `id` in the current `zone`, or `nil` when there is none. A staged change
-    /// comes first: a staged insert returns the staged record, and a staged delete returns `nil`.
+    /// The `R` with `id` in the current `zone`, or `nil` when there is none. Staged changes
+    /// count as if saved: a staged insert returns the saved record with the draft's edits laid
+    /// over it, and a staged delete returns `nil`.
     ///
     /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
     public func record<R: Record>(id: UUID, for type: R.Type = R.self) throws -> R? {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
-        if let change = staged[key] {
-            return change.isDelete ? nil : change.record as? R
-        }
-        return try Self.load(R.self, key: key, in: database)
+        return try readingStaged { try Self.load(R.self, key: key, in: database) }
     }
 
     /// The record with `id` in the current `zone`, whatever its type, or `nil` when there is none.
-    /// A staged change comes first, as in `record(id:for:)`. Finding the type takes one indexed
-    /// query across every table.
+    /// Staged changes count as in `record(id:for:)`. Finding the type takes one indexed query
+    /// across every table.
     public func record(id: UUID) throws -> (any Record)? {
+        try readingStaged { try savedRecord(id: id) }
+    }
+
+    private func savedRecord(id: UUID) throws -> (any Record)? {
         let name = id.uuidString
-        if let key = stagedOrder.first(where: { $0.name == name && $0.zone == zone && $0.recordType != RecordLink.recordType }),
-           let change = staged[key] {
-            return change.isDelete ? nil : change.record
-        }
         let lookup = recordTypeLookup
         let values = Array(repeating: RecordKey(recordType: "", name: name, zone: zone).values, count: lookup.tables).flatMap { $0 }
         guard case .text(let recordType) = try database.rows(lookup.sql, values).first?["type"],
@@ -226,10 +244,33 @@ public final class RecordContext {
     }
 
     /// The records of `R` in the current `zone` that match `descriptor`, sorted and limited as it
-    /// says. Staged changes count: a staged insert is included as staged, and a staged delete
-    /// leaves its record out. References hold their targets' IDs.
+    /// says. Staged changes count as if saved: a staged insert is the saved record with the
+    /// draft's edits laid over it, and a staged delete leaves its record out. References hold
+    /// their targets' IDs.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         checkRegistered(R.self)
+        return try readingStaged { try fetchSaved(descriptor) }
+    }
+
+    /// How many records `fetch(descriptor)` would return.
+    public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
+        checkRegistered(R.self)
+        return try readingStaged {
+            let plan = self.plan(for: descriptor)
+            guard plan.page != nil else { return try fetchSaved(descriptor).count }
+            // The database counts the matches without reading them.
+            let (matching, values) = Self.matching(zone: zone, filter: plan.filter)
+            let rows = try database.rows(
+                "SELECT COUNT(*) AS \"count\" FROM \(database.quoted(R.recordType)) WHERE \(matching)", values
+            )
+            guard case .integer(let total)? = rows.first?["count"] else { return 0 }
+            let remaining = max(Int(total) - max(descriptor.fetchOffset ?? 0, 0), 0)
+            return descriptor.fetchLimit.map { min(remaining, max($0, 0)) } ?? remaining
+        }
+    }
+
+    /// `fetch(descriptor)` from the database as it stands.
+    private func fetchSaved<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         let plan = self.plan(for: descriptor)
         if let page = plan.page {
             // The database sorts and limits exactly as Swift would.
@@ -244,18 +285,6 @@ public final class RecordContext {
         // The SQL narrows the rows read. The predicate still decides the result below, so a part
         // of it SQL can't express only widens the query.
         var records = try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: nil, in: database)
-
-        // Staged changes in this zone replace or remove the saved records they name.
-        let stagedHere = stagedKeys(R.self)
-        if !stagedHere.isEmpty {
-            let names = Set(stagedHere.map(\.name))
-            records.removeAll { names.contains($0.id.uuidString) }
-            records += stagedHere.compactMap { key in
-                guard let change = staged[key], !change.isDelete else { return nil }
-                return change.record as? R
-            }
-        }
-
         if let predicate = descriptor.predicate {
             records = try records.filter { try predicate.evaluate($0) }
         }
@@ -267,40 +296,17 @@ public final class RecordContext {
         return Array(records[start..<end])
     }
 
-    /// How many records `fetch(descriptor)` would return.
-    public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
-        checkRegistered(R.self)
-        let plan = self.plan(for: descriptor)
-        guard plan.page != nil else { return try fetch(descriptor).count }
-        // The database counts the matches without reading them.
-        let (matching, values) = Self.matching(zone: zone, filter: plan.filter)
-        let rows = try database.rows(
-            "SELECT COUNT(*) AS \"count\" FROM \(database.quoted(R.recordType)) WHERE \(matching)", values
-        )
-        guard case .integer(let total)? = rows.first?["count"] else { return 0 }
-        let remaining = max(Int(total) - max(descriptor.fetchOffset ?? 0, 0), 0)
-        return descriptor.fetchLimit.map { min(remaining, max($0, 0)) } ?? remaining
-    }
-
-    /// The staged changes to records of `R` in the current zone.
-    func stagedKeys<R: Record>(_ type: R.Type) -> [RecordKey] {
-        stagedOrder.filter { $0.zone == zone && $0.recordType == R.recordType }
-    }
-
     /// The SQL for `descriptor`: a filter that narrows the rows read, and, when the database can
     /// answer the whole descriptor alone, the order and range of rows to read. When the
     /// predicate reads through references to records, also the references it reads.
     ///
-    /// The database answers alone when the predicate translates exactly, every sort translates,
-    /// and no change to `R` is staged in this zone. A path into linked records is left to Swift
-    /// when a change to a type it could reach is staged, since the database doesn't hold it.
+    /// The database answers alone when the predicate translates exactly and every sort
+    /// translates. Staged changes are already in the database while a fetch reads it.
     private func plan<R: Record>(
         for descriptor: RecordDescriptor<R>
     ) -> (filter: SQLFilter?, page: SQLPage?, traversal: Traversal?) {
         let traversal = descriptor.predicate.map { Traversal($0.expression) }.flatMap { $0.isEmpty ? nil : $0 }
-        let reachable = traversal == nil ? [] : Self.reachableTypes(from: R.self)
-        let allowsPaths = !stagedOrder.contains { $0.zone == zone && reachable.contains($0.recordType) }
-        let translator = PredicateTranslator(for: R.self, allowsPaths: allowsPaths)
+        let translator = PredicateTranslator(for: R.self)
         var filter: SQLFilter?
         var isExact = true
         if let predicate = descriptor.predicate {
@@ -308,7 +314,7 @@ public final class RecordContext {
             filter = translated?.filter
             isExact = translated?.isExact ?? false
         }
-        guard isExact, stagedKeys(R.self).isEmpty, let order = translator.orderBy(descriptor.sortBy) else {
+        guard isExact, let order = translator.orderBy(descriptor.sortBy) else {
             return (filter, nil, traversal)
         }
         let page = SQLPage(
@@ -317,18 +323,6 @@ public final class RecordContext {
             offset: max(descriptor.fetchOffset ?? 0, 0)
         )
         return (filter, page, traversal)
-    }
-
-    /// Every record type a reference of `R` reaches, directly or through other records.
-    private nonisolated static func reachableTypes<R: Record>(from type: R.Type) -> Set<CKRecord.RecordType> {
-        var found: Set<CKRecord.RecordType> = [R.recordType]
-        var pending: [any Record.Type] = [R.self]
-        while let next = pending.popLast() {
-            for reference in next.schema.references where found.insert(reference.target.recordType).inserted {
-                pending.append(reference.target)
-            }
-        }
-        return found
     }
 
     /// The condition for current, undeleted rows in `zone` that meet `filter`, and its values.

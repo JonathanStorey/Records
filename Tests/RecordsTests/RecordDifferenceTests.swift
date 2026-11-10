@@ -169,3 +169,53 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(page.title == "Renamed")
     #expect(page.referenceStates.first { $0.property == "labels" }?.ids == labels.map(\.id))
 }
+
+// MARK: - Reading drafts
+
+/// Reads lay a draft's edits over the latest saved record, as saving would write it.
+@MainActor
+@Test func aStaleDraftReadsWithChangesMadeElsewhere() throws {
+    let (here, elsewhere) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    here.insert(saved)
+    try here.save()
+
+    var draft = saved
+    draft.year = 1972
+    here.insert(draft)
+
+    var remote = saved
+    remote.title = "Blue (Remastered)"
+    elsewhere.insert(remote)
+    try elsewhere.save()
+
+    let read = try #require(try here.record(id: saved.id, for: Novel.self))
+    #expect(read.title == "Blue (Remastered)")
+    #expect(read.year == 1972)
+    #expect((try here.record(id: saved.id) as? Novel)?.title == "Blue (Remastered)")
+
+    let fetched = try here.fetch(RecordDescriptor<Novel>(predicate: #Predicate { $0.year == 1972 }))
+    #expect(fetched.map(\.title) == ["Blue (Remastered)"])
+    #expect(try here.fetchCount(RecordDescriptor<Novel>(predicate: #Predicate { $0.title == "Blue (Remastered)" })) == 1)
+}
+
+/// Reading staged changes writes nothing: they stay staged and the database stays as it was.
+@MainActor
+@Test func readingDraftsWritesNothing() throws {
+    let (here, elsewhere) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    here.insert(saved)
+    try here.save()
+
+    var draft = saved
+    draft.year = 1972
+    here.insert(draft)
+    here.insert(novel("Court and Spark", year: 1974))
+    #expect(try here.fetch(RecordDescriptor<Novel>()).count == 2)
+    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1972)
+
+    #expect(here.changes.count == 2)
+    #expect(try elsewhere.fetch(RecordDescriptor<Novel>()).map(\.year) == [1971])
+    here.rollback()
+    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1971)
+}
