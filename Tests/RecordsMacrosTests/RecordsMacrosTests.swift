@@ -62,10 +62,10 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Note",
                         fields: [
-                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false),
-                            Records.FieldSchema(name: "isPinned", key: "isPinned", isOptional: false, isEncrypted: false),
-                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false),
-                            Records.FieldSchema(name: "tags", key: "tags", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
+                            Records.FieldSchema(name: "isPinned", key: "isPinned", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Bool).self)),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
+                            Records.FieldSchema(name: "tags", key: "tags", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: ([String]).self)),
                         ],
                         assets: [],
                         references: []
@@ -119,7 +119,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Folder",
                         fields: [
-                            Records.FieldSchema(name: "default", key: "default", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "default", key: "default", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Bool).self)),
                         ],
                         assets: [],
                         references: []
@@ -165,7 +165,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Box",
                         fields: [
-                            Records.FieldSchema(name: "value", key: "value", isOptional: true, isEncrypted: false),
+                            Records.FieldSchema(name: "value", key: "value", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Value).self)),
                         ],
                         assets: [],
                         references: []
@@ -420,7 +420,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Article",
                         fields: [
-                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
                         ],
                         assets: [],
                         references: [
@@ -1398,9 +1398,9 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Note",
                         fields: [
-                            Records.FieldSchema(name: "first", key: "first", isOptional: false, isEncrypted: false),
-                            Records.FieldSchema(name: "last", key: "last", isOptional: false, isEncrypted: false),
-                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false),
+                            Records.FieldSchema(name: "first", key: "first", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
+                            Records.FieldSchema(name: "last", key: "last", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
                         ],
                         assets: [],
                         references: []
@@ -1458,9 +1458,9 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Account",
                         fields: [
-                            Records.FieldSchema(name: "name", key: "name", isOptional: false, isEncrypted: false),
-                            Records.FieldSchema(name: "note", key: "note", isOptional: true, isEncrypted: true),
-                            Records.FieldSchema(name: "pin", key: "pin", isOptional: false, isEncrypted: true),
+                            Records.FieldSchema(name: "name", key: "name", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
+                            Records.FieldSchema(name: "note", key: "note", isOptional: true, isEncrypted: true, kind: Records.FieldKind(for: (String).self)),
+                            Records.FieldSchema(name: "pin", key: "pin", isOptional: false, isEncrypted: true, kind: Records.FieldKind(for: (Int).self)),
                         ],
                         assets: [],
                         references: []
@@ -1794,8 +1794,8 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Gig",
                         fields: [
-                            Records.FieldSchema(name: "venue", key: "venue", isOptional: true, isEncrypted: true),
-                            Records.FieldSchema(name: "home", key: "home", isOptional: true, isEncrypted: true),
+                            Records.FieldSchema(name: "venue", key: "venue", isOptional: true, isEncrypted: true, kind: .archived),
+                            Records.FieldSchema(name: "home", key: "home", isOptional: true, isEncrypted: true, kind: .archived),
                         ],
                         assets: [],
                         references: []
@@ -1974,7 +1974,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Album",
                         fields: [
-                            Records.FieldSchema(name: "year", key: "released", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "year", key: "released", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
                         ],
                         assets: [],
                         references: []
@@ -2437,8 +2437,8 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Note",
                         fields: [
-                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false),
-                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false),
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
                         ],
                         assets: [],
                         references: []

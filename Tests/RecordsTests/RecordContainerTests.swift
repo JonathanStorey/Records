@@ -135,15 +135,15 @@ private func temporaryFile() -> URL {
 
 @Test func reopeningAFileKeepsItsTables() throws {
     let url = temporaryFile()
-    _ = try RecordContainer(for: [Page.self], zone: .local, url: url)
-    let reopened = try RecordContainer(for: [Page.self], zone: .local, url: url)
+    _ = try RecordContainer(for: [Page.self], url: url)
+    let reopened = try RecordContainer(for: [Page.self], url: url)
     #expect(try reopened.database.tableNames() == ["Label", "Page", "RecordLink", "_SyncState"])
 }
 
 @Test func changedFieldsAddAndDropColumns() throws {
     let url = temporaryFile()
-    _ = try RecordContainer(for: [GadgetV1.self], zone: .local, url: url)
-    let updated = try RecordContainer(for: [GadgetV2.self], zone: .local, url: url)
+    _ = try RecordContainer(for: [GadgetV1.self], url: url)
+    let updated = try RecordContainer(for: [GadgetV2.self], url: url)
     #expect(try updated.database.columnNames("Gadget") == Database.bookkeeping.map(\.name) + ["name", "size"])
 }
 
@@ -156,7 +156,23 @@ private func temporaryFile() -> URL {
     #expect(RecordContainer.defaultURL.lastPathComponent == "default.records")
 }
 
-@Test func theContainerKeepsItsZone() throws {
-    #expect(try RecordContainer.inMemory(for: Page.self).zone == .records)
-    #expect(try RecordContainer.inMemory(for: Page.self, zone: "Music").zone == "Music")
+@MainActor
+@Test func theMainContextIsTheSameEveryTime() throws {
+    let container = try RecordContainer.inMemory(for: Page.self)
+    container.mainContext.zone = "Music"
+    #expect(container.mainContext === container.mainContext)
+    #expect(container.mainContext.zone == "Music")
+}
+
+@Test func fieldsKnowHowTheyAreStored() {
+    let kinds = Dictionary(uniqueKeysWithValues: Novel.schema.fields.map { ($0.key, $0.kind) })
+    #expect(kinds == ["title": .text, "subtitle": .text, "tags": .archived, "released": .integer, "note": .text, "shop": .archived])
+    #expect(FieldKind(for: Date.self) == .date)
+    #expect(FieldKind(for: Double.self) == .real)
+    #expect(FieldKind(for: Bool.self) == .integer)
+    #expect(FieldKind(for: Data.self) == .bytes)
+    #expect(FieldKind(for: Address.self) == .bytes) // Codable, stored as JSON
+    #expect(FieldKind(for: Mood.self) == .text) // its raw value
+    #expect(FieldKind(for: Rating.self) == .integer)
+    #expect(FieldKind(for: [Mood].self) == .bytes)
 }

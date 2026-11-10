@@ -30,12 +30,68 @@ public struct FieldSchema: Hashable, Sendable {
     public let isOptional: Bool
     /// Whether CloudKit stores it encrypted.
     public let isEncrypted: Bool
+    /// How its value is stored in its column.
+    public let kind: FieldKind
 
-    public init(name: String, key: String, isOptional: Bool, isEncrypted: Bool) {
+    public init(name: String, key: String, isOptional: Bool, isEncrypted: Bool, kind: FieldKind) {
         self.name = name
         self.key = key
         self.isOptional = isOptional
         self.isEncrypted = isEncrypted
+        self.kind = kind
+    }
+}
+
+/// How a field's value is stored in its SQLite column.
+///
+/// The `init(for:)` overloads match `FieldCoding`'s, so a field gets the kind of whatever
+/// `FieldCoding` writes for it: an enum its raw value's kind, and any other Codable value `.bytes`
+/// of JSON.
+public enum FieldKind: String, Hashable, Sendable {
+    /// `TEXT`, from a `String`.
+    case text
+    /// `INTEGER`, from a `Bool` or an integer.
+    case integer
+    /// `REAL`, from a `Double` or `Float`.
+    case real
+    /// `REAL` seconds since 1970, from a `Date`, so dates sort and compare in SQL.
+    case date
+    /// `BLOB`, from `Data`, including Codable values stored as JSON.
+    case bytes
+    /// `BLOB` of a keyed archive, from a list or a `CLLocation`.
+    case archived
+
+    public init<T: CKRecordValueProtocol>(for type: T.Type) {
+        self = Self.direct(T.self)
+    }
+
+    public init<T: CKRecordValueProtocol & Encodable>(for type: T.Type) {
+        self = Self.direct(T.self)
+    }
+
+    public init<T: RawRepresentable>(for type: T.Type) where T.RawValue: CKRecordValueProtocol {
+        self = Self.direct(T.RawValue.self)
+    }
+
+    public init<T: RawRepresentable & Encodable>(for type: T.Type) where T.RawValue: CKRecordValueProtocol {
+        self = Self.direct(T.RawValue.self)
+    }
+
+    public init<T: Encodable>(for type: T.Type) {
+        self = .bytes
+    }
+
+    /// The kind of a value CloudKit stores as is.
+    private static func direct(_ type: Any.Type) -> FieldKind {
+        switch type {
+        case is String.Type: .text
+        case is Date.Type: .date
+        case is Data.Type: .bytes
+        case is Bool.Type, is Int.Type, is Int8.Type, is Int16.Type, is Int32.Type, is Int64.Type,
+             is UInt.Type, is UInt8.Type, is UInt16.Type, is UInt32.Type, is UInt64.Type: .integer
+        case is Double.Type, is Float.Type: .real
+        default: .archived
+        }
     }
 }
 

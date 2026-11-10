@@ -38,6 +38,7 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
 ///
 /// ```swift
 /// let container = try RecordContainer(for: Album.self, Artist.self)
+/// try container.mainContext.insert(album)
 /// ```
 ///
 /// Every type a registered type refers to is registered too, so naming the types an app starts
@@ -61,41 +62,51 @@ public final class RecordContainer: Sendable {
         return folder.appending(path: fileName, directoryHint: .notDirectory)
     }
 
-    /// The zone new records are saved to unless a save names another.
-    public let zone: Zone
     /// Every registered type by record type, including related types and Records' own.
     let types: [CKRecord.RecordType: any Record.Type]
     let database: Database
+    /// Created the first time `mainContext` is read, and only read and written on the main actor.
+    nonisolated(unsafe) private var mainContextStorage: RecordContext?
 
-    /// Opens a container for `types` and every type they refer to. New records go to
-    /// `zone` unless a save names another. Pass `appGroup` to keep the database in that
-    /// group's shared folder, so the app's extensions and widgets can open it too.
-    public convenience init(for types: any Record.Type..., zone: Zone = .records, appGroup: String? = nil) throws {
-        try self.init(for: types, zone: zone, appGroup: appGroup)
+    /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
+    /// database in that group's shared folder, so the app's extensions and widgets can open it
+    /// too.
+    public convenience init(for types: any Record.Type..., appGroup: String? = nil) throws {
+        try self.init(for: types, appGroup: appGroup)
     }
 
-    /// Opens a container for `types` and every type they refer to. New records go to
-    /// `zone` unless a save names another. Pass `appGroup` to keep the database in that
-    /// group's shared folder, so the app's extensions and widgets can open it too.
-    public convenience init(for types: [any Record.Type], zone: Zone = .records, appGroup: String? = nil) throws {
-        try self.init(for: types, zone: zone, url: Self.url(appGroup: appGroup))
+    /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
+    /// database in that group's shared folder, so the app's extensions and widgets can open it
+    /// too.
+    public convenience init(for types: [any Record.Type], appGroup: String? = nil) throws {
+        try self.init(for: types, url: Self.url(appGroup: appGroup))
     }
 
     /// A container whose database lives in memory and never syncs, for tests and previews. It
     /// starts empty every time.
-    public static func inMemory(for types: any Record.Type..., zone: Zone = .records) throws -> RecordContainer {
-        try RecordContainer(for: types, zone: zone, url: nil)
+    public static func inMemory(for types: any Record.Type...) throws -> RecordContainer {
+        try RecordContainer(for: types, url: nil)
     }
 
     /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
-    init(for types: [any Record.Type], zone: Zone, url: URL?) throws {
-        self.zone = zone
+    init(for types: [any Record.Type], url: URL?) throws {
         self.types = try Self.register(types)
         try Self.validate(self.types)
         database = try Database(url: url)
         // A closure, not `\.schema`: a key path to a static member of an existential metatype
         // crashes the Swift 6.1 compiler.
         try database.createTables(for: self.types.values.map { $0.schema })
+    }
+
+    /// The context the app's main actor reads and writes records through. The same context
+    /// every time, so its `zone` stays set.
+    ///
+    /// The context keeps the container alive, so a context is always safe to use.
+    @MainActor public var mainContext: RecordContext {
+        if let context = mainContextStorage { return context }
+        let context = RecordContext(container: self)
+        mainContextStorage = context
+        return context
     }
 
     /// The record types this container stores, sorted.
