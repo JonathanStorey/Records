@@ -167,18 +167,23 @@ extension RecordContext {
         // links it reads, so decoding stays proportional to what the paths reach.
         let decoder = CKRecordDecoder()
         var matches: [(loaded: R, root: NodeKey)] = []
+        var linksRead: [NodeKey: [CKRecord]] = [:]
+        func links(readBy node: NodeKey) -> [CKRecord] {
+            if let links = linksRead[node] { return links }
+            let links = (graph.linksByName[node.name] ?? []).filter { link in
+                guard let source = link["source"] as? String else { return false }
+                let owns = link["sourceName"] as? String == node.name && source.hasPrefix(node.recordType + ".")
+                let reads = link["targetName"] as? String == node.name && infos[node.recordType].inverseSources.contains(source)
+                return owns || reads
+            }
+            linksRead[node] = links
+            return links
+        }
         for root in roots {
             guard let record = graph.records[root] else { continue }
             let reached = reachable(from: root, in: graph, hops: traversal.hops, infos: infos)
             var seen: Set<String> = []
-            let links = reached.flatMap { node in
-                (graph.linksByName[node.name] ?? []).filter { link in
-                    guard let source = link["source"] as? String else { return false }
-                    let owns = link["sourceName"] as? String == node.name && source.hasPrefix(node.recordType + ".")
-                    let reads = link["targetName"] as? String == node.name && infos[node.recordType].inverseSources.contains(source)
-                    return owns || reads
-                }
-            }.filter { seen.insert($0.recordID.recordName).inserted }
+            let links = reached.flatMap(links(readBy:)).filter { seen.insert($0.recordID.recordName).inserted }
             let targets = reached.filter { $0 != root }.compactMap { graph.records[$0] }
             let loaded = try decoder.decode(R.self, from: record, links: links, targets: targets, depth: traversal.hops)
             if try predicate.evaluate(loaded) { matches.append((loaded, root)) }
