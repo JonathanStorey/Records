@@ -37,6 +37,8 @@ struct PredicateTranslator {
     let depth: Int
     /// The variable whose key paths read this level's record.
     var input: PredicateExpressions.VariableID?
+    /// Whether paths into linked records may be written as SQL.
+    let allowsPaths: Bool
     /// Each stored property's column and storage kind, by key path.
     let columns: [AnyKeyPath: Column]
     /// Each reference's links, by key path.
@@ -61,16 +63,17 @@ struct PredicateTranslator {
         let target: any Record.Type
     }
 
-    init<R: Record>(for type: R.Type) {
-        self.init(for: type, table: quoted(R.recordType), depth: 0, input: nil)
+    init<R: Record>(for type: R.Type, allowsPaths: Bool = true) {
+        self.init(for: type, table: quoted(R.recordType), depth: 0, input: nil, allowsPaths: allowsPaths)
     }
 
     private init<R: Record>(
-        for type: R.Type, table: String, depth: Int, input: PredicateExpressions.VariableID?
+        for type: R.Type, table: String, depth: Int, input: PredicateExpressions.VariableID?, allowsPaths: Bool
     ) {
         self.table = table
         self.depth = depth
         self.input = input
+        self.allowsPaths = allowsPaths
 
         let kinds = Dictionary(uniqueKeysWithValues: R.schema.fields.map { ($0.key, $0.kind) })
         var columns: [AnyKeyPath: Column] = [:]
@@ -151,7 +154,9 @@ struct PredicateTranslator {
     /// The level below this one, for the records `link` reaches, read through `variable`.
     func level(below link: Link, variable: PredicateExpressions.VariableID?) -> PredicateTranslator {
         func make<T: Record>(_ type: T.Type) -> PredicateTranslator {
-            PredicateTranslator(for: type, table: quoted("t\(depth + 1)"), depth: depth + 1, input: variable)
+            PredicateTranslator(
+                for: type, table: quoted("t\(depth + 1)"), depth: depth + 1, input: variable, allowsPaths: allowsPaths
+            )
         }
         return make(link.target)
     }
@@ -160,7 +165,7 @@ struct PredicateTranslator {
     /// written for the level below. For a reference that holds records, which holds only the
     /// targets that are present.
     func reaches(_ link: Link, below: PredicateTranslator, where inner: SQLFilter) -> SQLFilter? {
-        guard !link.holdsIDs else { return nil }
+        guard allowsPaths, !link.holdsIDs else { return nil }
         let alias = quoted("l\(depth + 1)")
         let target = below.table
         let sql = """
@@ -278,7 +283,7 @@ extension PredicateExpressions.OptionalFlatMap: SQLPredicateExpression {
 
     private func through(_ wrapped: SQLOperand, _ translator: PredicateTranslator) -> SQLOperand? {
         switch wrapped {
-        case .link(let link) where !link.isToMany && !link.holdsIDs:
+        case .link(let link) where !link.isToMany && !link.holdsIDs && translator.allowsPaths:
             let below = translator.level(below: link, variable: variable.key)
             if let inner = sqlOperand(transform, below) {
                 return .reached(link, below: below, inner)
