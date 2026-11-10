@@ -10,5 +10,6 @@ struct RecordsPlugin: CompilerPlugin {
         EncryptedMacro.self,
         AssetMacro.self,
         RenamedMacro.self,
+        LocationMacro.self,
     ]
 }

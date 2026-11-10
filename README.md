@@ -64,6 +64,26 @@ Each new value gets its own `<UUID>.asset` file in `Application Support/Records/
 record points at the file CloudKit downloaded, so loading a list never reads the data until you
 ask for it. An asset can't be `@Encrypted`.
 
+Mark a `Coordinate?` field `@Location` to store a place. The property is a plain value that is easy
+to compare and encode, and `$name` is the full `CLLocation` for code that needs its timestamp,
+accuracy, course, or speed:
+
+```swift
+@Record
+struct Gig {
+    var id: UUID
+    @Location var venue: Coordinate?
+}
+
+gig.venue = Coordinate(latitude: 51.5009, longitude: -0.1773)
+gig.venue?.latitude       // 51.5009
+gig.$venue                // the CLLocation, with every detail it was saved with
+gig.$venue = gpsFix       // keeps the fix's timestamp and accuracy
+```
+
+Setting either one marks the field changed. A location says where someone is, so it is always
+encrypted end to end, with no `@Encrypted` needed.
+
 A field can hold any type CloudKit stores, such as `String`, `Int`, `Double`, `Bool`, `Date`, `Data`,
 `CLLocation`, or an array of them. An enum with such a raw value is stored as its raw value, and any
 other `Codable` type is stored as JSON:

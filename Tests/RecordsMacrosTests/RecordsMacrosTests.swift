@@ -13,6 +13,7 @@ private var macroSpecs: [String: MacroSpec] {
         "Encrypted": MacroSpec(type: EncryptedMacro.self),
         "Asset": MacroSpec(type: AssetMacro.self),
         "Renamed": MacroSpec(type: RenamedMacro.self),
+        "Location": MacroSpec(type: LocationMacro.self),
     ]
 }
 #endif
@@ -1743,6 +1744,137 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(message: "CloudKit can't encrypt an asset, so a property can't be both @Asset and @Encrypted", line: 2, column: 5),
+            ],
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    // MARK: - Locations
+
+    func testLocationIsStoredAsACLLocation() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            @Record
+            struct Gig {
+                var id: UUID
+                @Location var venue: Coordinate?
+                @Location @Encrypted var home: Coordinate?
+            }
+            """,
+            expandedSource: """
+            struct Gig {
+                var id: UUID
+                var venue: Coordinate? {
+                    @storageRestrictions(initializes: _venue)
+                    init(initialValue) {
+                        _venue = Records.LocationField(initialValue)
+                    }
+                    get {
+                        _venue.coordinate
+                    }
+                    set {
+                        _venue.coordinate = newValue
+                    }
+                }
+
+                var _venue: Records.LocationField
+
+                var $venue: Records.LocationField.Stored? {
+                    get {
+                        _venue.location
+                    }
+                    set {
+                        _venue.location = newValue
+                    }
+                }
+                var home: Coordinate? {
+                    @storageRestrictions(initializes: _home)
+                    init(initialValue) {
+                        _home = Records.LocationField(initialValue)
+                    }
+                    get {
+                        _home.coordinate
+                    }
+                    set {
+                        _home.coordinate = newValue
+                    }
+                }
+
+                var _home: Records.LocationField
+
+                var $home: Records.LocationField.Stored? {
+                    get {
+                        _home.location
+                    }
+                    set {
+                        _home.location = newValue
+                    }
+                }
+            }
+
+            extension Gig: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Gig"
+                }
+                init(record: CKRecord) throws {
+                    self.id = try CKRecordDecoder.decodeID(from: record)
+                    self._venue = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "venue", from: record.encryptedValues))
+                    self._home = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "home", from: record.encryptedValues))
+                }
+                func encodeFields(into record: CKRecord) {
+                    record.encryptedValues["venue"] = self._venue.location
+                    record.encryptedValues["home"] = self._home.location
+                }
+                var changedFields: Set<String> {
+                    var fields: Set<String> = []
+                    if self._venue.isChanged {
+                        fields.insert("venue")
+                    }
+                    if self._home.isChanged {
+                        fields.insert("home")
+                    }
+                    return fields
+                }
+                func encodeChangedFields(into record: CKRecord) {
+                    if self._venue.isChanged {
+                        record.encryptedValues["venue"] = self._venue.location
+                    }
+                    if self._home.isChanged {
+                        record.encryptedValues["home"] = self._home.location
+                    }
+                }
+                mutating func markFieldsSaved() {
+                    self._venue.markSaved()
+                    self._home.markSaved()
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+        #else
+        throw XCTSkip("macros are only supported when running tests for the host platform")
+        #endif
+    }
+
+    func testLocationMustHoldOptionalCoordinate() throws {
+        #if canImport(RecordsMacros)
+        assertMacroExpansion(
+            """
+            struct Gig {
+                @Location var venue: CLLocation?
+            }
+            """,
+            expandedSource: """
+            struct Gig {
+                var venue: CLLocation?
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "@Location holds 'Coordinate?', e.g. 'var venue: Coordinate?'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
