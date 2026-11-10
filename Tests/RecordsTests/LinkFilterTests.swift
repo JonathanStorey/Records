@@ -135,7 +135,7 @@ private func expectMatches<R: Record>(
 @Test func anIDFilterIsALinkCondition() throws {
     let id = UUID()
     let result = try #require(PredicateTranslator(for: Account.self).translate(#Predicate<Account> { $0.settingsID == id }))
-    #expect(result.filter.sql.hasPrefix("EXISTS (SELECT 1 FROM \"RecordLink\" AS \"link\""))
+    #expect(result.filter.sql.hasPrefix("EXISTS (SELECT 1 FROM \"RecordLink\" AS \"l1\""))
     #expect(result.filter.values == [.text("Account.settingsID"), .text(id.uuidString)])
     #expect(result.isExact)
 }

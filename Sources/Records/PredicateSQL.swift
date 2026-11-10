@@ -4,6 +4,9 @@ import Foundation
 struct SQLFilter: Sendable {
     var sql: String
     var values: [SQLValue]
+
+    static let always = SQLFilter(sql: "1", values: [])
+    static let never = SQLFilter(sql: "0", values: [])
 }
 
 /// The order and range of rows a query reads.
@@ -20,12 +23,22 @@ struct SQLPage: Sendable {
 ///
 /// The SQL is a necessary condition, not always an exact one: every record that matches the
 /// predicate meets it, and `fetch` still evaluates the predicate on what the query returns. So a
-/// part of a predicate SQL can't express (a string `contains`, a computed property, a key path
-/// through a reference) only widens the query, and never changes the result. `isExact` says
-/// whether the SQL alone decides the result.
+/// part of a predicate SQL can't express (a string `contains`, a computed property) only widens
+/// the query, and never changes the result. `isExact` says whether the SQL alone decides the
+/// result.
+///
+/// A path into linked records, such as `$0.album?.artist?.name`, becomes an `EXISTS` over the
+/// links and the linked table, one level per hop. Each level is its own translator, whose input
+/// is the closure variable of that hop and whose columns are qualified by that level's alias.
 struct PredicateTranslator {
-    /// The quoted table of the predicate's input, which link conditions name.
+    /// How this level's columns are qualified: the quoted table at the top, an alias below.
     let table: String
+    /// How many hops below the predicate's input this level is.
+    let depth: Int
+    /// The variable whose key paths read this level's record.
+    var input: PredicateExpressions.VariableID?
+    /// Whether paths into linked records may be written as SQL.
+    let allowsPaths: Bool
     /// Each stored property's column and storage kind, by key path.
     let columns: [AnyKeyPath: Column]
     /// Each reference's links, by key path.
@@ -33,49 +46,49 @@ struct PredicateTranslator {
 
     struct Column {
         let name: String
+        /// The column qualified by its level, ready for SQL.
+        let sql: String
         let kind: FieldKind
     }
 
     /// The links a reference reads: those whose `source` is `source` and whose `ownName` column
-    /// holds the input record's name. `otherName` holds the other record's name.
+    /// holds this level's record name. `otherName` holds the other record's name, and `target`
+    /// is the other record's type.
     struct Link {
         let source: String
         let ownName: String
         let otherName: String
         let isToMany: Bool
         let holdsIDs: Bool
+        let target: any Record.Type
     }
 
-    init<R: Record>(for type: R.Type) {
+    init<R: Record>(for type: R.Type, allowsPaths: Bool = true) {
+        self.init(for: type, table: quoted(R.recordType), depth: 0, input: nil, allowsPaths: allowsPaths)
+    }
+
+    private init<R: Record>(
+        for type: R.Type, table: String, depth: Int, input: PredicateExpressions.VariableID?, allowsPaths: Bool
+    ) {
+        self.table = table
+        self.depth = depth
+        self.input = input
+        self.allowsPaths = allowsPaths
+
         let kinds = Dictionary(uniqueKeysWithValues: R.schema.fields.map { ($0.key, $0.kind) })
         var columns: [AnyKeyPath: Column] = [:]
         for (keyPath, name) in R.fieldKeyPaths {
-            if name == "_name" {
-                columns[keyPath] = Column(name: name, kind: .text)
-            } else if let kind = kinds[name] {
-                columns[keyPath] = Column(name: name, kind: kind)
+            let kind: FieldKind? = name == "_name" ? .text : kinds[name]
+            if let kind {
+                columns[keyPath] = Column(name: name, sql: "\(table).\(quoted(name))", kind: kind)
             }
         }
         self.columns = columns
-        table = quoted(R.recordType)
 
-        let references = Dictionary(R.schema.references.map { ($0.property, $0) }, uniquingKeysWith: { first, _ in first })
         var links: [AnyKeyPath: Link] = [:]
         for (keyPath, property) in R.referenceKeyPaths {
-            guard let reference = references[property] else { continue }
-            if let owner = reference.inverseOf {
-                // A `from:` side reads the owner's links from the target end.
-                links[keyPath] = Link(
-                    source: RecordLink.source(type: reference.target.recordType, property: owner),
-                    ownName: "targetName", otherName: "sourceName",
-                    isToMany: reference.isToMany, holdsIDs: reference.holdsIDs
-                )
-            } else {
-                links[keyPath] = Link(
-                    source: RecordLink.source(type: R.recordType, property: property),
-                    ownName: "sourceName", otherName: "targetName",
-                    isToMany: reference.isToMany, holdsIDs: reference.holdsIDs
-                )
+            if let reference = R.schema.references.first(where: { $0.property == property }) {
+                links[keyPath] = Link(reference, of: R.recordType)
             }
         }
         self.links = links
@@ -85,8 +98,10 @@ struct PredicateTranslator {
     /// can be expressed.
     func translate<R>(_ predicate: Predicate<R>) -> (filter: SQLFilter, isExact: Bool)? {
         guard let expression = predicate.expression as? any SQLPredicateExpression else { return nil }
-        if let exact = expression.condition(exact: true, self) { return (exact, true) }
-        return expression.condition(exact: false, self).map { ($0, false) }
+        var translator = self
+        translator.input = predicate.variable.key
+        if let exact = expression.condition(exact: true, translator) { return (exact, true) }
+        return expression.condition(exact: false, translator).map { ($0, false) }
     }
 
     /// An `ORDER BY` list that sorts rows as `sortBy` sorts records, or `nil` when SQL can't.
@@ -102,28 +117,32 @@ struct PredicateTranslator {
                   [.integer, .real, .date].contains(column.kind),
                   sortsAsStored(type(of: keyPath).valueType)
             else { return nil }
-            terms.append("\(quoted(column.name)) \(descriptor.order == .forward ? "ASC" : "DESC")")
+            terms.append("\(column.sql) \(descriptor.order == .forward ? "ASC" : "DESC")")
         }
-        return (terms + [#""_name" ASC"#]).joined(separator: ", ")
+        return (terms + ["\(table).\"_name\" ASC"]).joined(separator: ", ")
     }
 
-    /// What `keyPath` reads, when it reads a stored property or reference of the predicate's
-    /// input.
-    func operand(for keyPath: AnyKeyPath, rootIsInput: Bool) -> SQLOperand? {
-        guard rootIsInput else { return nil }
+    /// What `keyPath` reads, when its root is this level's input.
+    func operand(for keyPath: AnyKeyPath, root: Any) -> SQLOperand? {
+        guard let input, (root as? any PredicateVariable)?.variableKey == input else { return nil }
         if let column = columns[keyPath] { return .column(column) }
         return links[keyPath].map(SQLOperand.link)
     }
 
-    /// Whether the input record has a link of `link`, to `other` when given.
+    /// The condition on `link`'s links from this level's record, without the closing `)`.
+    private func linkCondition(_ link: Link, alias: String) -> String {
+        """
+        \(alias)."_zoneName" = \(table)."_zoneName" AND \(alias)."_zoneOwner" = \(table)."_zoneOwner" \
+        AND \(alias)."_isCurrent" = 1 AND \(alias)."_deleted" = 0 \
+        AND \(alias)."source" = ? AND \(alias).\(quoted(link.ownName)) = \(table)."_name"
+        """
+    }
+
+    /// Whether this level's record has a link of `link`, to `other` when given. For a
+    /// reference that holds IDs, which holds whatever its links name.
     func exists(_ link: Link, to other: SQLValue? = nil) -> SQLFilter {
-        let alias = "\"link\""
-        var sql = """
-            EXISTS (SELECT 1 FROM \(quoted(RecordLink.recordType)) AS \(alias) \
-            WHERE \(alias)."_zoneName" = \(table)."_zoneName" AND \(alias)."_zoneOwner" = \(table)."_zoneOwner" \
-            AND \(alias)."_isCurrent" = 1 AND \(alias)."_deleted" = 0 \
-            AND \(alias)."source" = ? AND \(alias).\(quoted(link.ownName)) = \(table)."_name"
-            """
+        let alias = quoted("l\(depth + 1)")
+        var sql = "EXISTS (SELECT 1 FROM \(quoted(RecordLink.recordType)) AS \(alias) WHERE \(linkCondition(link, alias: alias))"
         var values: [SQLValue] = [.text(link.source)]
         if let other {
             sql += " AND \(alias).\(quoted(link.otherName)) = ?"
@@ -131,15 +150,73 @@ struct PredicateTranslator {
         }
         return SQLFilter(sql: sql + ")", values: values)
     }
+
+    /// The level below this one, for the records `link` reaches, read through `variable`.
+    func level(below link: Link, variable: PredicateExpressions.VariableID?) -> PredicateTranslator {
+        func make<T: Record>(_ type: T.Type) -> PredicateTranslator {
+            PredicateTranslator(
+                for: type, table: quoted("t\(depth + 1)"), depth: depth + 1, input: variable, allowsPaths: allowsPaths
+            )
+        }
+        return make(link.target)
+    }
+
+    /// Whether this level's record has a link of `link` to a saved record that meets `inner`,
+    /// written for the level below. For a reference that holds records, which holds only the
+    /// targets that are present.
+    func reaches(_ link: Link, below: PredicateTranslator, where inner: SQLFilter) -> SQLFilter? {
+        guard allowsPaths, !link.holdsIDs else { return nil }
+        let alias = quoted("l\(depth + 1)")
+        let target = below.table
+        let sql = """
+            EXISTS (SELECT 1 FROM \(quoted(RecordLink.recordType)) AS \(alias) \
+            JOIN \(quoted(link.target.recordType)) AS \(target) ON \(target)."_zoneName" = \(alias)."_zoneName" \
+            AND \(target)."_zoneOwner" = \(alias)."_zoneOwner" AND \(target)."_name" = \(alias).\(quoted(link.otherName)) \
+            AND \(target)."_isCurrent" = 1 AND \(target)."_deleted" = 0 \
+            WHERE \(linkCondition(link, alias: alias)) AND \(inner.sql))
+            """
+        return SQLFilter(sql: sql, values: [.text(link.source)] + inner.values)
+    }
+}
+
+extension PredicateTranslator.Link {
+    /// The links `reference`, declared by `owner`, reads.
+    init(_ reference: ReferenceSchema, of owner: String) {
+        if let ownerProperty = reference.inverseOf {
+            // A `from:` side reads the owner's links from the target end.
+            self.init(
+                source: RecordLink.source(type: reference.target.recordType, property: ownerProperty),
+                ownName: "targetName", otherName: "sourceName",
+                isToMany: reference.isToMany, holdsIDs: reference.holdsIDs, target: reference.target
+            )
+        } else {
+            self.init(
+                source: RecordLink.source(type: owner, property: reference.property),
+                ownName: "sourceName", otherName: "targetName",
+                isToMany: reference.isToMany, holdsIDs: reference.holdsIDs, target: reference.target
+            )
+        }
+    }
 }
 
 // MARK: - Operands
 
 /// One side of a comparison.
-enum SQLOperand {
+indirect enum SQLOperand {
     case column(PredicateTranslator.Column)
+    /// A reference. One that holds IDs compares with IDs, and one that holds a record with `nil`.
     case link(PredicateTranslator.Link)
     case value(SQLValue)
+    /// `operand` read on the record a to-one reference reaches, as in `$0.artist?.name`.
+    case reached(PredicateTranslator.Link, below: PredicateTranslator, SQLOperand)
+    /// A Boolean expression on the record a to-one reference reaches, as in
+    /// `$0.album?.tracks.contains { ... }`, which holds `nil` without one.
+    case test(Test)
+
+    /// A Boolean expression, kept unwritten until it is known whether it must be exact.
+    struct Test {
+        let condition: (_ exact: Bool) -> SQLFilter?
+    }
 }
 
 /// A predicate expression that can be written as SQL.
@@ -148,7 +225,8 @@ protocol SQLPredicateExpression {
     /// the expression is true. Without it, the condition only needs to hold whenever the
     /// expression is true.
     func condition(exact: Bool, _ translator: PredicateTranslator) -> SQLFilter?
-    /// The expression as an operand, when it is a stored property or a constant.
+    /// The expression as an operand, when it is a stored property, a reference, a constant, or
+    /// one of those on a linked record.
     func operand(_ translator: PredicateTranslator) -> SQLOperand?
 }
 
@@ -165,19 +243,24 @@ private func sqlCondition(_ expression: Any, exact: Bool, _ translator: Predicat
     (expression as? any SQLPredicateExpression)?.condition(exact: exact, translator)
 }
 
-/// Marks the predicate's input, the `$0` in `#Predicate { $0.title == "A" }`.
-private protocol PredicateInput {}
-extension PredicateExpressions.Variable: PredicateInput {}
+/// A predicate variable, such as the `$0` in `#Predicate { $0.title == "A" }`.
+protocol PredicateVariable {
+    var variableKey: PredicateExpressions.VariableID { get }
+}
+
+extension PredicateExpressions.Variable: PredicateVariable {
+    var variableKey: PredicateExpressions.VariableID { key }
+}
 
 extension PredicateExpressions.KeyPath: SQLPredicateExpression {
     func operand(_ translator: PredicateTranslator) -> SQLOperand? {
-        translator.operand(for: keyPath, rootIsInput: root is PredicateInput)
+        translator.operand(for: keyPath, root: root)
     }
 
     /// A Boolean property on its own, as in `#Predicate { $0.isDone }`.
     func condition(exact: Bool, _ translator: PredicateTranslator) -> SQLFilter? {
         guard Output.self == Bool.self, case .column(let column)? = operand(translator) else { return nil }
-        return SQLFilter(sql: "(\(quoted(column.name)) IS 1)", values: [])
+        return SQLFilter(sql: "(\(column.sql) IS 1)", values: [])
     }
 }
 
@@ -189,6 +272,45 @@ extension PredicateExpressions.Value: SQLPredicateExpression {
 
 extension PredicateExpressions.NilLiteral: SQLPredicateExpression {
     func operand(_ translator: PredicateTranslator) -> SQLOperand? { .value(.null) }
+}
+
+extension PredicateExpressions.OptionalFlatMap: SQLPredicateExpression {
+    /// `$0.artist?.name`: the transform read on the record a to-one reference reaches.
+    func operand(_ translator: PredicateTranslator) -> SQLOperand? {
+        guard let wrapped = sqlOperand(wrapped, translator) else { return nil }
+        return through(wrapped, translator)
+    }
+
+    private func through(_ wrapped: SQLOperand, _ translator: PredicateTranslator) -> SQLOperand? {
+        switch wrapped {
+        case .link(let link) where !link.isToMany && !link.holdsIDs && translator.allowsPaths:
+            let below = translator.level(below: link, variable: variable.key)
+            if let inner = sqlOperand(transform, below) {
+                return .reached(link, below: below, inner)
+            }
+            let transform = transform
+            return .reached(link, below: below, .test(SQLOperand.Test { exact in
+                sqlCondition(transform, exact: exact, below)
+            }))
+        case .reached(let link, let below, let inner):
+            // `$0.album?.artist?.name`: the wrapped value already reaches a record.
+            return through(inner, below).map { .reached(link, below: below, $0) }
+        default:
+            return nil
+        }
+    }
+}
+
+extension PredicateExpressions.NilCoalesce: SQLPredicateExpression {
+    /// `$0.album?.tracks.contains { ... } ?? false`.
+    func condition(exact: Bool, _ translator: PredicateTranslator) -> SQLFilter? {
+        guard let operand = sqlOperand(lhs, translator), case .value(.integer(let fallback))? = sqlOperand(rhs, translator)
+        else { return nil }
+        let isTrue = operandComparison(operand, .equal, .integer(1), exact: exact, translator)
+        guard fallback == 1 else { return isTrue }
+        guard let isNil = operandComparison(operand, .equal, .null, exact: exact, translator), let isTrue else { return nil }
+        return SQLFilter(sql: "(\(isTrue.sql) OR \(isNil.sql))", values: isTrue.values + isNil.values)
+    }
 }
 
 // MARK: - Conditions
@@ -245,10 +367,9 @@ extension PredicateExpressions.Disjunction: SQLPredicateExpression {
 
 extension PredicateExpressions.Negation: SQLPredicateExpression {
     func condition(exact: Bool, _ translator: PredicateTranslator) -> SQLFilter? {
-        // Only an exact condition can be negated. A condition is NULL only where the Swift
-        // expression is false, so NULL counts as false before it is negated.
+        // Only an exact condition can be negated.
         guard let inner = sqlCondition(wrapped, exact: true, translator) else { return nil }
-        return SQLFilter(sql: "(NOT COALESCE(\(inner.sql), 0))", values: inner.values)
+        return negated(inner)
     }
 }
 
@@ -270,7 +391,7 @@ extension PredicateExpressions.SequenceContains: SQLPredicateExpression {
             else { return nil }
             conditions.append(condition)
         }
-        guard !conditions.isEmpty else { return SQLFilter(sql: "0", values: []) }
+        guard !conditions.isEmpty else { return .never }
         return SQLFilter(
             sql: "(" + conditions.map(\.sql).joined(separator: " OR ") + ")",
             values: conditions.flatMap(\.values)
@@ -278,8 +399,31 @@ extension PredicateExpressions.SequenceContains: SQLPredicateExpression {
     }
 }
 
+extension PredicateExpressions.SequenceContainsWhere: SQLPredicateExpression {
+    /// `$0.tracks.contains { $0.title == "Bloom" }`: some linked record meets the test.
+    func condition(exact: Bool, _ translator: PredicateTranslator) -> SQLFilter? {
+        guard case .link(let link)? = sqlOperand(sequence, translator), link.isToMany, !link.holdsIDs else { return nil }
+        let below = translator.level(below: link, variable: variable.key)
+        // Without a test SQL can write, any linked record lets the row through.
+        guard let inner = sqlCondition(test, exact: exact, below) ?? (exact ? nil : .always) else { return nil }
+        return translator.reaches(link, below: below, where: inner)
+    }
+}
+
+extension PredicateExpressions.SequenceAllSatisfy: SQLPredicateExpression {
+    /// `$0.tracks.allSatisfy { $0.year > 1990 }`: no linked record fails the test.
+    func condition(exact: Bool, _ translator: PredicateTranslator) -> SQLFilter? {
+        guard case .link(let link)? = sqlOperand(sequence, translator), link.isToMany, !link.holdsIDs else { return nil }
+        let below = translator.level(below: link, variable: variable.key)
+        guard let inner = sqlCondition(test, exact: true, below),
+              let failing = translator.reaches(link, below: below, where: negated(inner))
+        else { return nil }
+        return negated(failing)
+    }
+}
+
 /// A constant in a predicate, read without knowing its type.
-private protocol ConstantExpression {
+protocol ConstantExpression {
     var anyValue: Any { get }
 }
 
@@ -316,8 +460,8 @@ enum SQLComparator {
     }
 }
 
-/// `lhs <comparator> rhs` when one side is a stored property or ID reference and the other a
-/// constant, or both are integer properties.
+/// `lhs <comparator> rhs` when one side is an operand and the other a constant, or both are
+/// integer properties of the same level.
 private func comparison(
     _ comparator: SQLComparator, _ lhs: Any, _ rhs: Any, exact: Bool, _ translator: PredicateTranslator
 ) -> SQLFilter? {
@@ -328,7 +472,7 @@ private func comparison(
         return operandComparison(operand, comparator.reversed, value, exact: exact, translator)
     case let (.column(left)?, .column(right)?) where left.kind == .integer && right.kind == .integer:
         // Only integers compare in SQL exactly as in Swift, column against column.
-        return SQLFilter(sql: "(\(quoted(left.name)) \(comparator.symbol) \(quoted(right.name)))", values: [])
+        return SQLFilter(sql: "(\(left.sql) \(comparator.symbol) \(right.sql))", values: [])
     default:
         return nil
     }
@@ -341,9 +485,10 @@ private func operandComparison(
     switch operand {
     case .column(let column):
         return column.comparison(comparator, value, exact: exact)
-    case .link(let link):
+
+    case .link(let link) where link.holdsIDs:
         // A to-one ID reference holds the ID its link names, or `nil` without one.
-        guard !link.isToMany, link.holdsIDs else { return nil }
+        guard !link.isToMany else { return nil }
         switch (comparator, value) {
         case (.equal, .text): return translator.exists(link, to: value)
         case (.notEqual, .text): return negated(translator.exists(link, to: value))
@@ -351,13 +496,55 @@ private func operandComparison(
         case (.notEqual, .null): return translator.exists(link)
         default: return nil
         }
+
+    case .link(let link):
+        // A to-one record reference holds its target when the target is present.
+        guard !link.isToMany, value == .null else { return nil }
+        let below = translator.level(below: link, variable: nil)
+        guard let present = translator.reaches(link, below: below, where: .always) else { return nil }
+        switch comparator {
+        case .equal: return negated(present)
+        case .notEqual: return present
+        default: return nil
+        }
+
+    case .reached(let link, let below, let inner):
+        // Swift compares `nil` when the record isn't reached. So `== value` needs a reached
+        // record that matches, and `!= value` needs no reached record that doesn't.
+        let (positive, innerComparator): (Bool, SQLComparator) = switch (comparator, value) {
+        case (.equal, .null): (false, .notEqual)
+        case (.notEqual, .null): (true, .notEqual)
+        case (.notEqual, _): (false, .equal)
+        default: (true, comparator)
+        }
+        if positive {
+            guard let inner = operandComparison(inner, innerComparator, value, exact: exact, below) else { return nil }
+            return translator.reaches(link, below: below, where: inner)
+        }
+        guard let inner = operandComparison(inner, innerComparator, value, exact: true, below),
+              let reached = translator.reaches(link, below: below, where: inner)
+        else { return nil }
+        return negated(reached)
+
+    case .test(let test):
+        // A Boolean expression, compared with `true`, `false`, or `nil`. Reached, it is never nil.
+        switch (comparator, value) {
+        case (.equal, .integer(1)), (.notEqual, .integer(0)): return test.condition(exact)
+        case (.equal, .integer(0)), (.notEqual, .integer(1)): return test.condition(true).map(negated)
+        case (.equal, .null): return .never
+        case (.notEqual, .null): return .always
+        default: return nil
+        }
+
     case .value:
         return nil
     }
 }
 
+/// `NOT filter`. A condition is NULL only where the Swift expression is false, so NULL counts
+/// as false before it is negated.
 private func negated(_ filter: SQLFilter) -> SQLFilter {
-    SQLFilter(sql: "(NOT \(filter.sql))", values: filter.values)
+    SQLFilter(sql: "(NOT COALESCE(\(filter.sql), 0))", values: filter.values)
 }
 
 /// Matches a string holding any character outside printable ASCII.
@@ -377,7 +564,7 @@ extension PredicateTranslator.Column {
     /// - Dates are stored as seconds since 1970, which can round a date to its neighbor, so
     ///   strict bounds are loosened and inequality isn't used.
     func comparison(_ comparator: SQLComparator, _ value: SQLValue, exact: Bool) -> SQLFilter? {
-        let column = quoted(name)
+        let column = sql
         func filter(_ sql: String, _ values: [SQLValue] = [], isExact: Bool) -> SQLFilter? {
             exact && !isExact ? nil : SQLFilter(sql: sql, values: values)
         }

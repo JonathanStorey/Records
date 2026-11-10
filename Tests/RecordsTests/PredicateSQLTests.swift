@@ -45,43 +45,43 @@ private let two: Grade? = .two
 
 @Test func equalityOnAnIntegerIsExact() throws {
     let result = try #require(translate(#Predicate { $0.steps == 3 }))
-    #expect(result.sql == #"("steps" IS ?)"#)
+    #expect(result.sql == #"("Gauge"."steps" IS ?)"#)
     #expect(result.values == [.integer(3)])
     #expect(result.isExact)
 }
 
 @Test func orderedComparisonsOnNumbersAreExact() throws {
     let result = try #require(translate(#Predicate { $0.steps < 2 || $0.level >= 1.5 }))
-    #expect(result.sql == #"(("steps" < ?) OR ("level" >= ?))"#)
+    #expect(result.sql == #"(("Gauge"."steps" < ?) OR ("Gauge"."level" >= ?))"#)
     #expect(result.values == [.integer(2), .real(1.5)])
     #expect(result.isExact)
 }
 
 @Test func aConstantOnTheLeftSwapsTheComparison() throws {
     let result = try #require(translate(#Predicate { 3 < $0.steps }))
-    #expect(result.sql == #"("steps" > ?)"#)
+    #expect(result.sql == #"("Gauge"."steps" > ?)"#)
 }
 
 @Test func capturedValuesAreBound() throws {
     let limit = 4
     let result = try #require(translate(#Predicate { $0.steps != limit }))
-    #expect(result.sql == #"("steps" IS NOT ?)"#)
+    #expect(result.sql == #"("Gauge"."steps" IS NOT ?)"#)
     #expect(result.values == [.integer(4)])
 }
 
 @Test func aBooleanPropertyIsACondition() throws {
     let result = try #require(translate(#Predicate { $0.isOn }))
-    #expect(result.sql == #"("isOn" IS 1)"#)
+    #expect(result.sql == #"("Gauge"."isOn" IS 1)"#)
     #expect(result.isExact)
     let negated = try #require(translate(#Predicate { !$0.isOn }))
-    #expect(negated.sql == #"(NOT COALESCE(("isOn" IS 1), 0))"#)
+    #expect(negated.sql == #"(NOT COALESCE(("Gauge"."isOn" IS 1), 0))"#)
 }
 
 @Test func nilIsComparedWithIs() throws {
     let result = try #require(translate(#Predicate { $0.rating == nil }))
-    #expect(result.sql == #"("rating" IS NULL)"#)
+    #expect(result.sql == #"("Gauge"."rating" IS NULL)"#)
     #expect(result.isExact)
-    #expect(try #require(translate(#Predicate { $0.nickname != nil })).sql == #"("nickname" IS NOT NULL)"#)
+    #expect(try #require(translate(#Predicate { $0.nickname != nil })).sql == #"("Gauge"."nickname" IS NOT NULL)"#)
 }
 
 @Test func enumsAreComparedByRawValue() throws {
@@ -95,14 +95,14 @@ private let two: Grade? = .two
 @Test func theIDIsTheRecordName() throws {
     let id = UUID()
     let result = try #require(translate(#Predicate { $0.id == id }))
-    #expect(result.sql == #"("_name" IS ?)"#)
+    #expect(result.sql == #"("Gauge"."_name" IS ?)"#)
     #expect(result.values == [.text(id.uuidString)])
     #expect(result.isExact)
 }
 
 @Test func stringEqualityLetsThroughTextBeyondASCII() throws {
     let result = try #require(translate(#Predicate { $0.name == "Hall" }))
-    #expect(result.sql == #"("name" IS ? OR "name" GLOB '*[^ -~]*')"#)
+    #expect(result.sql == #"("Gauge"."name" IS ? OR "Gauge"."name" GLOB '*[^ -~]*')"#)
     #expect(!result.isExact)
 }
 
@@ -113,7 +113,7 @@ private let two: Grade? = .two
 
 @Test func datesUseLooseBounds() throws {
     let result = try #require(translate(#Predicate { $0.checkedAt > start }))
-    #expect(result.sql == #"("checkedAt" >= ?)"#)
+    #expect(result.sql == #"("Gauge"."checkedAt" >= ?)"#)
     #expect(result.values == [.real(start.timeIntervalSince1970)])
     #expect(!result.isExact)
     #expect(translate(#Predicate { $0.checkedAt != start }) == nil)
@@ -121,13 +121,13 @@ private let two: Grade? = .two
 
 @Test func integerPropertiesCompareWithEachOther() throws {
     let result = try #require(translate(#Predicate { $0.steps < $0.limit }))
-    #expect(result.sql == #"("steps" < "limit")"#)
+    #expect(result.sql == #"("Gauge"."steps" < "Gauge"."limit")"#)
     #expect(result.isExact)
 }
 
 @Test func anUntranslatablePartOfAConjunctionIsDropped() throws {
     let result = try #require(translate(#Predicate { $0.steps > 1 && $0.name.contains("a") }))
-    #expect(result.sql == #"("steps" > ?)"#)
+    #expect(result.sql == #"("Gauge"."steps" > ?)"#)
     #expect(!result.isExact)
     #expect(translate(#Predicate { $0.steps > 1 || $0.name.contains("a") }) == nil)
     #expect(translate(#Predicate { !($0.steps > 1 && $0.name.contains("a")) }) == nil)
@@ -135,7 +135,7 @@ private let two: Grade? = .two
 
 @Test func containsBecomesAnyOfTheValues() throws {
     let result = try #require(translate(#Predicate { [1, 2].contains($0.steps) }))
-    #expect(result.sql == #"(("steps" IS ?) OR ("steps" IS ?))"#)
+    #expect(result.sql == #"(("Gauge"."steps" IS ?) OR ("Gauge"."steps" IS ?))"#)
     #expect(result.values == [.integer(1), .integer(2)])
     #expect(result.isExact)
     let none: [Int] = []

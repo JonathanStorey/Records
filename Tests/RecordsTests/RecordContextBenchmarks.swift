@@ -169,6 +169,28 @@ struct RecordContextBenchmarks {
         #expect(countTime < 5_000)
     }
 
+    @Test func fetchThroughAReference() throws {
+        let context = try RecordContainer(for: [LP.self], url: nil).mainContext
+        let musicians = (0..<10).map { Musician(id: UUID(), name: "Musician \($0)", isActive: true) }
+        for index in 0..<Self.count {
+            context.insert(LP(id: UUID(), title: "\(index)", year: 2000, musician: musicians[index % 10], cuts: []))
+        }
+        try context.save()
+
+        let exact = RecordDescriptor<LP>(predicate: #Predicate { $0.musician?.isActive == true && $0.year == 2000 })
+        let inDatabase = try measure("fetch \(Self.count) records through a reference, checked in the database") {
+            let count = try context.fetch(exact).count
+            #expect(count == Self.count)
+        }
+        let loose = RecordDescriptor<LP>(predicate: #Predicate { $0.musician?.name.contains("3") == true })
+        let inSwift = try measure("fetch 100 of \(Self.count) records through a reference, checked in Swift") {
+            let count = try context.fetch(loose).count
+            #expect(count == Self.count / 10)
+        }
+        #expect(inDatabase < 5_000)
+        #expect(inSwift < 5_000)
+    }
+
     @Test func fetchRecordsWithLinks() throws {
         let context = try RecordContainer(for: [Page.self], url: nil).mainContext
         let labels = (0..<10).map { Label(id: UUID(), name: "\($0)") }
