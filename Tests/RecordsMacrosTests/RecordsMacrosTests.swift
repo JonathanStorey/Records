@@ -58,6 +58,19 @@ final class RecordMacroTests: XCTestCase {
                 static var recordType: CKRecord.RecordType {
                     "Note"
                 }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Note",
+                        fields: [
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "isPinned", key: "isPinned", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false),
+                            Records.FieldSchema(name: "tags", key: "tags", isOptional: false, isEncrypted: false),
+                        ],
+                        assets: [],
+                        references: []
+                    )
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
@@ -102,6 +115,16 @@ final class RecordMacroTests: XCTestCase {
                 public static var recordType: CKRecord.RecordType {
                     "Folder"
                 }
+                public static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Folder",
+                        fields: [
+                            Records.FieldSchema(name: "default", key: "default", isOptional: false, isEncrypted: false),
+                        ],
+                        assets: [],
+                        references: []
+                    )
+                }
                 public init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.`default` = try CKRecordDecoder.decode((Bool).self, forKey: "default", from: record)
@@ -137,6 +160,16 @@ final class RecordMacroTests: XCTestCase {
             extension Box: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Box"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Box",
+                        fields: [
+                            Records.FieldSchema(name: "value", key: "value", isOptional: true, isEncrypted: false),
+                        ],
+                        assets: [],
+                        references: []
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -383,6 +416,18 @@ final class RecordMacroTests: XCTestCase {
                 static var recordType: CKRecord.RecordType {
                     "Article"
                 }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Article",
+                        fields: [
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false),
+                        ],
+                        assets: [],
+                        references: [
+                            Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false, isSorted: false, holdsIDs: false),
+                        ]
+                    )
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
@@ -557,6 +602,17 @@ final class RecordMacroTests: XCTestCase {
                 static var recordType: CKRecord.RecordType {
                     "Note"
                 }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Note",
+                        fields: [],
+                        assets: [],
+                        references: [
+                            Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true, isSorted: false, holdsIDs: false),
+                            Records.ReferenceSchema(property: "pinnedIDs", target: Tag.self, isToMany: true, isSorted: false, holdsIDs: true),
+                        ]
+                    )
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self._tags = Records.ToMany(ids: [])
@@ -621,6 +677,16 @@ final class RecordMacroTests: XCTestCase {
             extension Article: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Article"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Article",
+                        fields: [],
+                        assets: [],
+                        references: [
+                            Records.ReferenceSchema(property: "authorID", target: Person.self, isToMany: false, isSorted: false, holdsIDs: true),
+                        ]
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -868,6 +934,16 @@ final class RecordMacroTests: XCTestCase {
                 static var recordType: CKRecord.RecordType {
                     "User"
                 }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "User",
+                        fields: [],
+                        assets: [],
+                        references: [
+                            Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false, isSorted: false, holdsIDs: false),
+                        ]
+                    )
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self._profile = Records.ToOne(id: nil)
@@ -937,6 +1013,17 @@ final class RecordMacroTests: XCTestCase {
             extension Profile: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Profile"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Profile",
+                        fields: [],
+                        assets: [],
+                        references: [
+                            Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, isSorted: false, holdsIDs: true, inverseOf: "profile", deleteSelf: true),
+                            Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, isSorted: false, holdsIDs: true, inverseOf: "settingsID", deleteSelf: false),
+                        ]
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1094,6 +1181,17 @@ final class RecordMacroTests: XCTestCase {
             extension Shelf: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Shelf"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Shelf",
+                        fields: [],
+                        assets: [],
+                        references: [
+                            Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, isSorted: false, holdsIDs: true, inverseOf: "shelf", deleteSelf: false),
+                            Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, isSorted: false, holdsIDs: true, inverseOf: "shelf", deleteSelf: false),
+                        ]
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1296,6 +1394,18 @@ final class RecordMacroTests: XCTestCase {
                 static var recordType: CKRecord.RecordType {
                     "Note"
                 }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Note",
+                        fields: [
+                            Records.FieldSchema(name: "first", key: "first", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "last", key: "last", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false),
+                        ],
+                        assets: [],
+                        references: []
+                    )
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self.first = try CKRecordDecoder.decode((String).self, forKey: "first", from: record)
@@ -1343,6 +1453,18 @@ final class RecordMacroTests: XCTestCase {
             extension Account: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Account"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Account",
+                        fields: [
+                            Records.FieldSchema(name: "name", key: "name", isOptional: false, isEncrypted: false),
+                            Records.FieldSchema(name: "note", key: "note", isOptional: true, isEncrypted: true),
+                            Records.FieldSchema(name: "pin", key: "pin", isOptional: false, isEncrypted: true),
+                        ],
+                        assets: [],
+                        references: []
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1490,6 +1612,14 @@ final class RecordMacroTests: XCTestCase {
             extension Poster: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Poster"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Poster",
+                        fields: [],
+                        assets: ["image", "thumb"],
+                        references: []
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1660,6 +1790,17 @@ final class RecordMacroTests: XCTestCase {
                 static var recordType: CKRecord.RecordType {
                     "Gig"
                 }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Gig",
+                        fields: [
+                            Records.FieldSchema(name: "venue", key: "venue", isOptional: true, isEncrypted: true),
+                            Records.FieldSchema(name: "home", key: "home", isOptional: true, isEncrypted: true),
+                        ],
+                        assets: [],
+                        references: []
+                    )
+                }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
                     self._venue = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "venue", from: record.encryptedValues))
@@ -1736,6 +1877,14 @@ final class RecordMacroTests: XCTestCase {
             extension Memo: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Memo"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Memo",
+                        fields: [],
+                        assets: [],
+                        references: []
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1820,6 +1969,16 @@ final class RecordMacroTests: XCTestCase {
             extension Album: Records.Record {
                 static var recordType: CKRecord.RecordType {
                     "Album"
+                }
+                static var schema: Records.RecordSchema {
+                    Records.RecordSchema(
+                        recordType: "Album",
+                        fields: [
+                            Records.FieldSchema(name: "year", key: "released", isOptional: false, isEncrypted: false),
+                        ],
+                        assets: [],
+                        references: []
+                    )
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
