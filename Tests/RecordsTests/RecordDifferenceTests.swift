@@ -342,3 +342,107 @@ private final class Flag: @unchecked Sendable {
     try here.save()
     #expect(here.difference(id: staged.id) == nil)
 }
+
+// MARK: - Differences handed out for editing
+
+/// Asking for a record's difference twice gives the same object, and an edit through it stages
+/// the record.
+@MainActor
+@Test func editingAHandedOutDifferenceStagesIt() throws {
+    let (here, _) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    here.insert(saved)
+    try here.save()
+
+    let difference = here.difference(for: saved)
+    #expect(here.difference(for: saved) === difference)
+    #expect(difference.change == nil)
+    #expect(!here.hasChanges)
+    #expect(here.changes.isEmpty)
+
+    var draft = saved
+    draft.year = 1972
+    here.edit(difference, to: draft)
+    #expect(difference.change == .insert(saved.id))
+    #expect(here.hasChanges)
+    #expect(here.difference(for: saved) === difference)
+    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1972)
+}
+
+/// Inserting a record that has a difference handed out stages that same difference.
+@MainActor
+@Test func insertingUsesTheHandedOutDifference() throws {
+    let (here, _) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    here.insert(saved)
+    try here.save()
+
+    let difference = here.difference(for: saved)
+    var draft = saved
+    draft.year = 1972
+    here.insert(draft)
+    #expect(difference.change == .insert(saved.id))
+    #expect((difference.draft as? Novel)?.year == 1972)
+}
+
+/// Saving keeps each difference and starts it over from the record as written.
+@MainActor
+@Test func savingStartsTheDifferenceOverFromTheWrittenRecord() throws {
+    let (here, elsewhere) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    here.insert(saved)
+    try here.save()
+
+    let difference = here.difference(for: saved)
+    var draft = saved
+    draft.year = 1972
+    here.edit(difference, to: draft)
+
+    var remote = saved
+    remote.title = "Blue (Remastered)"
+    elsewhere.insert(remote)
+    try elsewhere.save()
+
+    try here.save()
+    #expect(difference.change == nil)
+    #expect(difference.saved == nil)
+    #expect((difference.original as? Novel)?.title == "Blue (Remastered)")
+    #expect((difference.original as? Novel)?.year == 1972)
+    #expect((difference.draft as? Novel)?.title == "Blue (Remastered)")
+    #expect(!here.hasChanges)
+    #expect(here.difference(for: saved) === difference)
+}
+
+/// Rolling back returns the draft to the saved record and keeps the difference.
+@MainActor
+@Test func rollingBackReturnsTheDraftToTheSavedRecord() throws {
+    let (here, _) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    here.insert(saved)
+    try here.save()
+
+    let difference = here.difference(for: saved)
+    var draft = saved
+    draft.year = 1972
+    here.edit(difference, to: draft)
+    here.rollback()
+
+    #expect(difference.change == nil)
+    #expect((difference.draft as? Novel)?.year == 1971)
+    #expect(!here.hasChanges)
+    #expect(here.difference(for: saved) === difference)
+}
+
+/// The context doesn't keep an unstaged difference alive once nothing else holds it.
+@MainActor
+@Test func anUnusedDifferenceIsReleased() throws {
+    let (here, _) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    weak var released: RecordDifference?
+    do {
+        let difference = here.difference(for: saved)
+        released = difference
+        #expect(released != nil)
+    }
+    #expect(released == nil)
+}
