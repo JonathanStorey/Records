@@ -60,14 +60,11 @@ extension FieldKind {
 }
 
 extension Record {
-    /// The column value of each field in `schema` order, read from what `encodeFields` writes.
-    func columnValues() -> [SQLValue] {
-        let record = CKRecord(recordType: Self.recordType)
-        encodeFields(into: record)
-        return Self.schema.fields.map { field in
-            let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]
-            return field.kind.sqlValue(value)
-        }
+    /// The column value of each field, by field key, as `encodeFields(into:)` writes it.
+    func columnValues() -> [String: SQLValue] {
+        var row = RecordRow()
+        encodeFields(into: &row)
+        return row.values
     }
 }
 

@@ -94,6 +94,7 @@ public struct RecordMacro: ExtensionMacro {
             lines.append("        \(field.destination)[\"\(field.fieldKey)\"] = \(field.written)")
         }
         lines.append("    }")
+        lines += rowLines(fields: fields, references: references, timestamps: try timestamps(in: structDecl.memberBlock), access: access)
         let assets = fields.filter(\.isAsset)
         if !assets.isEmpty {
             // Each asset is stored on a link named by its field key, so `@Renamed` keeps it.
@@ -169,6 +170,58 @@ public struct RecordMacro: ExtensionMacro {
         let decl = DeclSyntax(stringLiteral: lines.joined(separator: "\n"))
         guard let extensionDecl = decl.as(ExtensionDeclSyntax.self) else { return [] }
         return [extensionDecl]
+    }
+
+    /// `init(from row:)` and `encodeFields(into row:)`: the same properties as the `CKRecord`
+    /// pair, read from and written to their columns. A row has no encrypted values, so every
+    /// field is a column, and the dates are columns too.
+    private static func rowLines(
+        fields: [StoredProperty], references: [ReferenceMacro.Reference],
+        timestamps: [(storage: String, kind: TimestampedMacro.Kind)], access: String
+    ) -> [String] {
+        var lines = [
+            "    \(access)init(from row: Records.RecordRow) throws {",
+            "        self.id = try row.id",
+        ]
+        for field in fields {
+            if field.isAsset {
+                lines.append("        self._\(field.key) = Records.AssetField(id: nil, file: nil)")
+                continue
+            }
+            if field.isLocation {
+                lines.append("        self._\(field.key) = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent(\"\(field.fieldKey)\", from: row))")
+                continue
+            }
+            let read: String
+            if let wrapped = field.wrappedType {
+                read = "Records.FieldCoding((\(wrapped)).self).decodeIfPresent(\"\(field.fieldKey)\", from: row)"
+            } else if field.isArray {
+                read = "Records.FieldCoding((\(field.type)).self).decodeIfPresent(\"\(field.fieldKey)\", from: row) ?? []"
+            } else {
+                read = "Records.FieldCoding((\(field.type)).self).decode(\"\(field.fieldKey)\", from: row)"
+            }
+            lines.append("        self.\(field.name) = try \(read)")
+        }
+        for reference in references {
+            let empty = reference.isToMany
+                ? "Records.ToMany(ids: []\(reference.sort == nil ? "" : ", sorted: true"))"
+                : "Records.ToOne(id: nil)"
+            lines.append("        self.\(reference.storage) = \(empty)")
+        }
+        for timestamp in timestamps {
+            lines.append("        self.\(timestamp.storage).load(row.\(timestamp.kind.rowProperty))")
+        }
+        lines += [
+            "    }",
+            "    \(access)func encodeFields(into row: inout Records.RecordRow) {",
+        ]
+        for field in fields where !field.isAsset {
+            let type = field.isLocation ? "Records.LocationField.Stored" : (field.wrappedType ?? field.type)
+            let value = field.isLocation ? "self._\(field.key).location" : "self.\(field.name)"
+            lines.append("        Records.FieldCoding((\(type)).self).encode(\(value), into: &row, forKey: \"\(field.fieldKey)\")")
+        }
+        lines.append("    }")
+        return lines
     }
 
     /// The static `schema` the container builds its tables from. It is built once, except on a

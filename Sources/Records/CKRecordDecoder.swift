@@ -45,7 +45,14 @@ public struct CKRecordDecoder: Sendable {
         depth: Int = 1
     ) throws -> R {
         var decoded = try decode(type, from: record)
-        let sourceName = record.recordID.recordName
+        try load(&decoded, links: links, targets: targets, depth: depth)
+        return decoded
+    }
+
+    /// Fills `decoded`'s `@Reference` and `@Asset` properties from `links`, as
+    /// `decode(_:from:links:targets:depth:)` does.
+    func load<R: Record>(_ decoded: inout R, links: [CKRecord], targets: [CKRecord] = [], depth: Int = 1) throws {
+        let sourceName = decoded.id.uuidString
 
         var byProperty: [String: [(target: ReferenceTarget, link: CKRecord)]] = [:]
         for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
@@ -78,7 +85,6 @@ public struct CKRecordDecoder: Sendable {
             let ordered = entries.sorted(by: Self.precedes)
             try decoded.loadReference(property, to: ordered.map(\.target), from: targets, links: links, depth: depth)
         }
-        return decoded
     }
 
     /// Whether `a` comes before `b` in a to-many reference: by order key, then by when its link
@@ -89,6 +95,24 @@ public struct CKRecordDecoder: Sendable {
         let (dateA, dateB) = (a.link.creationDate ?? .distantPast, b.link.creationDate ?? .distantPast)
         if dateA != dateB { return dateA < dateB }
         return a.link.recordID.recordName < b.link.recordID.recordName
+    }
+
+    /// `record` as `R`'s database row: each field's column value, with the record's name and the
+    /// server's dates. Sync writes it to the database.
+    public func decode<R: Record>(_ record: CKRecord, of type: R.Type) throws -> RecordRow {
+        guard record.recordType == R.recordType else {
+            throw CKRecordDecodingError.recordTypeMismatch(expected: R.recordType, found: record.recordType)
+        }
+        var row = RecordRow([
+            "_name": .text(record.recordID.recordName),
+            "_createdAt": record.creationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
+            "_modifiedAt": record.modificationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
+        ])
+        for field in R.schema.fields {
+            let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]
+            row.values[field.key] = field.kind.sqlValue(value)
+        }
+        return row
     }
 
     /// The record's `id`, parsed from its record name. Used by the code `@Record` generates.

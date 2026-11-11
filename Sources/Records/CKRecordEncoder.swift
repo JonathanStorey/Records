@@ -16,6 +16,15 @@ public struct CKRecordEncoder: Sendable {
         return ckRecord
     }
 
+    /// A new `CKRecord` for `R`'s database row `row` in `zone`, with every field. Its dates are
+    /// the server's to set, so the row's are left out.
+    public func encode<R: Record>(_ row: RecordRow, of type: R.Type, in zone: Zone) -> CKRecord {
+        guard case .text(let name) = row.values["_name"] else {
+            preconditionFailure("A RecordRow always holds its record's name")
+        }
+        return R.schema.record(from: row.values, name: name, zone: zone)
+    }
+
     // MARK: Links
 
     /// Every link `record`'s references point through now, one per target.

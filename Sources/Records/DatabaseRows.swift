@@ -52,8 +52,9 @@ extension Database {
         let decoder = CKRecordDecoder()
         return try rows.compactMap { row in
             guard case .text(let name) = row["_name"] else { return nil }
-            let record = R.schema.record(from: row, name: name, zone: zone)
-            return try decoder.decode(R.self, from: record, links: linksByName[name] ?? [], depth: 0)
+            var record = try R(from: RecordRow(row))
+            try decoder.load(&record, links: linksByName[name] ?? [], depth: 0)
+            return record
         }
     }
 
@@ -61,11 +62,12 @@ extension Database {
     /// deleted.
     func load<R: Record>(_ type: R.Type, key: RecordKey) throws -> R? {
         guard let row = try currentRow(of: key), row["_deleted"] != .integer(1) else { return nil }
-        let record = R.schema.record(from: row, name: key.name, zone: key.zone)
+        var record = try R(from: RecordRow(row))
         let links = try savedLinks(touching: key).map { name, row in
             RecordLink.schema.record(from: row, name: name, zone: key.zone)
         }
-        return try CKRecordDecoder().decode(R.self, from: record, links: links, depth: 0)
+        try CKRecordDecoder().load(&record, links: links, depth: 0)
+        return record
     }
 
     /// The record's own saved links, and the saved links that point at it for its `from:` sides,
