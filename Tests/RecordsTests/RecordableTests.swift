@@ -354,7 +354,7 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     #expect(storage.value.cuts.isEmpty)
 }
 
-/// Expanded targets show the context's changes to them.
+/// Expanded targets show changes to them once saved.
 @MainActor
 @Test func expandShowsChangesToTargets() throws {
     let (context, lp, nova) = try savedLP()
@@ -364,6 +364,8 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     var renamed = nova
     renamed.name = "Nova II"
     context.insert(renamed)
+    #expect(storage.value.musician?.name == "Nova")
+    try context.save()
     #expect(storage.value.musician?.name == "Nova II")
 }
 

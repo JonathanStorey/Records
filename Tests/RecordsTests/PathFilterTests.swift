@@ -172,33 +172,32 @@ private let reviewPredicates: [Predicate<Review>] = [
 }
 
 @MainActor
-@Test func stagedChangesCountAtEveryLevel() throws {
+@Test func pathsSeeChangesAtEveryLevelOnlyAfterSave() throws {
     let library = Library()
     let context = try library.save()
+    let nova = #Predicate<Review> { $0.lp?.musician?.name == "Nova" }
+    let noLP = #Predicate<Review> { $0.lp == nil }
+    let before = Set(try context.fetch(RecordDescriptor(predicate: nova)).map(\.stars))
+    let beforeNoLP = Set(try context.fetch(RecordDescriptor(predicate: noLP)).map(\.stars))
 
-    // A staged rename of a record two levels down.
+    // An unsaved rename two levels down, an unsaved delete one level down,
+    // and an unsaved record at the top pointing at an unsaved record.
     var echo = library.musicians[1]
     echo.name = "Nova"
     context.insert(echo)
-    let nova = #Predicate<Review> { $0.lp?.musician?.name == "Nova" }
-    #expect(Set(try context.fetch(RecordDescriptor(predicate: nova)).map(\.stars)) == [5, 3])
-
-    // A staged delete of a record one level down.
     context.delete(library.lps[0])
-    #expect(Set(try context.fetch(RecordDescriptor(predicate: nova)).map(\.stars)) == [3])
-    #expect(Set(try context.fetch(RecordDescriptor(predicate: #Predicate<Review> { $0.lp == nil })).map(\.stars)) == [5, 4])
-
-    // A staged record at the top, pointing at a staged record.
     let newcomer = LP(id: UUID(), title: "F", year: 2024, musician: echo, cuts: [])
-    let review = Review(id: UUID(), stars: 4, lp: newcomer)
     context.insert(newcomer)
-    context.insert(review)
-    #expect(try context.fetch(RecordDescriptor(predicate: nova)).count == 2)
-    #expect(try context.fetchCount(RecordDescriptor(predicate: nova)) == 2)
+    context.insert(Review(id: UUID(), stars: 4, lp: newcomer))
 
-    // Saved, the database answers the same.
+    #expect(Set(try context.fetch(RecordDescriptor(predicate: nova)).map(\.stars)) == before)
+    #expect(Set(try context.fetch(RecordDescriptor(predicate: noLP)).map(\.stars)) == beforeNoLP)
+
+    // Saved, every level answers with the changes.
     try context.save()
     #expect(Set(try context.fetch(RecordDescriptor(predicate: nova)).map(\.stars)) == [3, 4])
+    #expect(try context.fetchCount(RecordDescriptor(predicate: nova)) == 2)
+    #expect(Set(try context.fetch(RecordDescriptor(predicate: noLP)).map(\.stars)) == [5, 4])
 }
 
 @MainActor

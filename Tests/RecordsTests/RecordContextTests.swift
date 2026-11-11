@@ -601,19 +601,26 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
     #expect(referenceIDs(loaded, "labels") == [labels[2].id, labels[0].id, labels[1].id])
 }
 
-/// A staged change comes before the saved record.
+/// A record reads as saved until `save()`.
 @MainActor
-@Test func recordReturnsStagedChanges() throws {
+@Test func recordReturnsTheSavedRecord() throws {
     let context = try makeContext(for: Venue.self)
     var venue = makeVenue()
     context.insert(venue)
-    #expect(try context.record(id: venue.id, for: Venue.self) == venue)
+    #expect(try context.record(id: venue.id, for: Venue.self) == nil)
     try context.save()
+    let saved = venue
+    #expect(try context.record(id: venue.id, for: Venue.self) == saved)
 
     venue.name = "Arena"
     context.insert(venue)
+    #expect(try context.record(id: venue.id, for: Venue.self) == saved)
+    try context.save()
     #expect(try context.record(id: venue.id, for: Venue.self)?.name == "Arena")
+
     context.delete(venue)
+    #expect(try context.record(id: venue.id, for: Venue.self)?.name == "Arena")
+    try context.save()
     #expect(try context.record(id: venue.id, for: Venue.self) == nil)
     #expect(try context.record(id: venue.id) == nil)
 }

@@ -116,7 +116,7 @@ private func expectMatches<R: Record>(
 }
 
 @MainActor
-@Test func stagedChangesCountForIDFilters() throws {
+@Test func idFiltersSeeChangesOnlyAfterSave() throws {
     let context = try context(for: Account.self, Settings.self)
     let settings = Settings(id: UUID(), accountID: nil)
     var account = Account(id: UUID(), settingsID: settings.id)
@@ -124,12 +124,18 @@ private func expectMatches<R: Record>(
     context.insert(account)
     try context.save()
 
-    // A staged edit drops the link, so the saved row matches in SQL but not in Swift.
+    // An unsaved edit drops the link, and the filter sees it only after the save.
     account.settingsID = nil
     context.insert(account)
     let id = settings.id
-    #expect(try context.fetch(RecordDescriptor<Account>(predicate: #Predicate { $0.settingsID == id })).isEmpty)
-    #expect(try context.fetchCount(RecordDescriptor<Account>(predicate: #Predicate { $0.settingsID == nil })) == 1)
+    let linked = RecordDescriptor<Account>(predicate: #Predicate { $0.settingsID == id })
+    let unlinked = RecordDescriptor<Account>(predicate: #Predicate { $0.settingsID == nil })
+    #expect(try context.fetch(linked).map(\.id) == [account.id])
+    #expect(try context.fetchCount(unlinked) == 0)
+
+    try context.save()
+    #expect(try context.fetch(linked).isEmpty)
+    #expect(try context.fetchCount(unlinked) == 1)
 }
 
 @Test func anIDFilterIsALinkCondition() throws {

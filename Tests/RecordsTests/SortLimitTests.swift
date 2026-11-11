@@ -101,13 +101,13 @@ private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]
 }
 
 @MainActor
-@Test func stagedChangesStillCountWithALimit() throws {
+@Test func savedChangesCountWithALimit() throws {
     let context = try RecordContainer(for: [Gauge.self], url: nil).mainContext
     var records = gauges()
     for gauge in records { context.insert(gauge) }
     try context.save()
 
-    // Stage a record that sorts first, and delete the one that sorted first.
+    // Add a record that sorts first, and delete the one that sorted first.
     let first = try #require(records.min { $0.steps < $1.steps })
     context.delete(first)
     var newcomer = records[1]
@@ -118,6 +118,10 @@ private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]
     records.append(newcomer)
 
     let descriptor = RecordDescriptor<Gauge>(sortBy: [SortDescriptor(\.steps)], fetchLimit: 2)
+    #expect(try context.fetch(descriptor).first?.id == first.id)
+    #expect(try context.fetchCount(RecordDescriptor<Gauge>()) == 8)
+
+    try context.save()
     let fetched = try context.fetch(descriptor)
     #expect(fetched.first?.id == newcomer.id)
     #expect(!fetched.contains { $0.id == first.id })

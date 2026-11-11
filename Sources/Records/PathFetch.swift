@@ -3,8 +3,7 @@ import Foundation
 
 // Fetching with a predicate that reads through references to records, such as
 // `$0.album?.artist?.name == "Nova"`. The database narrows the rows as usual. Swift then checks
-// each one with the records its paths reach loaded, read from the database with staged changes
-// laid over them, so drafts count at every level.
+// each one with the saved records its paths reach loaded.
 
 /// The references to records a predicate reads through.
 struct Traversal {
@@ -203,31 +202,12 @@ private final class LoadedReader {
     }
 }
 
-/// The context's staged changes in one zone, as the database would hold them after `save()`.
-private struct Overlay {
-    /// Every staged record, saved or deleted. Its own links in the database no longer count.
-    var staged: Set<NodeKey> = []
-    /// Staged saves, as records.
-    var saved: [NodeKey: CKRecord] = [:]
-    /// The links staged saves own.
-    var links: [CKRecord] = []
-
-    /// Whether the database's copy of `link` is replaced by a staged change to its source.
-    func replaces(_ link: CKRecord) -> Bool {
-        guard let source = link["source"] as? String, let sourceName = link["sourceName"] as? String else { return false }
-        let sourceType = String(source.split(separator: ".", maxSplits: 1).first ?? "")
-        return staged.contains(NodeKey(recordType: sourceType, name: sourceName))
-    }
-}
-
 extension RecordContext {
     /// `fetch` for a predicate that reads through references to records.
     func fetch<R: Record>(
         _ descriptor: RecordDescriptor<R>, matching predicate: Predicate<R>, through traversal: Traversal, filter: SQLFilter?
     ) throws -> [R] {
-        let overlay = try overlay()
-
-        // The rows the SQL lets through, with staged records of `R` in place of their rows.
+        // The rows the SQL lets through.
         let (matching, values) = Self.matching(zone: zone, filter: filter)
         let rows = try database.rows("SELECT * FROM \(database.quoted(R.recordType)) WHERE \(matching)", values)
         var roots: [NodeKey] = []
@@ -236,19 +216,11 @@ extension RecordContext {
         for row in rows {
             guard case .text(let name) = row["_name"] else { continue }
             let key = NodeKey(recordType: R.recordType, name: name)
-            guard !overlay.staged.contains(key) else { continue }
             graph.records[key] = schema.record(from: row, name: name, zone: zone)
             roots.append(key)
         }
-        for key in changedKeys(R.recordType) {
-            let node = NodeKey(recordType: R.recordType, name: key.name)
-            if let record = overlay.saved[node] {
-                graph.records[node] = record
-                roots.append(node)
-            }
-        }
         let infos = PathInfos(types: types, traversal: traversal)
-        try load(&graph, from: roots, through: traversal, infos: infos, overlay: overlay)
+        try load(&graph, from: roots, through: traversal, infos: infos)
 
         // Check each root with the records its paths reach loaded.
         let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
@@ -274,21 +246,21 @@ extension RecordContext {
     }
 
     /// `records` with the references `keyPaths` name holding their records, as deep as they
-    /// chain. The targets are read together, one query per type per level, with staged changes
-    /// laid over them.
+    /// chain. The targets are saved records, read together, one query per type per level. Each
+    /// of `records` follows its own references, even ones changed since it was saved.
     func prefetch<R: Record>(_ keyPaths: [AnyKeyPath], into records: [R]) throws -> [R] {
         let traversal = Traversal(prefetching: keyPaths, from: R.self)
         guard !traversal.isEmpty, !records.isEmpty else { return records }
-        let overlay = try overlay()
         let encoder = CKRecordEncoder()
         var graph = Graph()
         let roots = records.map { record in
             let node = NodeKey(recordType: R.recordType, name: record.id.uuidString)
             graph.records[node] = encoder.encode(record, in: zone)
+            for link in encoder.links(for: record, in: zone) { graph.add(link: link) }
             return node
         }
         let infos = PathInfos(types: types, traversal: traversal)
-        try load(&graph, from: roots, through: traversal, infos: infos, overlay: overlay)
+        try load(&graph, from: roots, through: traversal, infos: infos, ownLinksGiven: Set(roots))
 
         let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
         return try zip(records, roots).map { record, root in
@@ -296,30 +268,16 @@ extension RecordContext {
         }
     }
 
-    /// The staged changes in the current zone, each draft laid over its latest saved record.
-    private func overlay() throws -> Overlay {
-        var overlay = Overlay()
-        let encoder = CKRecordEncoder()
-        for key in changedKeys() {
-            guard let change = changed(key) else { continue }
-            let node = NodeKey(recordType: key.recordType, name: key.name)
-            overlay.staged.insert(node)
-            if let record = try draftRecord(change, key: key) {
-                overlay.saved[node] = encoder.encode(record, in: zone)
-                overlay.links += encoder.links(for: record, in: zone)
-            }
-        }
-        return overlay
-    }
-
     /// Loads the records `roots` reach through `traversal`, level by level, with every link
-    /// that touches each record loaded.
+    /// that touches each record loaded. The records in `ownLinksGiven` already hold the links
+    /// they own, so their saved ones are left out.
     private func load(
-        _ graph: inout Graph, from roots: [NodeKey], through traversal: Traversal, infos: PathInfos, overlay: Overlay
+        _ graph: inout Graph, from roots: [NodeKey], through traversal: Traversal, infos: PathInfos,
+        ownLinksGiven: Set<NodeKey> = []
     ) throws {
         var frontier = roots
         for level in 0...traversal.hops {
-            try loadLinks(for: frontier.map(\.name), into: &graph, overlay: overlay)
+            try loadLinks(for: frontier.map(\.name), into: &graph, ownLinksGiven: ownLinksGiven)
             guard level < traversal.hops else { break }
 
             // The records the traversed references of the frontier point at.
@@ -338,15 +296,7 @@ extension RecordContext {
             frontier = []
             for (recordType, names) in next {
                 guard let schema = types[recordType]?.schema else { continue }
-                for name in names where overlay.staged.contains(NodeKey(recordType: recordType, name: name)) {
-                    let node = NodeKey(recordType: recordType, name: name)
-                    if let record = overlay.saved[node] {
-                        graph.records[node] = record
-                        frontier.append(node)
-                    }
-                }
-                let saved = names.filter { !overlay.staged.contains(NodeKey(recordType: recordType, name: $0)) }
-                for chunk in Array(saved).chunked(400) {
+                for chunk in Array(names).chunked(400) {
                     let (current, zoneValues) = Self.matching(zone: zone, filter: nil)
                     let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
                     let rows = try database.rows(
@@ -365,9 +315,9 @@ extension RecordContext {
         }
     }
 
-    /// Loads every link that touches the records named `names`, with staged links in place of
-    /// the saved links of staged records.
-    private func loadLinks(for names: [String], into graph: inout Graph, overlay: Overlay) throws {
+    /// Loads every saved link that touches the records named `names`, except the links owned by
+    /// records in `ownLinksGiven`.
+    private func loadLinks(for names: [String], into graph: inout Graph, ownLinksGiven: Set<NodeKey>) throws {
         let missing = Array(Set(names).subtracting(graph.linksLoaded))
         guard !missing.isEmpty else { return }
         graph.linksLoaded.formUnion(missing)
@@ -386,14 +336,17 @@ extension RecordContext {
             for row in rows {
                 guard case .text(let name) = row["_name"] else { continue }
                 let link = linkSchema.record(from: row, name: name, zone: zone)
-                if !overlay.replaces(link) { graph.add(link: link) }
+                if !Self.isOwned(link, byAnyOf: ownLinksGiven) { graph.add(link: link) }
             }
         }
-        let wanted = Set(missing)
-        for link in overlay.links {
-            let source = link["sourceName"] as? String, target = link["targetName"] as? String
-            if source.map(wanted.contains) == true || target.map(wanted.contains) == true { graph.add(link: link) }
-        }
+    }
+
+    /// Whether `link` is owned by one of `records`: its source is that record's type and name.
+    private nonisolated static func isOwned(_ link: CKRecord, byAnyOf records: Set<NodeKey>) -> Bool {
+        guard !records.isEmpty, let source = link["source"] as? String, let sourceName = link["sourceName"] as? String
+        else { return false }
+        let sourceType = String(source.split(separator: ".", maxSplits: 1).first ?? "")
+        return records.contains(NodeKey(recordType: sourceType, name: sourceName))
     }
 }
 

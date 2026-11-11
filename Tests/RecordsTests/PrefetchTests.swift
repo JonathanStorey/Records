@@ -73,9 +73,9 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
     #expect(review.lp.map { ids($0, "musician") } == [lps[0].musician!.id])
 }
 
-/// Prefetching works with a limit the database applies and sees staged changes.
+/// Prefetching works with a limit the database applies and sees changes once saved.
 @MainActor
-@Test func prefetchingSeesStagedChanges() throws {
+@Test func prefetchingSeesChangesOnlyAfterSave() throws {
     let (context, musicians, _) = try savedShelf()
     var renamed = musicians[0]
     renamed.name = "Nova (Live)"
@@ -83,10 +83,10 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
 
     var descriptor = RecordDescriptor<LP>(sortBy: [SortDescriptor(\.year)], fetchLimit: 1)
     descriptor.relationshipKeyPathsForPrefetching = [\LP.musician]
-    #expect(try context.fetch(descriptor).map { $0.musician?.name } == ["Nova (Live)"])
-
-    context.rollback()
     #expect(try context.fetch(descriptor).map { $0.musician?.name } == ["Nova"])
+
+    try context.save()
+    #expect(try context.fetch(descriptor).map { $0.musician?.name } == ["Nova (Live)"])
 }
 
 /// References named on the loaded records' types load too, as deep as they chain.

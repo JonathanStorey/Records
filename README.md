@@ -426,8 +426,8 @@ which writes every staged change in one transaction. `rollback()` discards them,
 `hasChanges` tells you whether any are waiting. `changes` is the set of the current zone's
 changes as `RecordDifference.Change` values, such as `.insert(album.id)` or `.delete(oldAlbum.id)`.
 Inserting a record again replaces its change, so each record appears once per zone. To read the
-record itself, use `context.record(id:)`, which shows the draft laid over the latest saved copy.
-`save()` writes the changes of every zone.
+`save()` writes the changes of every zone. Reads and fetches show saved records only, so a
+change shows once it is saved.
 
 Saving a delete also removes the links other records hold to the deleted record, so their
 references drop it. It deletes the records the deleted one owns through a reference whose `from:`
@@ -513,7 +513,7 @@ References hold IDs. Name the ones to load with `expand:`, which works like
 _album = Recordable(album, expand: \Album.artist)
 ```
 
-The targets are read each time the record is, with the context's changes to them laid over them.
+The targets are read as saved each time the record is, so a change to one shows once it is saved.
 Expanded targets are for showing. Editing `album.artist?.name` through the wrapper saves nothing,
 because only the album is saved. Give the artist its own `@Recordable` to edit it.
 
@@ -533,10 +533,8 @@ let album = try context.record(id: albumID, for: Album.self)   // Album?
 let any = try context.record(id: someID)                       // (any Record)?
 ```
 
-Both look in the context's `zone` and return `nil` when the record is missing or deleted. Staged
-changes count as if saved: a staged insert returns the saved record with the draft's edits laid
-over it, so a change made elsewhere since to a field the draft didn't touch shows, and a staged
-delete returns `nil`. References hold their targets' IDs. Without a type, one indexed query finds the table that
+Both look in the context's `zone` and return the saved record, or `nil` when it is missing or
+deleted. Changes not yet saved don't show until `save()`. References hold their targets' IDs. Without a type, one indexed query finds the table that
 holds the ID.
 
 ## Fetching records
@@ -551,9 +549,8 @@ let count = try context.fetchCount(RecordDescriptor<Album>())
 ```
 
 `RecordDescriptor` takes Foundation's `#Predicate` and `SortDescriptor`, as SwiftData's
-`FetchDescriptor` does. `fetch` looks in the context's `zone` and sees staged changes as `save()`
-would write them: a staged insert is the saved record with the draft's edits laid over it, and a
-staged delete leaves its record out. Reading never writes. References hold their targets' IDs.
+`FetchDescriptor` does. `fetch` looks in the context's `zone` and returns saved records only, so
+changes not yet saved show after `save()`. Reading never writes. References hold their targets' IDs.
 
 The parts of a predicate the database can check run there, so only matching rows are read:
 comparisons of numbers, Booleans, dates, enums, `nil`, and the `id`, string equality, `&&`,
@@ -571,7 +568,7 @@ Predicates can also read through references to records, at any depth:
 
 The database checks each path through the links, reaching only targets that are saved. When
 Swift has to check part of the predicate, fetch loads the records the paths reach, and only
-those, with staged changes laid over them. The records it returns still hold IDs. Everything
+those. The records it returns still hold IDs. Everything
 else, such as `contains` on a string or a computed property, is checked in Swift on the rows read. Either way the results are the same.
 
 Fetched references hold IDs. To get records instead, name the references to load with the
@@ -586,13 +583,12 @@ let albums = try context.fetch(descriptor)   // albums[0].artist?.name is loaded
 Each key path names a reference on its own type, so naming references on the loaded types goes
 deeper. `[\Review.album, \Album.artist]` loads each review's album and each album's artist, and
 `[\Album.tracks, \Track.composer]` works through a to-many reference the same way. References
-not named hold IDs. The targets are read together, one query per type per level, with staged
-changes laid over them.
+not named hold IDs. The targets are read together, one query per type per level.
 
 When the whole predicate runs in the database and every sort is by a number or a date, the
 database also sorts and applies `fetchLimit` and `fetchOffset`, so only the records returned are
-read. `fetchCount` then counts without reading any. Staged changes to the type, a string sort, or
-a predicate part Swift has to check keep the sorting and limiting in Swift.
+read. `fetchCount` then counts without reading any. A string sort or a predicate part Swift has
+to check keeps the sorting and limiting in Swift.
 
 ## Saving and loading
 

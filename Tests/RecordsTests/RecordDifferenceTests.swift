@@ -198,11 +198,12 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(page.referenceStates.first { $0.property == "labels" }?.ids == labels.map(\.id))
 }
 
-// MARK: - Reading drafts
+// MARK: - Reading saved records
 
-/// Reads lay a draft's edits over the latest saved record, as saving would write it.
+/// Reads show the latest saved record until the draft is saved, and the save lays the
+/// draft's edits over it.
 @MainActor
-@Test func aStaleDraftReadsWithChangesMadeElsewhere() throws {
+@Test func aStaleDraftReadsAsSavedUntilItSaves() throws {
     let (here, elsewhere) = try twoContexts()
     let saved = novel("Blue", year: 1971)
     here.insert(saved)
@@ -219,17 +220,20 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     let read = try #require(try here.record(id: saved.id, for: Novel.self))
     #expect(read.title == "Blue (Remastered)")
-    #expect(read.year == 1972)
-    #expect((try here.record(id: saved.id) as? Novel)?.title == "Blue (Remastered)")
+    #expect(read.year == 1971)
+    #expect(try here.fetchCount(RecordDescriptor<Novel>(predicate: #Predicate { $0.year == 1972 })) == 0)
 
+    try here.save()
+    let merged = try #require(try here.record(id: saved.id, for: Novel.self))
+    #expect(merged.title == "Blue (Remastered)")
+    #expect(merged.year == 1972)
     let fetched = try here.fetch(RecordDescriptor<Novel>(predicate: #Predicate { $0.year == 1972 }))
     #expect(fetched.map(\.title) == ["Blue (Remastered)"])
-    #expect(try here.fetchCount(RecordDescriptor<Novel>(predicate: #Predicate { $0.title == "Blue (Remastered)" })) == 1)
 }
 
-/// Reading staged changes writes nothing: they stay staged and the database stays as it was.
+/// Reading with changes pending writes nothing: they stay pending and the database stays as it was.
 @MainActor
-@Test func readingDraftsWritesNothing() throws {
+@Test func readingWithPendingChangesWritesNothing() throws {
     let (here, elsewhere) = try twoContexts()
     let saved = novel("Blue", year: 1971)
     here.insert(saved)
@@ -239,18 +243,18 @@ private func novel(_ title: String, year: Int) -> Novel {
     draft.year = 1972
     here.insert(draft)
     here.insert(novel("Court and Spark", year: 1974))
-    #expect(try here.fetch(RecordDescriptor<Novel>()).count == 2)
-    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1972)
+    #expect(try here.fetch(RecordDescriptor<Novel>()).count == 1)
+    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1971)
 
     #expect(here.changes.count == 2)
     #expect(try elsewhere.fetch(RecordDescriptor<Novel>()).map(\.year) == [1971])
-    here.rollback()
-    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1971)
+    try here.save()
+    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1972)
 }
 
-/// A stale draft's links read as saving would write them, before it is saved.
+/// A stale draft's links read as saved until it saves, then merge with the links changed elsewhere.
 @MainActor
-@Test func aStaleDraftReadsWithLinksChangedElsewhere() throws {
+@Test func aStaleDraftSavesWithLinksChangedElsewhere() throws {
     let (here, elsewhere) = try twoContexts()
     let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
     let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]], pinnedIDs: [])
@@ -266,10 +270,15 @@ private func novel(_ title: String, year: Int) -> Novel {
     elsewhere.insert(remote)
     try elsewhere.save()
 
-    let page = try #require(try here.record(id: saved.id, for: Page.self))
-    let ids = Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
-    #expect(ids == [labels[0].id, labels[2].id, labels[3].id])
+    func labelIDs() throws -> Set<UUID> {
+        let page = try #require(try here.record(id: saved.id, for: Page.self))
+        return Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
+    }
+    #expect(try labelIDs() == [labels[0].id, labels[3].id])
     #expect(here.hasChanges)
+
+    try here.save()
+    #expect(try labelIDs() == [labels[0].id, labels[2].id, labels[3].id])
 }
 
 /// A flag an observation's change handler can set from any thread.
