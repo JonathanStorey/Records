@@ -446,7 +446,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, ids: [
-                        "author": self._author.id.map { [$0] } ?? [],
+                        "author": self._author.ids,
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
@@ -708,7 +708,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, ids: [
-                        "authorID": self._authorID.id.map { [$0] } ?? [],
+                        "authorID": self._authorID.ids,
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
@@ -966,7 +966,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, ids: [
-                        "profile": self._profile.id.map { [$0] } ?? [],
+                        "profile": self._profile.ids,
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {

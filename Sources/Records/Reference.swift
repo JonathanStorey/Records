@@ -54,6 +54,8 @@ public struct ReferenceState: Sendable {
 public struct ToOne<Target: Record> {
     /// The target the reference points at now.
     public var id: UUID?
+    /// The target's ID as a list, empty when there is none, matching `ToMany`.
+    public var ids: [UUID] { id.map { [$0] } ?? [] }
     /// The loaded target. A class, so a record can refer to its own type.
     private var box: Box?
 

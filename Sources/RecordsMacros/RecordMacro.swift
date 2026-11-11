@@ -137,8 +137,7 @@ public struct RecordMacro: ExtensionMacro {
             } else {
                 lines.append("        Records.ReferenceState.all(of: Self.self, ids: [")
                 for reference in owning {
-                    let ids = reference.isToMany ? "self.\(reference.storage).ids" : "self.\(reference.storage).id.map { [$0] } ?? []"
-                    lines.append("            \"\(reference.key)\": \(ids),")
+                    lines.append("            \"\(reference.key)\": self.\(reference.storage).ids,")
                 }
                 lines.append("        ])")
             }
