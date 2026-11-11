@@ -419,8 +419,10 @@ try context.save()
 `insert` and `delete` stage changes in the context. Nothing reaches the database until `save()`,
 which writes every staged change in one transaction. `rollback()` discards them, and
 `hasChanges` tells you whether any are waiting. `changes` lists the current zone's staged
-changes as `RecordDifference.Change` values, such as `.insert(album)`. Inserting a record again
-replaces its change, so each record appears once per zone. `save()` writes the changes of every
+records as `RecordDifference` objects. Each holds its `change`, such as `.insert(album)`, and the
+`original` it started from, or `nil` for a new record. `RecordDifference` is `@Observable`, and
+inserting a record again updates its difference in place, so each record appears once per zone
+and a view showing it stays current. `save()` writes the changes of every
 zone.
 
 The first time a saved record is inserted, the context keeps the saved version as its original.

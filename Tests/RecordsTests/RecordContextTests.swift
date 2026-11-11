@@ -499,8 +499,8 @@ private func makeVenue() -> Venue {
 /// The titles of the staged pages, for comparing changes.
 @MainActor
 private func stagedTitles(_ context: RecordContext) -> [String] {
-    context.changes.compactMap { change in
-        guard case .insert(let record) = change, let page = record as? Page else { return nil }
+    context.changes.compactMap { difference in
+        guard case .insert(let record) = difference.change, let page = record as? Page else { return nil }
         return page.title
     }
 }
@@ -547,7 +547,7 @@ private func stagedTitles(_ context: RecordContext) -> [String] {
     let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: [])
     context.insert(page)
     context.delete(page)
-    guard case .delete(let record) = try #require(context.changes.first) else {
+    guard case .delete(let record) = try #require(context.changes.first).change else {
         Issue.record("Expected a delete")
         return
     }
