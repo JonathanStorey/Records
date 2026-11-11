@@ -496,13 +496,13 @@ private func makeVenue() -> Venue {
 
 // MARK: - Changes
 
-/// The titles of the staged pages, for comparing changes.
+/// The titles of the inserted pages, sorted, for comparing changes.
 @MainActor
-private func stagedTitles(_ context: RecordContext) -> [String] {
-    context.differences.compactMap { difference in
+private func insertedTitles(_ context: RecordContext) -> [String] {
+    context.differences.values.compactMap { difference in
         guard case .insert = difference.change, let page = difference.draft as? Page else { return nil }
         return page.title
-    }
+    }.sorted()
 }
 
 /// Inserting a record again replaces its change in place, so a record appears once.
@@ -516,8 +516,8 @@ private func stagedTitles(_ context: RecordContext) -> [String] {
     first.title = "Final"
     context.insert(first)
 
-    #expect(context.changes.map(\.id) == [first.id, second.id])
-    #expect(stagedTitles(context) == ["Final", "Other"])
+    #expect(context.changes == [.insert(first.id), .insert(second.id)])
+    #expect(insertedTitles(context) == ["Final", "Other"])
 }
 
 /// `changes` shows the current zone's changes, and `save()` writes every zone's.
@@ -531,9 +531,9 @@ private func stagedTitles(_ context: RecordContext) -> [String] {
     let work = Page(id: UUID(), title: "Plan", labels: [], pinnedIDs: [])
     context.insert(work)
 
-    #expect(context.changes.map(\.id) == [page.id, work.id])
+    #expect(context.changes == [.insert(page.id), .insert(work.id)])
     context.zone = .records
-    #expect(context.changes.map(\.id) == [page.id])
+    #expect(context.changes == [.insert(page.id)])
 
     try context.save()
     #expect(!context.hasChanges)

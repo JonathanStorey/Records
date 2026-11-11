@@ -43,11 +43,9 @@ public final class RecordContext {
     /// The container's `defaultZone`, which `@Recordable` edits in when it isn't given a zone.
     let defaultZone: Zone
 
-    /// Staged changes by record, in the order they were first staged.
-    var staged: [RecordKey: RecordDifference] = [:]
-    var stagedOrder: [RecordKey] = []
-    /// Differences handed out but not staged. One is dropped once the context is all that holds it.
-    private var shown: [RecordKey: RecordDifference] = [:]
+    /// One difference per record, changed or only handed out. One without a change is dropped
+    /// once the context is all that holds it.
+    var differences: [RecordKey: RecordDifference] = [:]
 
     init(container: RecordContainer) {
         types = container.types
@@ -57,26 +55,34 @@ public final class RecordContext {
     }
 
     /// Whether any change is staged and not yet saved, in any zone.
-    public var hasChanges: Bool { !staged.isEmpty }
+    public var hasChanges: Bool { differences.values.contains { $0.change != nil } }
 
-    /// The changes staged in the current `zone`, in the order they were first staged, such as
-    /// `.insert(album.id)`. A record appears at most once: staging it again replaces its change.
-    /// `save()` writes the changes of every zone, not only these.
-    public var changes: [RecordDifference.Change] {
-        differences.compactMap(\.change)
+    /// The changes in the current `zone`, such as `.insert(album.id)`. A record appears at most
+    /// once: staging it again replaces its change. `save()` writes the changes of every zone,
+    /// not only these.
+    public var changes: Set<RecordDifference.Change> {
+        Set(changedKeys().compactMap { differences[$0]?.change })
     }
 
-    /// The staged differences in the current `zone`, in the order they were first staged.
-    var differences: [RecordDifference] {
-        stagedOrder.filter { $0.zone == zone }.compactMap { staged[$0] }.filter { $0.change != nil }
+    /// The difference with a change for `key`, or `nil` when it has none.
+    func changed(_ key: RecordKey) -> RecordDifference? {
+        differences[key].flatMap { $0.change == nil ? nil : $0 }
     }
 
-    /// The difference staged for the record with `id` in the current `zone`, or `nil` when none
-    /// is staged. It is `@Observable` and stays the same object while the record is staged, so a
-    /// view or property wrapper holding it sees each new change.
+    /// The keys of the changed records in the current `zone`, of `recordType` when given, sorted
+    /// by name so reads that use them come out the same every time.
+    func changedKeys(_ recordType: String? = nil) -> [RecordKey] {
+        differences.compactMap { key, difference in
+            key.zone == zone && difference.change != nil && (recordType == nil || key.recordType == recordType) ? key : nil
+        }.sorted { $0.name < $1.name }
+    }
+
+    /// The difference with a change for the record with `id` in the current `zone`, or `nil`
+    /// when it has none. It is `@Observable` and stays the same object while anything holds it,
+    /// so a view or property wrapper holding it sees each new change.
     func difference(id: UUID) -> RecordDifference? {
         let name = id.uuidString
-        return stagedOrder.first { $0.zone == zone && $0.name == name }.flatMap { staged[$0] }
+        return differences.first { $0.key.zone == zone && $0.key.name == name && $0.value.change != nil }?.value
     }
 
     /// The difference for `record` in `zone`, or the current `zone` when `nil`, staged or not.
@@ -87,47 +93,26 @@ public final class RecordContext {
         checkRegistered(R.self)
         let zone = zone ?? self.zone
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        if let difference = existingDifference(for: key) { return difference }
+        if let difference = differences[key] { return difference }
         dropUnused()
         let original = (try? Self.load(R.self, key: key, in: database)) ?? nil
         let difference = RecordDifference(id: record.id, zone: zone, original: original, draft: original ?? record)
-        shown[key] = difference
+        differences[key] = difference
         return difference
     }
 
-    /// Called after `difference`'s draft was edited: stages it as an insert of its draft.
+    /// Called after `difference`'s draft was edited: makes its change an insert of its draft.
     func didEdit(_ difference: RecordDifference) {
-        let key = RecordKey(recordType: type(of: difference.record).recordType, name: difference.id.uuidString, zone: difference.zone)
         difference.change = .insert(difference.id)
-        stage(difference, key: key)
+        differences[difference.key] = difference
     }
 
-    /// The difference already handed out or staged for `key`.
-    private func existingDifference(for key: RecordKey) -> RecordDifference? {
-        staged[key] ?? shown[key]
-    }
-
-    /// Drops the unstaged differences nothing else holds any more.
+    /// Drops the differences without a change that nothing else holds any more.
     private func dropUnused() {
-        for key in Array(shown.keys) where isKnownUniquelyReferenced(&shown[key]!) {
-            shown[key] = nil
+        for key in Array(differences.keys)
+        where differences[key]?.change == nil && isKnownUniquelyReferenced(&differences[key]!) {
+            differences[key] = nil
         }
-    }
-
-    /// Puts `difference` among the staged ones, if it isn't already.
-    private func stage(_ difference: RecordDifference, key: RecordKey) {
-        guard staged[key] == nil else { return }
-        shown[key] = nil
-        staged[key] = difference
-        stagedOrder.append(key)
-    }
-
-    /// Moves every staged difference back to shown, then drops the ones nothing uses.
-    private func unstageAll() {
-        shown.merge(staged) { current, _ in current }
-        staged.removeAll()
-        stagedOrder.removeAll()
-        dropUnused()
     }
 
     // MARK: - Staging
@@ -157,15 +142,18 @@ public final class RecordContext {
     public func save() throws {
         guard hasChanges else { return }
         // Written in its own function, so nothing here still holds a difference when
-        // `unstageAll()` drops the ones no view uses.
-        try writeStaged()
-        unstageAll()
+        // `dropUnused()` drops the ones no view uses.
+        try writeChanges()
+        dropUnused()
     }
 
-    /// Writes every staged change in one transaction, then starts each difference over from the
+    /// Writes every change in one transaction, then starts each difference over from the
     /// record as written.
-    private func writeStaged() throws {
-        let changes = stagedOrder.compactMap { key in staged[key].map { (key, $0) } }
+    private func writeChanges() throws {
+        // Sorted by name, so the writes happen in the same order every time.
+        let changes = differences.filter { $0.value.change != nil }
+            .sorted { $0.key.name < $1.key.name }
+            .map { ($0.key, $0.value) }
         let now = Date().timeIntervalSince1970
         let database = self.database
         try database.transaction {
@@ -191,11 +179,11 @@ public final class RecordContext {
 
     /// Discards every staged change. Each record's draft goes back to its saved record.
     public func rollback() {
-        for difference in staged.values {
+        for difference in differences.values where difference.change != nil {
             if let saved = difference.saved ?? difference.original { difference.draft = saved }
             difference.change = nil
         }
-        unstageAll()
+        dropUnused()
     }
 
     /// Stages `record`. The first time, the saved record becomes the original that `save()`
@@ -204,15 +192,14 @@ public final class RecordContext {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
         let change: RecordDifference.Change = isDelete ? .delete(record.id) : .insert(record.id)
-        if let existing = existingDifference(for: key) {
+        if let existing = differences[key] {
             existing.draft = record
             existing.change = change
-            stage(existing, key: key)
             return
         }
         // A record that can't be read counts as unsaved, so save writes every field.
         let original = (try? Self.load(R.self, key: key, in: database)) ?? nil
-        stage(RecordDifference(id: record.id, zone: zone, original: original, draft: record, change: change), key: key)
+        differences[key] = RecordDifference(id: record.id, zone: zone, original: original, draft: record, change: change)
     }
 
     /// Removes the links that point at each deleted record, and deletes the records it owned
@@ -352,7 +339,7 @@ public final class RecordContext {
     public func record<R: Record>(id: UUID, for type: R.Type = R.self) throws -> R? {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
-        if let change = staged[key] {
+        if let change = changed(key) {
             return try draftRecord(change, key: key) as? R
         }
         return try Self.load(R.self, key: key, in: database)
@@ -363,8 +350,8 @@ public final class RecordContext {
     /// query across every table.
     public func record(id: UUID) throws -> (any Record)? {
         let name = id.uuidString
-        if let key = stagedOrder.first(where: { $0.name == name && $0.zone == zone && $0.recordType != RecordLink.recordType }),
-           let change = staged[key] {
+        if let key = changedKeys().first(where: { $0.name == name && $0.recordType != RecordLink.recordType }),
+           let change = changed(key) {
             return try draftRecord(change, key: key)
         }
         let lookup = recordTypeLookup
@@ -406,12 +393,12 @@ public final class RecordContext {
         var records = try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: nil, in: database)
 
         // Staged changes in this zone replace or remove the saved records they name.
-        let stagedHere = stagedKeys(R.self)
-        if !stagedHere.isEmpty {
-            let names = Set(stagedHere.map(\.name))
+        let changedHere = changedKeys(R.recordType)
+        if !changedHere.isEmpty {
+            let names = Set(changedHere.map(\.name))
             records.removeAll { names.contains($0.id.uuidString) }
-            records += try stagedHere.compactMap { key in
-                guard let change = staged[key] else { return nil }
+            records += try changedHere.compactMap { key in
+                guard let change = changed(key) else { return nil }
                 return try draftRecord(change, key: key) as? R
             }
         }
@@ -442,11 +429,6 @@ public final class RecordContext {
         return descriptor.fetchLimit.map { min(remaining, max($0, 0)) } ?? remaining
     }
 
-    /// The staged changes to records of `R` in the current zone.
-    func stagedKeys<R: Record>(_ type: R.Type) -> [RecordKey] {
-        stagedOrder.filter { $0.zone == zone && $0.recordType == R.recordType }
-    }
-
     /// The SQL for `descriptor`: a filter that narrows the rows read, and, when the database can
     /// answer the whole descriptor alone, the order and range of rows to read. When the
     /// predicate reads through references to records, also the references it reads.
@@ -459,7 +441,7 @@ public final class RecordContext {
     ) -> (filter: SQLFilter?, page: SQLPage?, traversal: Traversal?) {
         let traversal = descriptor.predicate.map { Traversal($0.expression) }.flatMap { $0.isEmpty ? nil : $0 }
         let reachable = traversal == nil ? [] : Self.reachableTypes(from: R.self)
-        let allowsPaths = !stagedOrder.contains { $0.zone == zone && reachable.contains($0.recordType) }
+        let allowsPaths = !changedKeys().contains { reachable.contains($0.recordType) }
         let translator = PredicateTranslator(for: R.self, allowsPaths: allowsPaths)
         var filter: SQLFilter?
         var isExact = true
@@ -468,7 +450,7 @@ public final class RecordContext {
             filter = translated?.filter
             isExact = translated?.isExact ?? false
         }
-        guard isExact, stagedKeys(R.self).isEmpty, let order = translator.orderBy(descriptor.sortBy) else {
+        guard isExact, changedKeys(R.recordType).isEmpty, let order = translator.orderBy(descriptor.sortBy) else {
             return (filter, nil, traversal)
         }
         let page = SQLPage(
@@ -870,10 +852,15 @@ extension RecordDifference {
         if case .delete = change { true } else { false }
     }
 
-    /// The draft, which every staged difference has.
+    /// The draft, which every difference has.
     var record: any Record {
-        guard let draft else { preconditionFailure("A staged difference has no draft") }
+        guard let draft else { preconditionFailure("A difference has no draft") }
         return draft
+    }
+
+    /// Where the record is kept: its type, its ID and its zone.
+    var key: RecordKey {
+        RecordKey(recordType: type(of: record).recordType, name: id.uuidString, zone: zone)
     }
 
     var schema: RecordSchema { type(of: record).schema }
