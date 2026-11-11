@@ -362,7 +362,8 @@ private final class Flag: @unchecked Sendable {
 
     var draft = saved
     draft.year = 1972
-    here.edit(difference, to: draft)
+    difference.draft = draft
+    here.stage(difference)
     #expect(difference.change == .insert(saved.id))
     #expect(here.hasChanges)
     #expect(here.difference(for: saved) === difference)
@@ -396,7 +397,8 @@ private final class Flag: @unchecked Sendable {
     let difference = here.difference(for: saved)
     var draft = saved
     draft.year = 1972
-    here.edit(difference, to: draft)
+    difference.draft = draft
+    here.stage(difference)
 
     var remote = saved
     remote.title = "Blue (Remastered)"
@@ -424,7 +426,8 @@ private final class Flag: @unchecked Sendable {
     let difference = here.difference(for: saved)
     var draft = saved
     draft.year = 1972
-    here.edit(difference, to: draft)
+    difference.draft = draft
+    here.stage(difference)
     here.rollback()
 
     #expect(difference.change == nil)
