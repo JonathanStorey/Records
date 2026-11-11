@@ -37,7 +37,7 @@ import Testing
 }
 
 /// A location keeps its coordinate, altitude, accuracies, course, speed and timestamp, but not how
-/// accurate its course and speed are. Archiving a `CLLocation` leaves those two out.
+/// accurate its course and speed are once it passes through a `CKRecord`, which leaves those two out.
 @Test func courseAndSpeedAccuracyAreNotKept() throws {
     var gig = Gig(id: UUID(), title: "Proms", venue: nil, home: nil)
     gig.$venue = CLLocation(
@@ -45,7 +45,7 @@ import Testing
         horizontalAccuracy: 5, verticalAccuracy: 3, course: 90, courseAccuracy: 1,
         speed: 2, speedAccuracy: 0.5, timestamp: Date(timeIntervalSince1970: 1000)
     )
-    let saved = try #require(try Gig(from: row(of: gig)).$venue)
+    let saved = try #require(try Gig(record: CKRecordEncoder().encode(gig, in: .records)).$venue)
     #expect(saved.course == 90 && saved.speed == 2 && saved.horizontalAccuracy == 5)
     #expect(saved.courseAccuracy == -1 && saved.speedAccuracy == -1)
 }
