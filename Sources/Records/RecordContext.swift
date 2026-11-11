@@ -2,19 +2,6 @@ import CloudKit
 import Foundation
 import Observation
 
-/// Why a `RecordContext` couldn't read or write a record.
-public enum RecordContextError: Error, Equatable, CustomStringConvertible {
-    /// The record's type isn't registered with the container.
-    case unregisteredType(String)
-
-    public var description: String {
-        switch self {
-        case .unregisteredType(let type):
-            "'\(type)' isn't registered with this container. Pass it, or a type that refers to it, to RecordContainer(for:)."
-        }
-    }
-}
-
 /// Reads and writes records in a container's database.
 ///
 /// The app's main actor uses `container.mainContext`. Changes wait in the context and reach
@@ -583,7 +570,9 @@ public final class RecordContext {
     /// Stops with a message when `R` isn't registered, which is a programmer error.
     private func checkRegistered<R: Record>(_ type: R.Type) {
         guard let registered = types[R.recordType], ObjectIdentifier(registered) == ObjectIdentifier(R.self) else {
-            preconditionFailure(RecordContextError.unregisteredType(R.recordType).description)
+            preconditionFailure(
+                "'\(R.recordType)' isn't registered with this container. Pass it, or a type that refers to it, to RecordContainer(for:)."
+            )
         }
     }
 
@@ -893,9 +882,12 @@ extension RecordDifference {
         guard var merged = try? CKRecordDecoder().decode(R.self, from: record, links: linkRecords, depth: 0) else {
             return draft
         }
-        for reference in R.schema.references where reference.isFrom {
-            let ids = saved.referencedIDs(reference.property)
-            try? merged.loadReference(reference.property, to: ids.map { ReferenceTarget(id: $0) }, from: [], links: [], depth: 0)
+        let fromSides = Set(R.schema.references.filter(\.isFrom).map(\.property))
+        for (keyPath, property) in R.keyPaths where fromSides.contains(property) {
+            // A `from:` side holds only IDs, as a `UUID?` or a `[UUID]`.
+            let value = saved[keyPath: keyPath]
+            let ids = (value as? [UUID]) ?? (value as? UUID).map { [$0] } ?? []
+            try? merged.loadReference(property, to: ids.map { ReferenceTarget(id: $0) }, from: [], links: [], depth: 0)
         }
         return merged
     }

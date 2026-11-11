@@ -57,7 +57,7 @@ private struct Fixture {
 @Test func addingAManyToManyInverseKeepsLinkIDs() {
     let sourceID = UUID(), targetID = UUID()
     let twoWay = Fixture().first.referenceStates[0]
-    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [])
+    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [], records: [])
     #expect(twoWay.inverse != nil)
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "Post", sourceID: sourceID, targetID: targetID)

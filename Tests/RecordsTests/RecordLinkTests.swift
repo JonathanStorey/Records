@@ -36,7 +36,7 @@ private func reference(
         ReferenceSchema(property: property, target: target, isToMany: isToMany, isSorted: false, holdsIDs: false)
     }
     return ReferenceState(
-        schema: schema(property, many), inverse: inverse.map { schema($0.name, $0.many) }, ids: []
+        schema: schema(property, many), inverse: inverse.map { schema($0.name, $0.many) }, ids: [], records: []
     )
 }
 
