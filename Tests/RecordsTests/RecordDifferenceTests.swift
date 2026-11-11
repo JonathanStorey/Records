@@ -141,7 +141,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     here.insert(kept)
     here.delete(gone)
-    let changes: [RecordChange] = here.changes
+    let changes: [RecordDifference.Change] = here.changes
     #expect(changes == [.insert(kept.id), .delete(gone.id)])
     #expect(changes.map(\.id) == [kept.id, gone.id])
     let differences = here.differences

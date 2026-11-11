@@ -55,7 +55,7 @@ public final class RecordContext {
     /// The changes staged in the current `zone`, in the order they were first staged, such as
     /// `.insert(album.id)`. A record appears at most once: staging it again replaces its change.
     /// `save()` writes the changes of every zone, not only these.
-    public var changes: [RecordChange] {
+    public var changes: [RecordDifference.Change] {
         differences.compactMap(\.change)
     }
 
@@ -119,7 +119,7 @@ public final class RecordContext {
     private func stage<R: Record>(_ record: R, isDelete: Bool) {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        let change: RecordChange = isDelete ? .delete(record.id) : .insert(record.id)
+        let change: RecordDifference.Change = isDelete ? .delete(record.id) : .insert(record.id)
         if let existing = staged[key] {
             existing.draft = record
             existing.change = change
@@ -718,32 +718,32 @@ struct RecordKey: Hashable, Sendable {
     var values: [SQLValue] { [.text(zone.name), .text(zone.ownerName), .text(name)] }
 }
 
-/// What is to happen to a staged record when its context saves.
-public enum RecordChange: Hashable, Sendable, Identifiable {
-    /// The record is saved: added if new, or updated where it was edited.
-    case insert(UUID)
-    /// The record is deleted with the links it owns.
-    case delete(UUID)
-
-    /// The record's ID.
-    public var id: UUID {
-        switch self {
-        case .insert(let id), .delete(let id): id
-        }
-    }
-}
-
 /// A record staged in a `RecordContext`, waiting for `save()`, or one being edited.
 ///
 /// The context keeps one per staged record. Staging the record again updates the same
-/// difference, so anything observing it stays current.
+/// difference, so anything observing it stays current. Only its `Change` is public.
 @MainActor
 @Observable
-final class RecordDifference: Identifiable {
+public final class RecordDifference {
+    /// What is to happen to a staged record when its context saves.
+    public enum Change: Hashable, Sendable, Identifiable {
+        /// The record is saved: added if new, or updated where it was edited.
+        case insert(UUID)
+        /// The record is deleted with the links it owns.
+        case delete(UUID)
+
+        /// The record's ID.
+        public var id: UUID {
+            switch self {
+            case .insert(let id), .delete(let id): id
+            }
+        }
+    }
+
     /// The record's ID.
     let id: UUID
     /// What is to happen, or `nil` while the record is only shown and not yet staged.
-    var change: RecordChange?
+    var change: Change?
 
     /// The saved record when editing began, or `nil` when none was saved. It never changes, so
     /// `save()` writes only what the draft changed from it.
@@ -753,7 +753,7 @@ final class RecordDifference: Identifiable {
     /// The record as edited.
     var draft: (any Record)?
 
-    init(id: UUID, original: (any Record)?, draft: (any Record)? = nil, change: RecordChange? = nil) {
+    init(id: UUID, original: (any Record)?, draft: (any Record)? = nil, change: RecordDifference.Change? = nil) {
         self.id = id
         self.original = original
         self.saved = original
