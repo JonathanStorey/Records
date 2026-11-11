@@ -374,6 +374,8 @@ private final class Flag: @unchecked Sendable {
     #expect(difference.change == .insert(saved.id))
     #expect(here.hasChanges)
     #expect(here.difference(for: saved) === difference)
+    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1971)
+    try here.save()
     #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1972)
 }
 
