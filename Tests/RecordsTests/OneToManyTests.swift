@@ -70,13 +70,9 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 
 @Test func addingAToManyInverseKeepsLinkIDs() {
     let sourceID = UUID(), targetID = UUID()
-    let oneWay = ReferenceState(
-        property: "shelf", targetType: "Shelf", isToMany: false, isSorted: false, inverse: nil, ids: []
-    )
-    let twoWay = ReferenceState(
-        property: "shelf", targetType: "Shelf", isToMany: false, isSorted: false,
-        inverse: Inverse(many: \Book.shelf, to: Shelf.self, property: "bookIDs"), ids: []
-    )
+    let twoWay = Book(id: UUID(), title: "Dune", shelf: makeShelf()).referenceStates[0]
+    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [])
+    #expect(twoWay.inverse != nil)
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "Book", sourceID: sourceID, targetID: targetID)
             == RecordLink.id(reference: twoWay, sourceType: "Book", sourceID: sourceID, targetID: targetID)
@@ -128,7 +124,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     #expect(read.allSatisfy { $0.source == "Release.tracks" })
     #expect(signatures(of: album) == ["Release.tracks:[Song] <-> Song.albumID:Release"])
     #expect(Relationship(album.referenceStates[0]) == .oneToMany)
-    #expect(Song.deleteSelfReferences == ["albumID"])
+    #expect(Song.schema.references.filter(\.deleteSelf).map(\.property) == ["albumID"])
     #expect(tracks.allSatisfy { encoder.links(for: $0, in: .records).isEmpty })
 
     let trackRecords = tracks.map { encoder.encode($0, in: .records) }

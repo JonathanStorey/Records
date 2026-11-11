@@ -81,18 +81,21 @@ private func makeProfile() -> Profile {
 }
 
 @Test func deleteSelfIsDeclaredByTheFromSide() {
-    #expect(Profile.deleteSelfReferences == ["userID"])
-    #expect(User.deleteSelfReferences.isEmpty)
-    #expect(Settings.deleteSelfReferences.isEmpty)
+    let deleteSelf = { (type: any Record.Type) in type.schema.references.filter(\.deleteSelf).map(\.property) }
+    #expect(deleteSelf(Profile.self) == ["userID"])
+    #expect(deleteSelf(User.self).isEmpty)
+    #expect(deleteSelf(Settings.self).isEmpty)
 }
 
 @Test func theOwnerFindsItsInverseOnTheTarget() {
-    #expect(Profile.inverse(of: "profile", in: "User") == Inverse(\User.profile, to: Profile.self, property: "userID", deleteSelf: true))
-    #expect(Settings.inverse(of: "settingsID", in: "Account")?.property == "accountID")
-    #expect(Settings.inverse(of: "settingsID", in: "Account")?.deleteSelf == false)
-    #expect(Profile.inverse(of: "bio", in: "User") == nil)
-    #expect(Profile.inverse(of: "profile", in: "Account") == nil)
-    #expect(User.inverse(of: "userID", in: "Profile") == nil)
+    let profile = User.schema.inverse(of: "profile", in: Profile.self)
+    #expect(profile?.property == "userID")
+    #expect(profile?.deleteSelf == true)
+    #expect(Account.schema.inverse(of: "settingsID", in: Settings.self)?.property == "accountID")
+    #expect(Account.schema.inverse(of: "settingsID", in: Settings.self)?.deleteSelf == false)
+    #expect(User.schema.inverse(of: "bio", in: Profile.self) == nil)
+    #expect(Account.schema.inverse(of: "profile", in: Profile.self) == nil)
+    #expect(Profile.schema.inverse(of: "userID", in: User.self) == nil)
 
     let state = makeUser(with: nil).referenceStates.first
     #expect(state?.inverse?.property == "userID")
@@ -101,13 +104,9 @@ private func makeProfile() -> Profile {
 
 @Test func addingAnInverseKeepsToOneLinkIDs() {
     let sourceID = UUID()
-    let oneWay = ReferenceState(
-        property: "profile", targetType: "Profile", isToMany: false, isSorted: false, inverse: nil, ids: []
-    )
-    let twoWay = ReferenceState(
-        property: "profile", targetType: "Profile", isToMany: false, isSorted: false,
-        inverse: Inverse(\User.profile, to: Profile.self, property: "userID"), ids: []
-    )
+    let twoWay = makeUser(with: nil).referenceStates[0]
+    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [])
+    #expect(twoWay.inverse != nil)
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "User", sourceID: sourceID, targetID: UUID())
             == RecordLink.id(reference: twoWay, sourceType: "User", sourceID: sourceID, targetID: UUID())

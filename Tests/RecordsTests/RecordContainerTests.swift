@@ -113,14 +113,13 @@ private func temporaryFile() -> URL {
     #expect(try container.database.indexNames("RecordLink") == ["RecordLink_pending", "RecordLink_source", "RecordLink_target"])
 }
 
-@Test func schemaDescribesFieldsAssetsAndReferences() {
+@Test func schemaDescribesFieldsAndReferences() {
     let schema = Novel.schema
     #expect(schema.recordType == "Novel")
     #expect(schema.fields.map(\.key) == ["title", "subtitle", "tags", "released", "note", "shop"])
     #expect(schema.fields.first { $0.key == "released" }?.name == "year")
     #expect(schema.fields.filter(\.isOptional).map(\.key) == ["subtitle", "note", "shop"])
     #expect(schema.fields.filter(\.isEncrypted).map(\.key) == ["note", "shop"])
-    #expect(schema.assets == ["cover"])
     #expect(schema.references.map(\.property) == ["sequel", "writers", "editorID"])
     #expect(schema.references.map(\.isToMany) == [false, true, false])
     #expect(schema.references.map(\.holdsIDs) == [false, false, true])

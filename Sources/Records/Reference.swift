@@ -13,98 +13,35 @@ public struct ReferenceTarget: Hashable, Sendable {
     }
 }
 
-/// The other side of a two-way relationship: the target's `@Reference(from:)` property.
-///
-/// `@Record` generates one for each `@Reference(from: \User.profile)` property, and the owner's
-/// encoder looks it up with `Record.inverse(of:in:)`. The owner never names it.
-public struct Inverse: Hashable, Sendable {
-    /// The inverse property's name, such as `user`.
-    public let property: String
-    /// Whether the inverse holds many records.
-    public let isToMany: Bool
-    /// Whether the target is deleted with its owner.
-    public let deleteSelf: Bool
-
-    /// A to-one `from:` side, such as `var userID: UUID?` for `\User.profile`. The key path's
-    /// value type must hold the `from:` side's type, here `Profile?`.
-    public init<Owner: Record, Target: Record>(
-        _ owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String, deleteSelf: Bool = false
-    ) {
-        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
-    }
-
-    /// A to-one `from:` side of an owner that holds only the ID, such as `\Account.settingsID`.
-    public init<Owner: Record, Target: Record>(
-        _ owner: KeyPath<Owner, UUID?>, to target: Target.Type, property: String, deleteSelf: Bool = false
-    ) {
-        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
-    }
-
-    /// A to-one `from:` side of a to-many owner, such as `var albumID: UUID?` for `\Album.tracks`.
-    public init<Owner: Record, Target: Record>(
-        _ owner: KeyPath<Owner, [Target]>, to target: Target.Type, property: String, deleteSelf: Bool = false
-    ) {
-        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
-    }
-
-    /// A to-one `from:` side of a to-many owner that holds only IDs, such as `\Album.trackIDs`.
-    public init<Owner: Record, Target: Record>(
-        _ owner: KeyPath<Owner, [UUID]>, to target: Target.Type, property: String, deleteSelf: Bool = false
-    ) {
-        self.init(property: property, isToMany: false, deleteSelf: deleteSelf)
-    }
-
-    /// A to-many `from:` side of a to-one owner, such as `var bookIDs: [UUID]` for `\Book.shelf`:
-    /// one-to-many.
-    public init<Owner: Record, Target: Record>(
-        many owner: KeyPath<Owner, Target?>, to target: Target.Type, property: String
-    ) {
-        self.init(property: property, isToMany: true, deleteSelf: false)
-    }
-
-    /// A to-many `from:` side of an owner that holds only the ID, such as `\Book.shelfID`.
-    public init<Owner: Record, Target: Record>(
-        many owner: KeyPath<Owner, UUID?>, to target: Target.Type, property: String
-    ) {
-        self.init(property: property, isToMany: true, deleteSelf: false)
-    }
-
-    /// A to-many `from:` side of a to-many owner, such as `var noteIDs: [UUID]` for `\Note.tags`:
-    /// many-to-many.
-    public init<Owner: Record, Target: Record>(
-        many owner: KeyPath<Owner, [Target]>, to target: Target.Type, property: String
-    ) {
-        self.init(property: property, isToMany: true, deleteSelf: false)
-    }
-
-    /// A to-many `from:` side of a to-many owner that holds only IDs, such as `\Note.tagIDs`.
-    public init<Owner: Record, Target: Record>(
-        many owner: KeyPath<Owner, [UUID]>, to target: Target.Type, property: String
-    ) {
-        self.init(property: property, isToMany: true, deleteSelf: false)
-    }
-
-    init(property: String, isToMany: Bool, deleteSelf: Bool) {
-        self.property = property
-        self.isToMany = isToMany
-        self.deleteSelf = deleteSelf
-    }
-}
-
-/// One `@Reference` as the encoder needs it to write links.
-public struct ReferenceState: Equatable, Sendable {
-    /// The property name, such as `author`.
-    public let property: String
-    /// The target's record type, such as `Person`.
-    public let targetType: CKRecord.RecordType
-    /// Whether the property holds many targets.
-    public let isToMany: Bool
-    /// Whether a to-many property sorts its records, so its links carry no order keys.
-    public let isSorted: Bool
+/// One `@Reference` that writes links, with its current targets, as the encoder needs it.
+public struct ReferenceState: Sendable {
+    /// The reference as `@Record` describes it.
+    public let schema: ReferenceSchema
     /// The target's `@Reference(from:)` side, when the relationship is two-way.
-    public let inverse: Inverse?
+    public let inverse: ReferenceSchema?
     /// The targets' IDs, in order.
     public let ids: [UUID]
+
+    /// The property name, such as `author`.
+    public var property: String { schema.property }
+    /// The target's record type, such as `Person`.
+    public var targetType: CKRecord.RecordType { schema.target.recordType }
+    /// Whether the property holds many targets.
+    public var isToMany: Bool { schema.isToMany }
+    /// Whether a to-many property sorts its records, so its links carry no order keys.
+    public var isSorted: Bool { schema.isSorted }
+
+    /// Every `@Reference` of `type` that writes links, with its targets' IDs from `ids` by
+    /// property. Used by the code `@Record` generates.
+    public static func all<R: Record>(of type: R.Type, ids: [String: [UUID]]) -> [ReferenceState] {
+        let schema = R.schema
+        return schema.references.filter { !$0.isFrom }.map { reference in
+            ReferenceState(
+                schema: reference, inverse: schema.inverse(of: reference.property, in: reference.target),
+                ids: ids[reference.property] ?? []
+            )
+        }
+    }
 }
 
 // MARK: - To one
@@ -117,6 +54,8 @@ public struct ReferenceState: Equatable, Sendable {
 public struct ToOne<Target: Record> {
     /// The target the reference points at now.
     public var id: UUID?
+    /// The target's ID as a list, empty when there is none, matching `ToMany`.
+    public var ids: [UUID] { id.map { [$0] } ?? [] }
     /// The loaded target. A class, so a record can refer to its own type.
     private var box: Box?
 
@@ -153,15 +92,6 @@ public struct ToOne<Target: Record> {
             .map { Box(try CKRecordDecoder().decode(Target.self, from: $0, links: links, targets: records, depth: depth - 1)) }
     }
 
-    /// The reference's state for the encoder. `owner` is the record type that declares it, used
-    /// to find the target's `@Reference(from:)` side.
-    public func state(property: String, owner: CKRecord.RecordType) -> ReferenceState {
-        ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: false, isSorted: false,
-            inverse: Target.inverse(of: property, in: owner),
-            ids: id.map { [$0] } ?? []
-        )
-    }
 
     private final class Box {
         let value: Target
@@ -256,15 +186,6 @@ public struct ToMany<Target: Record> {
         box = values.isEmpty ? nil : Box(values)
     }
 
-    /// The reference's state for the encoder. `owner` is the record type that declares it, used
-    /// to find the target's `@Reference(from:)` side.
-    public func state(property: String, owner: CKRecord.RecordType) -> ReferenceState {
-        ReferenceState(
-            property: property, targetType: Target.recordType, isToMany: true, isSorted: isSorted,
-            inverse: Target.inverse(of: property, in: owner),
-            ids: storedIDs
-        )
-    }
 
     private final class Box {
         let values: [UUID: Target]
