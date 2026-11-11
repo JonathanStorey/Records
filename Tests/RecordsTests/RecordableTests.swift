@@ -313,3 +313,85 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(storage.difference === difference)
     #expect(storage.value.year == 2025)
 }
+
+/// Rolling back an edit to a new record shows it as the wrapper was given it.
+@MainActor
+@Test func rollbackShowsANewRecordAsItStarted() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let storage = RecordableStorage(fresh)
+    storage.connect(to: context)
+    storage.value.year = 2025
+    context.rollback()
+    #expect(storage.value.year == 2024)
+    #expect(!context.hasChanges)
+
+    storage.value.year = 2026
+    #expect(context.changes == [.insert(fresh.id)])
+}
+
+// MARK: - Expanding references
+
+@MainActor
+private func savedLP() throws -> (RecordContext, LP, Musician) {
+    let nova = Musician(id: UUID(), name: "Nova", isActive: true)
+    let lp = LP(id: UUID(), title: "A", year: 1999, musician: nova, cuts: [Cut(id: UUID(), title: "Bloom", seconds: 200)])
+    let context = try RecordContainer(for: [LP.self, Musician.self, Cut.self], url: nil).mainContext
+    context.insert(lp)
+    try context.save()
+    return (context, try #require(try context.record(id: lp.id, for: LP.self)), nova)
+}
+
+/// `expand` loads the references it names, and only those.
+@MainActor
+@Test func expandLoadsTheNamedReferences() throws {
+    let (context, lp, _) = try savedLP()
+    #expect(lp.musician == nil)
+
+    let storage = RecordableStorage(lp, expand: [\LP.musician])
+    storage.connect(to: context)
+    #expect(storage.value.musician?.name == "Nova")
+    #expect(storage.value.cuts.isEmpty)
+}
+
+/// Expanded targets show the context's changes to them.
+@MainActor
+@Test func expandShowsChangesToTargets() throws {
+    let (context, lp, nova) = try savedLP()
+    let storage = RecordableStorage(lp, expand: [\LP.musician])
+    storage.connect(to: context)
+
+    var renamed = nova
+    renamed.name = "Nova II"
+    context.insert(renamed)
+    #expect(storage.value.musician?.name == "Nova II")
+}
+
+/// Editing an expanded record saves its own fields, and its targets stay as they were saved.
+@MainActor
+@Test func editingAnExpandedRecordSavesOnlyItsOwnFields() throws {
+    let (context, lp, nova) = try savedLP()
+    let storage = RecordableStorage(lp, expand: [\LP.musician, \LP.cuts])
+    storage.connect(to: context)
+    storage.value.title = "A (Live)"
+    storage.value.musician?.name = "Changed"
+    #expect(context.changes == [.insert(lp.id)])
+
+    try context.save()
+    #expect(try context.record(id: lp.id, for: LP.self)?.title == "A (Live)")
+    #expect(try context.record(id: nova.id, for: Musician.self)?.name == "Nova")
+    #expect(storage.value.title == "A (Live)")
+    #expect(storage.value.musician?.name == "Nova")
+    #expect(storage.value.cuts.map(\.title) == ["Bloom"])
+}
+
+/// A wrapper expands in its own zone, whatever the context's current zone.
+@MainActor
+@Test func expandReadsInTheRecordablesZone() throws {
+    let (context, lp, _) = try savedLP()
+    let storage = RecordableStorage(lp, expand: [\LP.musician])
+    storage.connect(to: context)
+    context.zone = "Work"
+    #expect(storage.value.musician?.name == "Nova")
+    #expect(context.zone == "Work")
+}

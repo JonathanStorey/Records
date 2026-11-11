@@ -483,9 +483,22 @@ struct AlbumEditor: View {
 
 Reading `album` shows the record as edited. Each change stages it in the context, as `insert`
 would, and nothing is written until you call `context.save()`. `rollback()` returns every
-`@Recordable` to its saved record. Every `@Recordable` showing the same record shares its edits,
-so two views stay in step as you type. A record that isn't saved yet shows as given and is
-inserted on its first edit.
+`@Recordable` to its saved record, or a new record to the one it was given. Every `@Recordable`
+showing the same record shares its edits, so two views stay in step as you type. A record that
+isn't saved yet shows as given and is inserted on its first edit.
+
+References hold IDs. Name the ones to load with `expand:`, which works like
+`relationshipKeyPathsForPrefetching`:
+
+```swift
+@Recordable(expand: \Album.artist, \Album.tracks) var album = album
+// or, in an init:
+_album = Recordable(album, expand: \Album.artist)
+```
+
+The targets are read each time the record is, with the context's changes to them laid over them.
+Expanded targets are for showing. Editing `album.artist?.name` through the wrapper saves nothing,
+because only the album is saved. Give the artist its own `@Recordable` to edit it.
 
 A `@Recordable` edits its record in the container's `defaultZone`, or in the zone you pass with
 `Recordable(album, zone: "Work")`. Changing `context.zone` never moves it. Set the default when

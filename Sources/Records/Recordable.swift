@@ -48,20 +48,32 @@ extension View {
 ///
 /// Every `@Recordable` showing the same record shares its edits, so two views stay in step as
 /// you type. Set the context once with `.recordContext(_:)`, and save with `context.save()`.
+///
+/// References hold IDs. Name the ones to load with `expand:`, as with
+/// `relationshipKeyPathsForPrefetching`:
+///
+/// ```swift
+/// @Recordable(expand: \Album.artist, \Album.tracks) var album = album
+/// ```
+///
+/// Expanded targets are for showing. Editing one through the wrapper doesn't save it, so edit
+/// it with its own `@Recordable`.
 @MainActor
 @propertyWrapper
 public struct Recordable<R: Record> {
     @Environment(\.recordContext) private var environmentContext
     @State private var storage: RecordableStorage<R>
 
-    /// A property that edits `record` in `zone`, or in the container's `defaultZone` without one.
-    public init(_ record: R, zone: Zone? = nil) {
-        _storage = State(initialValue: RecordableStorage(record, zone: zone))
+    /// A property that edits `record` in `zone`, or in the container's `defaultZone` without one,
+    /// with the references `expand` names loaded.
+    public init(_ record: R, zone: Zone? = nil, expand: AnyKeyPath...) {
+        _storage = State(initialValue: RecordableStorage(record, zone: zone, expand: expand))
     }
 
-    /// A property that edits `wrappedValue` in `zone`, as `@Recordable(.records) var album = album`.
-    public init(wrappedValue: R, _ zone: Zone? = nil) {
-        self.init(wrappedValue, zone: zone)
+    /// A property that edits `wrappedValue` in `zone`, as `@Recordable(.records) var album = album`,
+    /// with the references `expand` names loaded.
+    public init(wrappedValue: R, _ zone: Zone? = nil, expand: AnyKeyPath...) {
+        _storage = State(initialValue: RecordableStorage(wrappedValue, zone: zone, expand: expand))
     }
 
     /// The record as edited.
@@ -91,10 +103,13 @@ final class RecordableStorage<R: Record> {
     @ObservationIgnored private(set) var difference: RecordDifference?
     /// The zone the record is edited in, or `nil` for the container's `defaultZone`.
     @ObservationIgnored let zone: Zone?
+    /// The references to load each time the record is read.
+    @ObservationIgnored let expand: [AnyKeyPath]
 
-    init(_ record: R, zone: Zone? = nil) {
+    init(_ record: R, zone: Zone? = nil, expand: [AnyKeyPath] = []) {
         self.record = record
         self.zone = zone
+        self.expand = expand
     }
 
     /// Uses `context`'s difference for the record, in the wrapper's zone or the container's
@@ -105,15 +120,38 @@ final class RecordableStorage<R: Record> {
         difference = context.difference(for: record, in: zone ?? context.defaultZone)
     }
 
-    /// The record as edited. Setting it stages the edit in the context.
+    /// The record as edited, with the references `expand` names loaded. Setting it stages the
+    /// edit in the context.
+    ///
+    /// A record that isn't saved and has no change reads as the record the wrapper was given, so
+    /// rolling back an edit to a new record shows it as it started.
     var value: R {
-        get { (difference?.value as? R) ?? record }
-        set {
-            record = newValue
-            if let context, let difference {
-                difference.draft = newValue
-                context.didEdit(difference)
-            }
+        get {
+            guard let difference, difference.change != nil || difference.original != nil,
+                  let value = difference.value as? R
+            else { return record }
+            guard !expand.isEmpty, let context else { return value }
+            // Read each time, so the targets show the context's latest changes to them.
+            return context.expanded(value, expand, in: difference.zone)
         }
+        set {
+            guard let context, let difference else {
+                record = newValue
+                return
+            }
+            difference.draft = newValue
+            context.didEdit(difference)
+        }
+    }
+}
+
+extension RecordContext {
+    /// `record` with the references `keyPaths` name holding their records, read in `zone`
+    /// whatever the current `zone`. A record that can't be read stays as it is.
+    func expanded<R: Record>(_ record: R, _ keyPaths: [AnyKeyPath], in zone: Zone) -> R {
+        let current = self.zone
+        self.zone = zone
+        defer { self.zone = current }
+        return (try? prefetch(keyPaths, into: [record]).first) ?? record
     }
 }
