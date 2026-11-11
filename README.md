@@ -424,9 +424,11 @@ try context.save()
 `insert` and `delete` record changes in the context. Nothing reaches the database until `save()`,
 which writes every pending change in one transaction. `rollback()` discards them,
 `rollback(id:)` discards the ones to a single record, and `hasChanges` tells you whether any are
-waiting. `changes` is the set of the current zone's changes as `RecordDifference.Change` values:
-`.insert(id)` for a new record, `.update(id)` for a saved one, and `.delete(id)`. Inserting a
-record again replaces its change, and deleting a record that was never saved drops it.
+waiting. `changes` lists the current zone's changes as `RecordDifference.Change` values, one per
+edit in the order the edits began: `.insert(id)` for a new record, `.update(id)` for a saved one,
+and `.delete(id)`. A record edited by two views appears twice, so use `Set(changes.map(\.id))`
+for the records changed. Inserting a record again replaces its change, and deleting a record that
+was never saved drops it.
 `save()` writes the changes of every zone. Reads and fetches show saved records only, so a
 change shows once it is saved.
 
@@ -485,6 +487,12 @@ struct AlbumEditor: View {
 Reading `album` shows the saved record with every pending edit to it. Each change is recorded
 in the context, and nothing is written until you call `context.save()`. `rollback()` returns
 every `@Recordable` to its saved record.
+
+The context is `@Observable`, and views watch two of its properties. `version` goes up on
+`save()`, `rollback()` and `rollback(id:)`, and every read of a record reads it, so each view
+showing a record, or a list built with `fetch`, redraws then. An edit redraws only the view that
+made it. `changes` moves only when an edit begins, turns into a delete or ends, so a Save button
+that reads `hasChanges` doesn't redraw while you type.
 
 Each `@Recordable` is one edit, named by its own `id`: `_album.id` names the edit, and
 `album.id` the record. Two views editing one record each save only the fields they changed, so

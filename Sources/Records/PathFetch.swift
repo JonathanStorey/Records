@@ -220,7 +220,7 @@ extension RecordContext {
             roots.append(key)
         }
         let infos = PathInfos(types: types, traversal: traversal)
-        try load(&graph, from: roots, through: traversal, infos: infos)
+        try load(&graph, from: roots, through: traversal, infos: infos, in: zone)
 
         // Check each root with the records its paths reach loaded.
         let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
@@ -247,8 +247,10 @@ extension RecordContext {
 
     /// `records` with the references `keyPaths` name holding their records, as deep as they
     /// chain. The targets are saved records, read together, one query per type per level. Each
-    /// of `records` follows its own references, even ones changed since it was saved.
-    func prefetch<R: Record>(_ keyPaths: [AnyKeyPath], into records: [R]) throws -> [R] {
+    /// of `records` follows its own references, even ones changed since it was saved. They are
+    /// read in `zone`, or the context's `zone` without one.
+    func prefetch<R: Record>(_ keyPaths: [AnyKeyPath], into records: [R], in zone: Zone? = nil) throws -> [R] {
+        let zone = zone ?? self.zone
         let traversal = Traversal(prefetching: keyPaths, from: R.self)
         guard !traversal.isEmpty, !records.isEmpty else { return records }
         let encoder = CKRecordEncoder()
@@ -260,7 +262,7 @@ extension RecordContext {
             return node
         }
         let infos = PathInfos(types: types, traversal: traversal)
-        try load(&graph, from: roots, through: traversal, infos: infos, ownLinksGiven: Set(roots))
+        try load(&graph, from: roots, through: traversal, infos: infos, in: zone, ownLinksGiven: Set(roots))
 
         let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
         return try zip(records, roots).map { record, root in
@@ -273,11 +275,11 @@ extension RecordContext {
     /// they own, so their saved ones are left out.
     private func load(
         _ graph: inout Graph, from roots: [NodeKey], through traversal: Traversal, infos: PathInfos,
-        ownLinksGiven: Set<NodeKey> = []
+        in zone: Zone, ownLinksGiven: Set<NodeKey> = []
     ) throws {
         var frontier = roots
         for level in 0...traversal.hops {
-            try loadLinks(for: frontier.map(\.name), into: &graph, ownLinksGiven: ownLinksGiven)
+            try loadLinks(for: frontier.map(\.name), into: &graph, in: zone, ownLinksGiven: ownLinksGiven)
             guard level < traversal.hops else { break }
 
             // The records the traversed references of the frontier point at.
@@ -317,7 +319,7 @@ extension RecordContext {
 
     /// Loads every saved link that touches the records named `names`, except the links owned by
     /// records in `ownLinksGiven`.
-    private func loadLinks(for names: [String], into graph: inout Graph, ownLinksGiven: Set<NodeKey>) throws {
+    private func loadLinks(for names: [String], into graph: inout Graph, in zone: Zone, ownLinksGiven: Set<NodeKey>) throws {
         let missing = Array(Set(names).subtracting(graph.linksLoaded))
         guard !missing.isEmpty else { return }
         graph.linksLoaded.formUnion(missing)

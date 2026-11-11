@@ -28,27 +28,46 @@ public enum RecordContextError: Error, Equatable, CustomStringConvertible {
 ///
 /// Saving writes only the fields and links that differ from the saved copy, so a record saved
 /// again unchanged writes nothing and stays in sync.
+///
+/// Views observe two properties: `version`, which goes up when saved records change, and
+/// `changes`. Nothing else in the context redraws a view.
 @MainActor
+@Observable
 public final class RecordContext {
     /// Every registered type by record type, shared with the container.
-    let types: [CKRecord.RecordType: any Record.Type]
+    @ObservationIgnored let types: [CKRecord.RecordType: any Record.Type]
     /// The container's database. The context holds it, not the container, so the container can
     /// keep its main context without the two keeping each other alive.
-    let database: Database
+    @ObservationIgnored let database: Database
 
     /// The zone records are inserted into and deleted from. It starts as the container's
     /// `defaultZone`. Set it to switch zones at any time. Pending changes keep the zone they
     /// were made in.
-    public var zone: Zone
+    @ObservationIgnored public var zone: Zone {
+        didSet { if zone != oldValue { updateChanges() } }
+    }
     /// The container's `defaultZone`, which `@Recordable` edits in when it isn't given a zone.
-    let defaultZone: Zone
+    @ObservationIgnored let defaultZone: Zone
 
     /// The pending edits, by each edit's `id`. A record can have several: one per `@Recordable`
     /// that edited it, and one per direct `insert` or `delete`.
-    var differences: [UUID: RecordDifference] = [:]
+    @ObservationIgnored var differences: [UUID: RecordDifference] = [:]
+    /// The `id` of each pending edit, in the order the edits began.
+    @ObservationIgnored private var editOrder: [UUID] = []
     /// The edit `insert` and `delete` share for each record, so calling them again replaces
     /// that edit and keeps its base.
-    private var directEdits: [RecordKey: UUID] = [:]
+    @ObservationIgnored private var directEdits: [RecordKey: UUID] = [:]
+
+    /// Goes up each time the saved records may have changed: on `save()`, `rollback()` and
+    /// `rollback(id:)`. Reading a record in a view's body reads it too, so the view redraws then.
+    public private(set) var version = 0
+
+    /// The current `zone`'s pending changes, one per edit, in the order the edits began, such
+    /// as `[.update(album.id), .delete(oldAlbum.id)]`. A record edited by two views appears
+    /// twice, so use `Set(changes.map(\.id))` for the records changed. It changes only when an
+    /// edit begins, turns into another kind of change, or ends, so typing doesn't redraw a view
+    /// that reads it. `save()` writes the changes of every zone, not only these.
+    public private(set) var changes: [RecordDifference.Change] = []
 
     init(container: RecordContainer) {
         types = container.types
@@ -60,10 +79,17 @@ public final class RecordContext {
     /// Whether any change is waiting for `save()`, in any zone.
     public var hasChanges: Bool { !differences.isEmpty }
 
-    /// The changes in the current `zone`, such as `.update(album.id)`. `save()` writes the
-    /// changes of every zone, not only these.
-    public var changes: Set<RecordDifference.Change> {
-        Set(differences.values.lazy.filter { $0.zone == self.zone }.map(\.change))
+    /// Sets `changes` from the pending edits, only when they differ, so a view reading it
+    /// redraws only when it changes.
+    private func updateChanges() {
+        editOrder.removeAll { differences[$0] == nil }
+        let current = editOrder.compactMap { differences[$0] }.filter { $0.zone == zone }.map(\.change)
+        if current != changes { changes = current }
+    }
+
+    /// Marks the saved records as changed, so every view that read one redraws.
+    private func bump() {
+        version += 1
     }
 
     // MARK: - Editing
@@ -108,10 +134,12 @@ public final class RecordContext {
         var difference = differences[id] ?? RecordDifference(
             id: id, zone: zone, base: base(for: record, in: zone), edit: newValue, modified: date
         )
+        if differences[id] == nil { editOrder.append(id) }
         difference.edit = newValue
         difference.modified = date
         // A record never saved and then deleted leaves nothing to write.
         differences[id] = difference.base == nil && newValue == nil ? nil : difference
+        updateChanges()
     }
 
     /// The base of a first edit to `record` in `zone`: the saved record, or for a record not
@@ -124,7 +152,8 @@ public final class RecordContext {
     /// The record with `id` in `zone` as `save()` would write it: the saved record with every
     /// pending edit to it laid over, oldest first, or `nil` when it is missing or deleted.
     func draft<R: Record>(id: UUID, for type: R.Type, in zone: Zone) -> R? {
-        draft(id: id, for: type, in: zone, savedFirst: false)
+        _ = version
+        return draft(id: id, for: type, in: zone, savedFirst: false)
     }
 
     /// `draft(id:for:in:)`, or with `savedFirst`, the saved record when there is one.
@@ -164,15 +193,20 @@ public final class RecordContext {
         rollback()
     }
 
-    /// Discards every pending edit.
+    /// Discards every pending edit, and redraws the views showing records.
     public func rollback() {
         differences = [:]
         directEdits = [:]
+        updateChanges()
+        bump()
     }
 
-    /// Discards every pending edit to the record with `id` in the current `zone`.
+    /// Discards every pending edit to the record with `id` in the current `zone`, and redraws
+    /// the views showing records.
     public func rollback(id: UUID) {
         differences = differences.filter { $0.value.zone != zone || $0.value.recordID != id }
+        updateChanges()
+        bump()
     }
 
     /// Removes the links that point at each deleted record, and deletes the records it owned
@@ -310,6 +344,7 @@ public final class RecordContext {
     ///
     /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
     public func record<R: Record>(id: UUID, for type: R.Type = R.self) throws -> R? {
+        _ = version
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
         return try Self.load(R.self, key: key, in: database)
@@ -318,6 +353,7 @@ public final class RecordContext {
     /// The saved record with `id` in the current `zone`, whatever its type, or `nil` when there
     /// is none. Finding the type takes one indexed query across every table.
     public func record(id: UUID) throws -> (any Record)? {
+        _ = version
         let name = id.uuidString
         let lookup = recordTypeLookup
         let values = Array(repeating: RecordKey(recordType: "", name: name, zone: zone).values, count: lookup.tables).flatMap { $0 }
@@ -334,6 +370,7 @@ public final class RecordContext {
     /// The references named in `relationshipKeyPathsForPrefetching` come back holding their
     /// records, loaded together for every result.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
+        _ = version
         checkRegistered(R.self)
         let records = try fetchRecords(descriptor)
         guard !descriptor.relationshipKeyPathsForPrefetching.isEmpty else { return records }
@@ -370,6 +407,7 @@ public final class RecordContext {
 
     /// How many records `fetch(descriptor)` would return.
     public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
+        _ = version
         checkRegistered(R.self)
         let plan = self.plan(for: descriptor)
         guard plan.page != nil else { return try fetchRecords(descriptor).count }
@@ -463,7 +501,7 @@ public final class RecordContext {
 
     /// One query that names the table holding a current, undeleted record, given the record's
     /// zone and name once per table. Built once, and its statement is cached like any other.
-    private lazy var recordTypeLookup: (sql: String, tables: Int) = {
+    @ObservationIgnored private lazy var recordTypeLookup: (sql: String, tables: Int) = {
         let recordTypes = types.keys.filter { $0 != RecordLink.recordType }.sorted()
         let selects = recordTypes.map { recordType in
             let literal = "'" + recordType.replacingOccurrences(of: "'", with: "''") + "'"

@@ -94,7 +94,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(second.value?.year == 1972)
     second.value?.title = "Blue (Live)"
     #expect(context.differences.count == 2)
-    #expect(context.changes == [.update(saved.id)])
+    #expect(context.changes == [.update(saved.id), .update(saved.id)])
 
     try context.save()
     let read = try #require(try context.record(id: saved.id, for: Novel.self))
