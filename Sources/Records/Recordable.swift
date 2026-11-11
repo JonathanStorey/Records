@@ -49,6 +49,9 @@ extension View {
 /// Every `@Recordable` showing the same record shares its edits, so two views stay in step as
 /// you type. Set the context once with `.recordContext(_:)`, and save with `context.save()`.
 ///
+/// Declare it optional, as `@Recordable var album: Album?`, to see deletes: it reads `nil` once
+/// the record is deleted, and setting it to `nil` deletes the record.
+///
 /// References hold IDs. Name the ones to load with `expand:`, as with
 /// `relationshipKeyPathsForPrefetching`:
 ///
@@ -60,31 +63,51 @@ extension View {
 /// it with its own `@Recordable`.
 @MainActor
 @propertyWrapper
-public struct Recordable<R: Record> {
+public struct Recordable<Value> {
     @Environment(\.recordContext) private var environmentContext
-    @State private var storage: RecordableStorage<R>
-
-    /// A property that edits `record` in `zone`, or in the container's `defaultZone` without one,
-    /// with the references `expand` names loaded.
-    public init(_ record: R, zone: Zone? = nil, expand: AnyKeyPath...) {
-        _storage = State(initialValue: RecordableStorage(record, zone: zone, expand: expand))
-    }
-
-    /// A property that edits `wrappedValue` in `zone`, as `@Recordable(.records) var album = album`,
-    /// with the references `expand` names loaded.
-    public init(wrappedValue: R, _ zone: Zone? = nil, expand: AnyKeyPath...) {
-        _storage = State(initialValue: RecordableStorage(wrappedValue, zone: zone, expand: expand))
-    }
+    @State private var storage: RecordableStorage<Value>
 
     /// The record as edited.
-    public var wrappedValue: R {
+    public var wrappedValue: Value {
         get { storage.value }
         nonmutating set { storage.value = newValue }
     }
 
     /// A binding to the record, so `$album.title` binds to one field.
-    public var projectedValue: Binding<R> {
+    public var projectedValue: Binding<Value> {
         Bindable(storage).value
+    }
+}
+
+extension Recordable where Value: Record {
+    /// A property that edits `record` in `zone`, or in the container's `defaultZone` without one,
+    /// with the references `expand` names loaded.
+    public init(_ record: Value, zone: Zone? = nil, expand: AnyKeyPath...) {
+        _storage = State(initialValue: RecordableStorage(record, zone: zone, expand: expand))
+    }
+
+    /// A property that edits `wrappedValue` in `zone`, as `@Recordable(.records) var album = album`,
+    /// with the references `expand` names loaded.
+    public init(wrappedValue: Value, _ zone: Zone? = nil, expand: AnyKeyPath...) {
+        _storage = State(initialValue: RecordableStorage(wrappedValue, zone: zone, expand: expand))
+    }
+}
+
+extension Recordable {
+    /// An optional property that edits `record` in `zone`, or in the container's `defaultZone`
+    /// without one, with the references `expand` names loaded. It reads `nil` once the record
+    /// is deleted.
+    public init<R: Record>(_ record: R, zone: Zone? = nil, expand: AnyKeyPath...) where Value == R? {
+        _storage = State(initialValue: RecordableStorage(optional: record, zone: zone, expand: expand))
+    }
+
+    /// An optional property that edits `wrappedValue`, as `@Recordable var album: Album? = album`.
+    /// `wrappedValue` must hold a record.
+    public init<R: Record>(wrappedValue: R?, _ zone: Zone? = nil, expand: AnyKeyPath...) where Value == R? {
+        guard let record = wrappedValue else {
+            preconditionFailure("An optional @Recordable starts from a record, not nil.")
+        }
+        _storage = State(initialValue: RecordableStorage(optional: record, zone: zone, expand: expand))
     }
 }
 
@@ -97,19 +120,22 @@ extension Recordable: @preconcurrency DynamicProperty {
 /// What a `@Recordable` holds: the record's difference in its context, which it reads and edits.
 @MainActor
 @Observable
-final class RecordableStorage<R: Record> {
-    @ObservationIgnored private var record: R
+final class RecordableStorage<Value> {
+    @ObservationIgnored private var record: any Record
     @ObservationIgnored private weak var context: RecordContext?
     @ObservationIgnored private(set) var difference: RecordDifference?
     /// The zone the record is edited in, or `nil` for the container's `defaultZone`.
     @ObservationIgnored let zone: Zone?
     /// The references to load each time the record is read.
     @ObservationIgnored let expand: [AnyKeyPath]
+    /// What an optional wrapper reads once its record is deleted. `nil` for one that isn't optional.
+    @ObservationIgnored private let deleted: Value?
 
-    init(_ record: R, zone: Zone? = nil, expand: [AnyKeyPath] = []) {
+    private init(record: any Record, zone: Zone?, expand: [AnyKeyPath], deleted: Value?) {
         self.record = record
         self.zone = zone
         self.expand = expand
+        self.deleted = deleted
     }
 
     /// Uses `context`'s difference for the record, in the wrapper's zone or the container's
@@ -121,27 +147,55 @@ final class RecordableStorage<R: Record> {
     }
 
     /// The record as edited, with the references `expand` names loaded. Setting it stages the
-    /// edit in the context.
+    /// edit in the context, and setting `nil` stages deleting the record.
     ///
     /// A record that isn't saved and has no change reads as the record the wrapper was given, so
-    /// rolling back an edit to a new record shows it as it started.
-    var value: R {
+    /// rolling back an edit to a new record shows it as it started. An optional wrapper reads
+    /// `nil` once the record is deleted, whether or not the delete is saved yet.
+    var value: Value {
         get {
-            guard let difference, difference.change != nil || difference.original != nil,
-                  let value = difference.value as? R
-            else { return record }
-            guard !expand.isEmpty, let context else { return value }
+            guard let difference else { return record as! Value }
+            if let deleted, difference.isDelete || difference.draft == nil { return deleted }
+            guard difference.change != nil || difference.original != nil, let value = difference.value
+            else { return record as! Value }
+            guard !expand.isEmpty, let context else { return value as! Value }
             // Read each time, so the targets show the context's latest changes to them.
-            return context.expanded(value, expand, in: difference.zone)
+            return context.expanded(value, expand, in: difference.zone) as! Value
         }
         set {
+            let newRecord = newValue as? any Record
             guard let context, let difference else {
-                record = newValue
+                if let newRecord { record = newRecord }
                 return
             }
-            difference.draft = newValue
+            guard let newRecord else {
+                // The difference is already the context's, so setting its change stages it.
+                if difference.original == nil {
+                    // Never saved, so there is nothing to delete: drop the record and any insert.
+                    difference.draft = nil
+                    difference.change = nil
+                } else if difference.draft != nil {
+                    difference.change = .delete(difference.id)
+                }
+                return
+            }
+            difference.draft = newRecord
             context.didEdit(difference)
         }
+    }
+}
+
+extension RecordableStorage where Value: Record {
+    /// Storage for a wrapper that isn't optional.
+    convenience init(_ record: Value, zone: Zone? = nil, expand: [AnyKeyPath] = []) {
+        self.init(record: record, zone: zone, expand: expand, deleted: nil)
+    }
+}
+
+extension RecordableStorage {
+    /// Storage for an optional wrapper, which reads `nil` once its record is deleted.
+    convenience init<R: Record>(optional record: R, zone: Zone? = nil, expand: [AnyKeyPath] = []) where Value == R? {
+        self.init(record: record, zone: zone, expand: expand, deleted: .some(nil))
     }
 }
 
