@@ -202,7 +202,7 @@ with the same parameters as SwiftData's `@Query`:
 ```
 
 A sorted reference sorts each time it's read, and its links carry no order keys, so reordering it
-never writes anything. `$tags` lists the IDs unsorted, because sorting needs the records.
+never writes anything. `referenceIDs(at: \.tags)` lists the IDs unsorted, because sorting needs the records.
 
 ## Every relationship, by example
 
@@ -673,17 +673,17 @@ track.tags                   // []: level two doesn't load records
 
 A record-form reference at level two reads as `nil` or `[]` even when it has targets, but it still
 holds their IDs, so its links stay the same. To tell "empty" from "not loaded", read the
-reference's `$` projection, which holds the IDs either way:
+reference's IDs, which are there either way:
 
 ```swift
 track.tags               // []: the records weren't loaded at this level
-track.$tags              // [energetic.id, live.id]: every ID, loaded or not
-track.tags.count == track.$tags.count   // false here, so the tags weren't loaded
-album.$cover             // nil only when the album truly has no cover
+track.referenceIDs(at: \.tags)   // [energetic.id, live.id]: every ID, loaded or not
+track.tags.count == track.referenceIDs(at: \.tags).count   // false here, so the tags weren't loaded
+album.referenceID(at: \.cover)   // nil only when the album truly has no cover
 ```
 
-`$name` is `[UUID]` or `UUID?`, read-only, and as visible as the property, so a public record exposes it too. ID-form
-and `from:` references don't have one, because they are always complete.
+`referenceIDs(at:)` takes a to-many reference and `referenceID(at:)` a to-one reference. ID-form
+references don't need either, because they are always complete.
 
 To load further, pass `depth:`. Each level multiplies what's loaded, so ask for depth only where a
 screen shows it.
@@ -694,7 +694,7 @@ album.tracks[0].tags.map(\.name)   // ["energetic", "live"]: level two holds rec
 
 let bare = try decoder.decode(Album.self, from: record, links: links, depth: 0)
 bare.tracks                        // []: depth 0 loads no records
-bare.$tracks                       // but every ID is there
+bare.referenceIDs(at: \.tracks)   // but every ID is there
 ```
 
 Depth also makes cycles safe. A mentor who mentors their mentor loads back and forth until the

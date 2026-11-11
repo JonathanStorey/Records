@@ -130,12 +130,12 @@ private func savedArticle(
 
     let bare = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 0)
     #expect(bare.manager == nil)
-    #expect(bare.$manager == boss.id)
+    #expect(bare.referenceID(at: \.manager) == boss.id)
 
     let one = try decoder.decode(Employee.self, from: records[0], links: links, targets: records)
     #expect(one.manager?.name == "Grace")
     #expect(one.manager?.manager == nil)
-    #expect(one.manager?.$manager == top.id)
+    #expect(one.manager?.referenceID(at: \.manager) == top.id)
 
     let two = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 2)
     #expect(two.manager?.manager?.name == "Linus")
@@ -167,4 +167,15 @@ private func savedArticle(
     )
     #expect(decoded._author.id == nil)
     #expect(decoded.editorID == nil)
+}
+
+@Test func referenceIDsReadByKeyPath() {
+    let shelf = Shelf(id: UUID(), name: "Fiction", bookIDs: [])
+    let book = Book(id: UUID(), title: "Dune", shelf: shelf)
+    let songs = ["Intro", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
+    let release = Release(id: UUID(), tracks: songs)
+
+    #expect(book.referenceID(at: \.shelf) == shelf.id)
+    #expect(Book(id: UUID(), title: "Emma", shelf: nil).referenceID(at: \.shelf) == nil)
+    #expect(release.referenceIDs(at: \.tracks) == songs.map(\.id))
 }

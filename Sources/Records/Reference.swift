@@ -209,6 +209,20 @@ extension ToMany: Hashable {
 extension ToMany: @unchecked Sendable where Target: Sendable {}
 
 extension Record {
+    /// The ID a to-one `@Reference` points at, whether or not its record is loaded:
+    /// `track.referenceID(at: \.album)`.
+    public func referenceID<Target: Record>(at keyPath: KeyPath<Self, Target?>) -> UUID? {
+        Self.keyPaths[keyPath].flatMap { referencedIDs($0).first }
+    }
+
+    /// The IDs a to-many `@Reference` points at, in the order they were added, whether or not its
+    /// records are loaded: `track.referenceIDs(at: \.tags)`.
+    public func referenceIDs<Target: Record>(at keyPath: KeyPath<Self, [Target]>) -> [UUID] {
+        Self.keyPaths[keyPath].map(referencedIDs) ?? []
+    }
+}
+
+extension Record {
     /// Whether `record` is this type's record for `id`.
     static func matches(_ record: CKRecord, id: UUID) -> Bool {
         record.recordType == recordType && record.recordID.recordName == id.uuidString

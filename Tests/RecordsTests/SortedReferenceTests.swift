@@ -37,7 +37,7 @@ private let kid = disc("Kid A", 2000, 4)
     #expect(crate.newest.map(\.title) == ["Kid A", "Blue", "Abbey Road"])
     #expect(crate.rated.map(\.title).prefix(2) == ["Blue", "Kid A"])
     #expect(crate.oldest.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
-    #expect(crate.$discs == [blue.id, kid.id, abbey.id]) // IDs aren't sorted
+    #expect(crate.referenceIDs(at: \.discs) == [blue.id, kid.id, abbey.id]) // IDs aren't sorted
 }
 
 @Test func sortedReferencesWriteNoOrderKeys() {

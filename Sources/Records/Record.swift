@@ -80,10 +80,11 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 /// until its links are loaded. A to-one reference must be optional and a to-many reference a
 /// non-optional array, in a `var` with no initial value. Either may point at its own type.
 ///
-/// Where loading stopped, the property reads `nil` or `[]` even when it has targets. `$name`
-/// holds the IDs either way, as `[UUID]` or `UUID?`: `album.$tracks`, `album.$artist`.
+/// Where loading stopped, the property reads `nil` or `[]` even when it has targets.
+/// `referenceID(at:)` and `referenceIDs(at:)` give the IDs either way:
+/// `album.referenceIDs(at: \.tracks)`, `album.referenceID(at: \.artist)`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_), prefixed(`$`))
+@attached(peer, names: prefixed(_))
 public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by their fields instead of kept in the order
@@ -94,27 +95,27 @@ public macro Reference() = #externalMacro(module: "RecordsMacros", type: "Refere
 /// ```
 ///
 /// The records are sorted each time the property is read, so its links carry no order keys.
-/// `$tags` lists the IDs unsorted, because sorting needs the records.
+/// `referenceIDs(at: \.tags)` lists the IDs unsorted, because sorting needs the records.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_), prefixed(`$`))
+@attached(peer, names: prefixed(_))
 public macro Reference<Element: Record>(sort descriptors: [SortDescriptor<Element>]) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by one descriptor, as in
 /// `@Reference(sort: SortDescriptor(\Tag.name)) var tags: [Tag]`. See `Reference(sort:)`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_), prefixed(`$`))
+@attached(peer, names: prefixed(_))
 public macro Reference<Element: Record>(sort descriptor: SortDescriptor<Element>) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by one field, as in
 /// `@Reference(sort: \Tag.name, order: .reverse) var tags: [Tag]`. See `Reference(sort:)`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_), prefixed(`$`))
+@attached(peer, names: prefixed(_))
 public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath<Element, Value>, order: SortOrder = .forward) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by one optional field, as in
 /// `@Reference(sort: \Album.year) var albums: [Album]` where `year` is an `Int?`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_), prefixed(`$`))
+@attached(peer, names: prefixed(_))
 public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath<Element, Value?>, order: SortOrder = .forward) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a property that holds only the IDs of other `Record`s, e.g.
