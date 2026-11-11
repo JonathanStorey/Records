@@ -113,21 +113,23 @@ extension LocationField {
     /// How a `@Location` is stored: as a keyed archive of its `CLLocation`, so every detail is
     /// kept, including how accurate its course and speed are. A location stored as a `CLLocation`
     /// reads too.
-    public static let coding = FieldCoding<Stored>(
-        kind: .bytes,
-        write: { location in
-            do {
-                return try NSKeyedArchiver.archivedData(withRootObject: location, requiringSecureCoding: true)
-            } catch {
-                assertionFailure("Records couldn't archive a location: \(error)")
-                return nil
+    public static var coding: FieldCoding<Stored> {
+        FieldCoding(
+            kind: .bytes,
+            write: { location in
+                do {
+                    return try NSKeyedArchiver.archivedData(withRootObject: location, requiringSecureCoding: true)
+                } catch {
+                    assertionFailure("Records couldn't archive a location: \(error)")
+                    return nil
+                }
+            },
+            read: { stored in
+                if let location = stored as? CLLocation { return location }
+                return (stored as? Data).flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: CLLocation.self, from: $0) }
             }
-        },
-        read: { stored in
-            if let location = stored as? CLLocation { return location }
-            return (stored as? Data).flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: CLLocation.self, from: $0) }
-        }
-    )
+        )
+    }
 }
 
 private extension JSONEncoder {
