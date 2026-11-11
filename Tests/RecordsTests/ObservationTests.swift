@@ -168,7 +168,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
 // MARK: - Changes from another context
 
 @MainActor
-private func twoContexts() throws -> (RecordContext, RecordContext, Novel) {
+private func twoContexts() throws -> (RecordContainer, RecordContext, RecordContext, Novel) {
     let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
     let here = container.mainContext
     let novel = Novel(
@@ -177,13 +177,15 @@ private func twoContexts() throws -> (RecordContext, RecordContext, Novel) {
     )
     here.insert(novel)
     try here.save()
-    return (here, RecordContext(container: container), novel)
+    return (container, here, RecordContext(container: container), novel)
 }
 
 /// A save in one context moves the other's `lastSaved`, so its views redraw.
 @MainActor
 @Test func aSaveRedrawsTheOtherContexts() throws {
-    let (here, elsewhere, novel) = try twoContexts()
+    // The container must stay alive for its contexts to hear each other's saves.
+    let (container, here, elsewhere, novel) = try twoContexts()
+    defer { withExtendedLifetime(container) {} }
     var remote = novel
     remote.title = "Blue (Remastered)"
     elsewhere.insert(remote)
@@ -195,7 +197,9 @@ private func twoContexts() throws -> (RecordContext, RecordContext, Novel) {
 /// after the edit began isn't overwritten by the value the edit started from.
 @MainActor
 @Test func rebasingKeepsLaterChangesMadeElsewhere() throws {
-    let (here, elsewhere, novel) = try twoContexts()
+    // The container must stay alive for its contexts to hear each other's saves.
+    let (container, here, elsewhere, novel) = try twoContexts()
+    defer { withExtendedLifetime(container) {} }
     func remoteTitle(_ title: String) throws {
         var remote = try #require(try elsewhere.record(id: novel.id, for: Novel.self))
         remote.title = title
@@ -221,7 +225,9 @@ private func twoContexts() throws -> (RecordContext, RecordContext, Novel) {
 /// An edit to a record deleted elsewhere becomes an insert, and a delete of it is dropped.
 @MainActor
 @Test func rebasingOntoADeleteRevivesEditsAndDropsDeletes() throws {
-    let (here, elsewhere, novel) = try twoContexts()
+    // The container must stay alive for its contexts to hear each other's saves.
+    let (container, here, elsewhere, novel) = try twoContexts()
+    defer { withExtendedLifetime(container) {} }
     var edited = novel
     edited.year = 1972
     let editID = UUID()
