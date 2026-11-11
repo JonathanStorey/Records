@@ -134,3 +134,182 @@ private func novel(_ title: String, year: Int) -> Novel {
     context.zone = "Work"
     #expect(context.changes == [.insert(fresh.id)])
 }
+
+// MARK: - Edge cases
+
+/// A wrapper on a record the context already changed shows that change.
+@MainActor
+@Test func aRecordableShowsAnInsertAlreadyMade() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    var edited = saved
+    edited.year = 1972
+    context.insert(edited)
+
+    let storage = RecordableStorage(saved)
+    storage.connect(to: context)
+    #expect(storage.value.year == 1972)
+}
+
+/// An insert through the context after the wrapper connected shows in the wrapper.
+@MainActor
+@Test func aRecordableFollowsInsertsThroughTheContext() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(saved)
+    storage.connect(to: context)
+    var edited = saved
+    edited.year = 1972
+    context.insert(edited)
+    #expect(storage.value.year == 1972)
+}
+
+/// After a save the wrapper keeps the same difference, and its next edit is a new change.
+@MainActor
+@Test func editsAfterASaveAreChangesAgain() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(saved)
+    storage.connect(to: context)
+    let difference = storage.difference
+    storage.value.year = 1972
+    try context.save()
+    #expect(context.changes.isEmpty)
+    #expect(storage.difference === difference)
+    #expect(context.difference(for: saved) === difference)
+
+    storage.value.year = 1973
+    #expect(context.changes == [.insert(saved.id)])
+    try context.save()
+    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1973)
+}
+
+/// An edit stays in the context after its wrapper is gone, and the next save writes it.
+@MainActor
+@Test func anEditOutlivesItsRecordable() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    do {
+        let storage = RecordableStorage(saved)
+        storage.connect(to: context)
+        storage.value.year = 1972
+    }
+    // Handing out another difference drops the unused ones.
+    _ = context.difference(for: novel("Other", year: 2000))
+    #expect(context.changes == [.insert(saved.id)])
+
+    try context.save()
+    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1972)
+}
+
+/// A wrapper that never edited leaves nothing behind once it is gone.
+@MainActor
+@Test func anUneditedRecordableLeavesNothingBehind() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    do {
+        let storage = RecordableStorage(saved)
+        storage.connect(to: context)
+        #expect(context.differences.count == 1)
+    }
+    let other = novel("Other", year: 2000)
+    _ = context.difference(for: other)
+    #expect(context.differences.keys.map(\.name) == [other.id.uuidString])
+    #expect(!context.hasChanges)
+}
+
+/// The same record in two zones is two records, so wrappers in each edit apart.
+@MainActor
+@Test func recordablesInDifferentZonesStayApart() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let here = RecordableStorage(fresh)
+    let work = RecordableStorage(fresh, zone: "Work")
+    here.connect(to: context)
+    work.connect(to: context)
+    #expect(here.difference !== work.difference)
+
+    here.value.year = 2025
+    #expect(work.value.year == 2024)
+    #expect(context.changes == [.insert(fresh.id)])
+    context.zone = "Work"
+    #expect(context.changes.isEmpty)
+}
+
+/// Saving writes only the fields the wrapper edited, so a field another context saved since
+/// is kept, and the wrapper then shows both.
+@MainActor
+@Test func savingKeepsFieldsSavedElsewhere() throws {
+    let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
+    let context = container.mainContext
+    let other = RecordContext(container: container)
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(saved)
+    storage.connect(to: context)
+    storage.value.year = 1972
+
+    var renamed = saved
+    renamed.title = "Green"
+    other.insert(renamed)
+    try other.save()
+
+    try context.save()
+    let written = try #require(try context.record(id: saved.id, for: Novel.self))
+    #expect(written.title == "Green")
+    #expect(written.year == 1972)
+    #expect(storage.value.title == "Green")
+    #expect(storage.value.year == 1972)
+}
+
+/// Moving a wrapper to another context shows that context's copy, and leaves the first
+/// context's change where it was.
+@MainActor
+@Test func aRecordableMovedToAnotherContextStartsFromItsCopy() throws {
+    let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
+    let context = container.mainContext
+    let other = RecordContext(container: container)
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(saved)
+    storage.connect(to: context)
+    storage.value.year = 1972
+    storage.connect(to: other)
+
+    #expect(storage.value.year == 1971)
+    #expect(context.changes == [.insert(saved.id)])
+    #expect(!other.hasChanges)
+}
+
+/// Connecting to the same context again keeps the same difference.
+@MainActor
+@Test func reconnectingToTheSameContextKeepsTheDifference() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let storage = RecordableStorage(fresh)
+    storage.connect(to: context)
+    let difference = storage.difference
+    storage.value.year = 2025
+    storage.connect(to: context)
+    #expect(storage.difference === difference)
+    #expect(storage.value.year == 2025)
+}
