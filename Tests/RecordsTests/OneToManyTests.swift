@@ -71,7 +71,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 @Test func addingAToManyInverseKeepsLinkIDs() {
     let sourceID = UUID(), targetID = UUID()
     let twoWay = Book(id: UUID(), title: "Dune", shelf: makeShelf()).referenceStates[0]
-    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [])
+    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [], records: [])
     #expect(twoWay.inverse != nil)
     #expect(
         RecordLink.id(reference: oneWay, sourceType: "Book", sourceID: sourceID, targetID: targetID)

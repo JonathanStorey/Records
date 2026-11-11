@@ -14,13 +14,15 @@ public struct ReferenceTarget: Hashable, Sendable {
 }
 
 /// One `@Reference` that writes links, with its current targets, as the encoder needs it.
-public struct ReferenceState: Sendable {
+public struct ReferenceState {
     /// The reference as `@Record` describes it.
     public let schema: ReferenceSchema
     /// The target's `@Reference(from:)` side, when the relationship is two-way.
     public let inverse: ReferenceSchema?
     /// The targets' IDs, in order.
     public let ids: [UUID]
+    /// The loaded targets, in order. Empty where loading stopped.
+    public let records: [any Record]
 
     /// The property name, such as `author`.
     public var property: String { schema.property }
@@ -31,14 +33,15 @@ public struct ReferenceState: Sendable {
     /// Whether a to-many property sorts its records, so its links carry no order keys.
     public var isSorted: Bool { schema.isSorted }
 
-    /// Every `@Reference` of `type` that writes links, with its targets' IDs from `ids` by
-    /// property. Used by the code `@Record` generates.
-    public static func all<R: Record>(of type: R.Type, ids: [String: [UUID]]) -> [ReferenceState] {
+    /// Every `@Reference` of `type` that writes links, with its targets' IDs and loaded records
+    /// from `targets` by property. Used by the code `@Record` generates.
+    public static func all<R: Record>(of type: R.Type, targets: [String: (ids: [UUID], records: [any Record])]) -> [ReferenceState] {
         let schema = R.schema
         return schema.references.filter { !$0.isFrom }.map { reference in
-            ReferenceState(
+            let target = targets[reference.property]
+            return ReferenceState(
                 schema: reference, inverse: schema.inverse(of: reference.property, in: reference.target),
-                ids: ids[reference.property] ?? []
+                ids: target?.ids ?? [], records: target?.records ?? []
             )
         }
     }
@@ -56,6 +59,8 @@ public struct ToOne<Target: Record> {
     public var id: UUID?
     /// The target's ID as a list, empty when there is none, matching `ToMany`.
     public var ids: [UUID] { id.map { [$0] } ?? [] }
+    /// The loaded target as a list, empty when it isn't loaded, matching `ToMany`.
+    public var loadedRecords: [any Record] { value.map { [$0] } ?? [] }
     /// The loaded target. A class, so a record can refer to its own type.
     private var box: Box?
 
@@ -142,6 +147,9 @@ public struct ToMany<Target: Record> {
         self.values = values
     }
 
+    /// The loaded targets as `values` holds them. Empty where loading stopped.
+    public var loadedRecords: [any Record] { values }
+
     /// The targets the reference points at now, in order.
     public var ids: [UUID] {
         get { storedIDs }
@@ -212,13 +220,17 @@ extension Record {
     /// The ID a to-one `@Reference` points at, whether or not its record is loaded:
     /// `track.referenceID(at: \.album)`.
     public func referenceID<Target: Record>(at keyPath: KeyPath<Self, Target?>) -> UUID? {
-        Self.keyPaths[keyPath].flatMap { referencedIDs($0).first }
+        referenceIDs(named: Self.keyPaths[keyPath]).first
     }
 
     /// The IDs a to-many `@Reference` points at, in the order they were added, whether or not its
     /// records are loaded: `track.referenceIDs(at: \.tags)`.
     public func referenceIDs<Target: Record>(at keyPath: KeyPath<Self, [Target]>) -> [UUID] {
-        Self.keyPaths[keyPath].map(referencedIDs) ?? []
+        referenceIDs(named: Self.keyPaths[keyPath])
+    }
+
+    private func referenceIDs(named property: String?) -> [UUID] {
+        referenceStates.first { $0.property == property }?.ids ?? []
     }
 }
 
@@ -231,41 +243,10 @@ extension Record {
 
 // MARK: - Loaded targets
 
-/// Reference storage that can hold loaded target records.
-protocol LoadedReference {
-    /// The target records the reference holds, in order. Empty when it holds only IDs.
-    var loadedRecords: [any Record] { get }
-    /// The target IDs the reference holds, in order.
-    var targetIDs: [UUID] { get }
-}
-
-extension ToOne: LoadedReference {
-    var loadedRecords: [any Record] { value.map { [$0] } ?? [] }
-    var targetIDs: [UUID] { id.map { [$0] } ?? [] }
-}
-
-extension ToMany: LoadedReference {
-    var loadedRecords: [any Record] { values }
-    var targetIDs: [UUID] { ids }
-}
-
 extension Record {
     /// The target records loaded into the references that write links. `@Reference(from:)`
     /// sides are left out, since this record doesn't own those links.
     var loadedTargets: [any Record] {
-        let owning = Set(referenceStates.map(\.property))
-        return Mirror(reflecting: self).children.flatMap { child -> [any Record] in
-            guard let label = child.label, label.hasPrefix("_"), owning.contains(String(label.dropFirst())),
-                  let reference = child.value as? LoadedReference
-            else { return [] }
-            return reference.loadedRecords
-        }
-    }
-
-    /// The target IDs of the `@Reference` named `property`, including a `from:` side, in order.
-    func referencedIDs(_ property: String) -> [UUID] {
-        let label = "_" + property
-        let reference = Mirror(reflecting: self).children.first { $0.label == label }?.value as? LoadedReference
-        return reference?.targetIDs ?? []
+        referenceStates.flatMap(\.records)
     }
 }

@@ -45,7 +45,10 @@ public struct RecordMacro: ExtensionMacro {
             "    \(access)static var recordType: CKRecord.RecordType {",
             "        \"\(recordType)\"",
             "    }",
-        ] + schemaLines(recordType: recordType, fields: fields, references: references, access: access)
+        ] + schemaLines(
+            recordType: recordType, fields: fields, references: references, access: access,
+            isGeneric: structDecl.genericParameterClause != nil
+        )
             + keyPathLines(typeName: type.trimmedDescription, fields: fields, references: references, access: access) + [
             "    \(access)init(record: CKRecord) throws {",
             "        self.id = try CKRecordDecoder.decodeID(from: record)",
@@ -133,11 +136,11 @@ public struct RecordMacro: ExtensionMacro {
             let owning = references.filter { !$0.isFrom }
             lines.append("    \(access)var referenceStates: [Records.ReferenceState] {")
             if owning.isEmpty {
-                lines.append("        Records.ReferenceState.all(of: Self.self, ids: [:])")
+                lines.append("        Records.ReferenceState.all(of: Self.self, targets: [:])")
             } else {
-                lines.append("        Records.ReferenceState.all(of: Self.self, ids: [")
+                lines.append("        Records.ReferenceState.all(of: Self.self, targets: [")
                 for reference in owning {
-                    lines.append("            \"\(reference.key)\": self.\(reference.storage).ids,")
+                    lines.append("            \"\(reference.key)\": (self.\(reference.storage).ids, self.\(reference.storage).loadedRecords),")
                 }
                 lines.append("        ])")
             }
@@ -168,15 +171,16 @@ public struct RecordMacro: ExtensionMacro {
         return [extensionDecl]
     }
 
-    /// The static `schema` the container builds its tables from.
+    /// The static `schema` the container builds its tables from. It is built once, except on a
+    /// generic type, which can't have a static stored property.
     private static func schemaLines(
         recordType: String,
         fields: [StoredProperty],
         references: [ReferenceMacro.Reference],
-        access: String
+        access: String,
+        isGeneric: Bool
     ) -> [String] {
         var lines = [
-            "    \(access)static var schema: Records.RecordSchema {",
             "        Records.RecordSchema(",
             "            recordType: \"\(recordType)\",",
         ]
@@ -204,11 +208,13 @@ public struct RecordMacro: ExtensionMacro {
             }
             lines.append("            ]")
         }
-        lines += [
-            "        )",
-            "    }",
-        ]
-        return lines
+        lines.append("        )")
+        guard isGeneric else {
+            // Stored once: the same lines, one level out.
+            return ["    \(access)static let schema = Records.RecordSchema("]
+                + lines.dropFirst().map { String($0.dropFirst(4)) }
+        }
+        return ["    \(access)static var schema: Records.RecordSchema {"] + lines + ["    }"]
     }
 
     /// `keyPaths`: what each property is saved as, by its key path, so a predicate on it can
