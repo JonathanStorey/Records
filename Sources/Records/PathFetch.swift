@@ -45,6 +45,16 @@ struct Traversal {
         }
     }
 
+    /// The references `keyPaths` name on `R`, one hop deep, for prefetching.
+    init<R: Record>(prefetching keyPaths: [PartialKeyPath<R>]) {
+        for keyPath in keyPaths {
+            if let reference = R.recordReference(for: keyPath) {
+                references.insert(Reference(recordType: R.recordType, property: reference.property))
+            }
+        }
+        hops = 1
+    }
+
     func contains(_ recordType: CKRecord.RecordType, _ property: String) -> Bool {
         references.contains(Reference(recordType: recordType, property: property))
     }
@@ -116,6 +126,71 @@ private final class PathInfos {
     }
 }
 
+/// Decodes roots from a loaded graph with the records their traversed references reach. Each
+/// record gets only the links it reads, cached per record, so decoding stays proportional to
+/// what the references reach.
+private final class LoadedReader {
+    private let graph: Graph
+    private let traversal: Traversal
+    private let infos: PathInfos
+    private var linksRead: [NodeKey: [CKRecord]] = [:]
+
+    init(graph: Graph, traversal: Traversal, infos: PathInfos) {
+        self.graph = graph
+        self.traversal = traversal
+        self.infos = infos
+    }
+
+    /// `root` decoded with its traversed references holding records, `traversal.hops` deep, or
+    /// `nil` when the graph doesn't hold it.
+    func decode<R: Record>(_ type: R.Type, root: NodeKey) throws -> R? {
+        guard let record = graph.records[root] else { return nil }
+        let reached = reachable(from: root)
+        var seen: Set<String> = []
+        let links = reached.flatMap(links(readBy:)).filter { seen.insert($0.recordID.recordName).inserted }
+        let targets = reached.filter { $0 != root }.compactMap { graph.records[$0] }
+        return try CKRecordDecoder().decode(R.self, from: record, links: links, targets: targets, depth: traversal.hops)
+    }
+
+    /// The links `node` reads: the ones it owns, and the ones that point at it for its `from:` sides.
+    private func links(readBy node: NodeKey) -> [CKRecord] {
+        if let links = linksRead[node] { return links }
+        let links = (graph.linksByName[node.name] ?? []).filter { link in
+            guard let source = link["source"] as? String else { return false }
+            let owns = link["sourceName"] as? String == node.name && source.hasPrefix(node.recordType + ".")
+            let reads = link["targetName"] as? String == node.name && infos[node.recordType].inverseSources.contains(source)
+            return owns || reads
+        }
+        linksRead[node] = links
+        return links
+    }
+
+    /// `root` and the records it reaches through the traversed references, at most `hops` deep.
+    private func reachable(from root: NodeKey) -> [NodeKey] {
+        var found: [NodeKey] = [root]
+        var seen: Set<NodeKey> = [root]
+        var frontier = [root]
+        for _ in 0..<traversal.hops {
+            var next: [NodeKey] = []
+            for node in frontier {
+                for (link, target) in infos[node.recordType].traversed {
+                    for record in graph.linksByName[node.name] ?? []
+                    where record["source"] as? String == link.source && record[link.ownName] as? String == node.name {
+                        guard let other = record[link.otherName] as? String else { continue }
+                        let key = NodeKey(recordType: target, name: other)
+                        if graph.records[key] != nil, seen.insert(key).inserted {
+                            found.append(key)
+                            next.append(key)
+                        }
+                    }
+                }
+            }
+            frontier = next
+        }
+        return found
+    }
+}
+
 /// The context's staged changes in one zone, as the database would hold them after `save()`.
 private struct Overlay {
     /// Every staged record, saved or deleted. Its own links in the database no longer count.
@@ -163,31 +238,14 @@ extension RecordContext {
         let infos = PathInfos(types: types, traversal: traversal)
         try load(&graph, from: roots, through: traversal, infos: infos, overlay: overlay)
 
-        // Check each root with the records its paths reach loaded. Each record gets only the
-        // links it reads, so decoding stays proportional to what the paths reach.
-        let decoder = CKRecordDecoder()
+        // Check each root with the records its paths reach loaded.
+        let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
         var matches: [(loaded: R, root: NodeKey)] = []
-        var linksRead: [NodeKey: [CKRecord]] = [:]
-        func links(readBy node: NodeKey) -> [CKRecord] {
-            if let links = linksRead[node] { return links }
-            let links = (graph.linksByName[node.name] ?? []).filter { link in
-                guard let source = link["source"] as? String else { return false }
-                let owns = link["sourceName"] as? String == node.name && source.hasPrefix(node.recordType + ".")
-                let reads = link["targetName"] as? String == node.name && infos[node.recordType].inverseSources.contains(source)
-                return owns || reads
-            }
-            linksRead[node] = links
-            return links
-        }
         for root in roots {
-            guard let record = graph.records[root] else { continue }
-            let reached = reachable(from: root, in: graph, hops: traversal.hops, infos: infos)
-            var seen: Set<String> = []
-            let reachedLinks = reached.flatMap(links(readBy:)).filter { seen.insert($0.recordID.recordName).inserted }
-            let targets = reached.filter { $0 != root }.compactMap { graph.records[$0] }
-            let loaded = try decoder.decode(R.self, from: record, links: reachedLinks, targets: targets, depth: traversal.hops)
+            guard let loaded = try reader.decode(R.self, root: root) else { continue }
             if try predicate.evaluate(loaded) { matches.append((loaded, root)) }
         }
+        let decoder = CKRecordDecoder()
 
         if !descriptor.sortBy.isEmpty {
             let order = descriptor.sortBy
@@ -200,6 +258,28 @@ extension RecordContext {
         return try matches[start..<end].map { match in
             guard let record = graph.records[match.root] else { return match.loaded }
             return try decoder.decode(R.self, from: record, links: graph.linksByName[match.root.name] ?? [], depth: 0)
+        }
+    }
+
+    /// `records` with the references `keyPaths` name holding their records. The targets are read
+    /// together, one query per type, with staged changes laid over them.
+    func prefetch<R: Record>(_ keyPaths: [PartialKeyPath<R>], into records: [R]) throws -> [R] {
+        let traversal = Traversal(prefetching: keyPaths)
+        guard !traversal.isEmpty, !records.isEmpty else { return records }
+        let overlay = try overlay()
+        let encoder = CKRecordEncoder()
+        var graph = Graph()
+        let roots = records.map { record in
+            let node = NodeKey(recordType: R.recordType, name: record.id.uuidString)
+            graph.records[node] = encoder.encode(record, in: zone)
+            return node
+        }
+        let infos = PathInfos(types: types, traversal: traversal)
+        try load(&graph, from: roots, through: traversal, infos: infos, overlay: overlay)
+
+        let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
+        return try zip(records, roots).map { record, root in
+            try reader.decode(R.self, root: root) ?? record
         }
     }
 
@@ -301,31 +381,6 @@ extension RecordContext {
             let source = link["sourceName"] as? String, target = link["targetName"] as? String
             if source.map(wanted.contains) == true || target.map(wanted.contains) == true { graph.add(link: link) }
         }
-    }
-
-    /// `root` and the records it reaches through the traversed references, at most `hops` deep.
-    private func reachable(from root: NodeKey, in graph: Graph, hops: Int, infos: PathInfos) -> [NodeKey] {
-        var found: [NodeKey] = [root]
-        var seen: Set<NodeKey> = [root]
-        var frontier = [root]
-        for _ in 0..<hops {
-            var next: [NodeKey] = []
-            for node in frontier {
-                for (link, target) in infos[node.recordType].traversed {
-                    for record in graph.linksByName[node.name] ?? []
-                    where record["source"] as? String == link.source && record[link.ownName] as? String == node.name {
-                        guard let other = record[link.otherName] as? String else { continue }
-                        let key = NodeKey(recordType: target, name: other)
-                        if graph.records[key] != nil, seen.insert(key).inserted {
-                            found.append(key)
-                            next.append(key)
-                        }
-                    }
-                }
-            }
-            frontier = next
-        }
-        return found
     }
 }
 
