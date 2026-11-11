@@ -26,40 +26,21 @@ public struct CKRecordEncoder: Sendable {
     /// links to write and the ones to delete. `@Reference(from:)` properties write no links.
     ///
     /// Each `@Asset` that holds data adds a link that carries the asset.
-    public func links<R: Record>(for record: R, in zone: Zone, existing: [CKRecord] = []) -> [CKRecord] {
-        referenceLinks(for: record, in: zone, existing: existing) + assetLinks(for: record, in: zone)
-    }
-
-    private func assetLinks<R: Record>(for record: R, in zone: Zone) -> [CKRecord] {
-        record.assetStates.compactMap { asset in
-            guard let assetID = asset.id else { return nil }
-            let link = encode(RecordLink(asset: asset, assetID: assetID, sourceType: R.recordType, sourceID: record.id), in: zone)
-            link[RecordLink.assetKey] = asset.fileURL.map(CKAsset.init(fileURL:))
-            return link
-        }
-    }
-
-    private func referenceLinks<R: Record>(for record: R, in zone: Zone, existing: [CKRecord]) -> [CKRecord] {
+    public func links(for record: some Record, in zone: Zone, existing: [CKRecord] = []) -> [CKRecord] {
         let decoder = CKRecordDecoder()
-        var keys: [String: String] = [:]
+        var orders: [String: String] = [:]
         for link in existing {
-            if let decoded = try? decoder.decode(RecordLink.self, from: link), let order = decoded.order {
-                keys[link.recordID.recordName] = order
+            if let link = try? decoder.decode(RecordLink.self, from: link), let order = link.order {
+                orders[link.orderKey] = order
             }
         }
-        return record.referenceStates.flatMap { reference -> [CKRecord] in
-            let linkIDs = reference.ids.map {
-                RecordLink.id(reference: reference, sourceType: R.recordType, sourceID: record.id, targetID: $0)
+        return record.links(orders: orders).map { link in
+            let linkRecord = encode(link, in: zone)
+            if link.assetID != nil {
+                let asset = record.assetStates.first { $0.property == link.sourceProperty }
+                linkRecord[RecordLink.assetKey] = asset?.fileURL.map(CKAsset.init(fileURL:))
             }
-            // A sorted reference is ordered by its records' fields, so its links carry no keys.
-            let orders: [String?] = reference.isToMany && !reference.isSorted
-                ? OrderKey.assign(linkIDs.map { keys[$0.uuidString] })
-                : linkIDs.map { _ in nil }
-            return zip(reference.ids, orders).map { id, order in
-                let target = ReferenceTarget(id: id, order: order)
-                let link = RecordLink(reference: reference, sourceType: R.recordType, sourceID: record.id, target: target)
-                return encode(link, in: zone)
-            }
+            return linkRecord
         }
     }
 }

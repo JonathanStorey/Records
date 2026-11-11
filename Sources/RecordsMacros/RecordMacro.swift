@@ -58,19 +58,19 @@ public struct RecordMacro: ExtensionMacro {
             }
             let source = field.isEncrypted ? "record.encryptedValues" : "record"
             if field.isLocation {
-                lines.append("        self._\(field.key) = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: \"\(field.fieldKey)\", from: \(source)))")
+                lines.append("        self._\(field.key) = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent(\"\(field.fieldKey)\", from: \(source)))")
                 continue
             }
             let read: String
             if let wrapped = field.wrappedType {
-                read = "decodeIfPresent((\(wrapped)).self, forKey: \"\(field.fieldKey)\", from: \(source))"
+                read = "Records.FieldCoding((\(wrapped)).self).decodeIfPresent(\"\(field.fieldKey)\", from: \(source))"
             } else if field.isArray {
                 // CloudKit does not keep empty lists, so a missing array field means empty.
-                read = "decodeIfPresent((\(field.type)).self, forKey: \"\(field.fieldKey)\", from: \(source)) ?? []"
+                read = "Records.FieldCoding((\(field.type)).self).decodeIfPresent(\"\(field.fieldKey)\", from: \(source)) ?? []"
             } else {
-                read = "decode((\(field.type)).self, forKey: \"\(field.fieldKey)\", from: \(source))"
+                read = "Records.FieldCoding((\(field.type)).self).decode(\"\(field.fieldKey)\", from: \(source))"
             }
-            lines.append("        self.\(field.name) = try CKRecordDecoder.\(read)")
+            lines.append("        self.\(field.name) = try \(read)")
         }
         // Links hold references, so a decoded record starts with none. `loadReference` fills them.
         for reference in references {
@@ -186,7 +186,7 @@ public struct RecordMacro: ExtensionMacro {
         } else {
             lines.append("            fields: [")
             for field in stored {
-                let kind = field.isLocation ? ".archived" : "Records.FieldKind(for: (\(field.wrappedType ?? field.type)).self)"
+                let kind = field.isLocation ? ".archived" : "Records.FieldCoding((\(field.wrappedType ?? field.type)).self).kind"
                 lines.append("                Records.FieldSchema(name: \"\(field.key)\", key: \"\(field.fieldKey)\", isOptional: \(field.wrappedType != nil), isEncrypted: \(field.isEncrypted), kind: \(kind)),")
             }
             lines.append("            ],")
@@ -398,9 +398,8 @@ public struct RecordMacro: ExtensionMacro {
         /// An `@Asset` is written to its link instead.
         var written: String {
             if isLocation { return "self._\(key).location" }
-            // `nil` clears the field, so only a value goes through `FieldCoding`.
-            if wrappedType != nil { return "self.\(name).flatMap { Records.FieldCoding.value($0) }" }
-            return "Records.FieldCoding.value(self.\(name))"
+            // `nil` clears the field.
+            return "Records.FieldCoding((\(wrappedType ?? type)).self).value(self.\(name))"
         }
     }
 

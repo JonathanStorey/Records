@@ -143,3 +143,37 @@ extension RecordLink {
         )
     }
 }
+
+// MARK: - A record's links
+
+extension RecordLink {
+    /// What `Record.links(orders:)` looks a saved order key up by: `source|targetName`.
+    var orderKey: String { Self.orderKey(source: source, targetName: targetName ?? "") }
+
+    static func orderKey(source: String, targetName: String) -> String {
+        source + "|" + targetName
+    }
+}
+
+extension Record {
+    /// A link for each target of each reference that writes links, in order, and one for each
+    /// `@Asset` that holds data. `orders` holds the saved order key of each target by
+    /// `RecordLink.orderKey`, so a target that keeps its place keeps its key. `@Reference(from:)`
+    /// properties write no links.
+    func links(orders: [String: String] = [:]) -> [RecordLink] {
+        let references = referenceStates.flatMap { reference -> [RecordLink] in
+            let source = RecordLink.source(type: Self.recordType, property: reference.property)
+            // A sorted reference is ordered by its records' fields, so its links carry no keys.
+            let keys: [String?] = reference.isToMany && !reference.isSorted
+                ? OrderKey.assign(reference.ids.map { orders[RecordLink.orderKey(source: source, targetName: $0.uuidString)] })
+                : reference.ids.map { _ in nil }
+            return zip(reference.ids, keys).map { id, order in
+                RecordLink(reference: reference, sourceType: Self.recordType, sourceID: self.id, target: ReferenceTarget(id: id, order: order))
+            }
+        }
+        let assets = assetStates.compactMap { asset in
+            asset.id.map { RecordLink(asset: asset, assetID: $0, sourceType: Self.recordType, sourceID: self.id) }
+        }
+        return references + assets
+    }
+}

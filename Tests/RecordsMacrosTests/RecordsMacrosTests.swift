@@ -62,10 +62,10 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Note",
                         fields: [
-                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
-                            Records.FieldSchema(name: "isPinned", key: "isPinned", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Bool).self)),
-                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
-                            Records.FieldSchema(name: "tags", key: "tags", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: ([String]).self)),
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
+                            Records.FieldSchema(name: "isPinned", key: "isPinned", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((Bool).self).kind),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldCoding((Int).self).kind),
+                            Records.FieldSchema(name: "tags", key: "tags", isOptional: false, isEncrypted: false, kind: Records.FieldCoding(([String]).self).kind),
                         ],
                         references: []
                     )
@@ -75,18 +75,16 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
-                    self.isPinned = try CKRecordDecoder.decode((Bool).self, forKey: "isPinned", from: record)
-                    self.rating = try CKRecordDecoder.decodeIfPresent((Int).self, forKey: "rating", from: record)
-                    self.tags = try CKRecordDecoder.decodeIfPresent(([String]).self, forKey: "tags", from: record) ?? []
+                    self.title = try Records.FieldCoding((String).self).decode("title", from: record)
+                    self.isPinned = try Records.FieldCoding((Bool).self).decode("isPinned", from: record)
+                    self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: record)
+                    self.tags = try Records.FieldCoding(([String]).self).decodeIfPresent("tags", from: record) ?? []
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["title"] = Records.FieldCoding.value(self.title)
-                    record["isPinned"] = Records.FieldCoding.value(self.isPinned)
-                    record["rating"] = self.rating.flatMap {
-                        Records.FieldCoding.value($0)
-                    }
-                    record["tags"] = Records.FieldCoding.value(self.tags)
+                    record["title"] = Records.FieldCoding((String).self).value(self.title)
+                    record["isPinned"] = Records.FieldCoding((Bool).self).value(self.isPinned)
+                    record["rating"] = Records.FieldCoding((Int).self).value(self.rating)
+                    record["tags"] = Records.FieldCoding(([String]).self).value(self.tags)
                 }
             }
             """,
@@ -121,7 +119,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Folder",
                         fields: [
-                            Records.FieldSchema(name: "default", key: "default", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Bool).self)),
+                            Records.FieldSchema(name: "default", key: "default", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((Bool).self).kind),
                         ],
                         references: []
                     )
@@ -131,10 +129,10 @@ final class RecordMacroTests: XCTestCase {
                 }
                 public init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.`default` = try CKRecordDecoder.decode((Bool).self, forKey: "default", from: record)
+                    self.`default` = try Records.FieldCoding((Bool).self).decode("default", from: record)
                 }
                 public func encodeFields(into record: CKRecord) {
-                    record["default"] = Records.FieldCoding.value(self.`default`)
+                    record["default"] = Records.FieldCoding((Bool).self).value(self.`default`)
                 }
             }
             """,
@@ -169,7 +167,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Box",
                         fields: [
-                            Records.FieldSchema(name: "value", key: "value", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Value).self)),
+                            Records.FieldSchema(name: "value", key: "value", isOptional: true, isEncrypted: false, kind: Records.FieldCoding((Value).self).kind),
                         ],
                         references: []
                     )
@@ -179,12 +177,10 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.value = try CKRecordDecoder.decodeIfPresent((Value).self, forKey: "value", from: record)
+                    self.value = try Records.FieldCoding((Value).self).decodeIfPresent("value", from: record)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["value"] = self.value.flatMap {
-                        Records.FieldCoding.value($0)
-                    }
+                    record["value"] = Records.FieldCoding((Value).self).value(self.value)
                 }
             }
             """,
@@ -422,7 +418,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Article",
                         fields: [
-                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
                         ],
                         references: [
                             Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false, isSorted: false, holdsIDs: false),
@@ -434,11 +430,11 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
+                    self.title = try Records.FieldCoding((String).self).decode("title", from: record)
                     self._author = Records.ToOne(id: nil)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["title"] = Records.FieldCoding.value(self.title)
+                    record["title"] = Records.FieldCoding((String).self).value(self.title)
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, ids: [
@@ -1371,9 +1367,9 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Note",
                         fields: [
-                            Records.FieldSchema(name: "first", key: "first", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
-                            Records.FieldSchema(name: "last", key: "last", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
-                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
+                            Records.FieldSchema(name: "first", key: "first", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
+                            Records.FieldSchema(name: "last", key: "last", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldCoding((Int).self).kind),
                         ],
                         references: []
                     )
@@ -1383,16 +1379,14 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.first = try CKRecordDecoder.decode((String).self, forKey: "first", from: record)
-                    self.last = try CKRecordDecoder.decode((String).self, forKey: "last", from: record)
-                    self.rating = try CKRecordDecoder.decodeIfPresent((Int).self, forKey: "rating", from: record)
+                    self.first = try Records.FieldCoding((String).self).decode("first", from: record)
+                    self.last = try Records.FieldCoding((String).self).decode("last", from: record)
+                    self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: record)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["first"] = Records.FieldCoding.value(self.first)
-                    record["last"] = Records.FieldCoding.value(self.last)
-                    record["rating"] = self.rating.flatMap {
-                        Records.FieldCoding.value($0)
-                    }
+                    record["first"] = Records.FieldCoding((String).self).value(self.first)
+                    record["last"] = Records.FieldCoding((String).self).value(self.last)
+                    record["rating"] = Records.FieldCoding((Int).self).value(self.rating)
                 }
             }
             """,
@@ -1433,9 +1427,9 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Account",
                         fields: [
-                            Records.FieldSchema(name: "name", key: "name", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
-                            Records.FieldSchema(name: "note", key: "note", isOptional: true, isEncrypted: true, kind: Records.FieldKind(for: (String).self)),
-                            Records.FieldSchema(name: "pin", key: "pin", isOptional: false, isEncrypted: true, kind: Records.FieldKind(for: (Int).self)),
+                            Records.FieldSchema(name: "name", key: "name", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
+                            Records.FieldSchema(name: "note", key: "note", isOptional: true, isEncrypted: true, kind: Records.FieldCoding((String).self).kind),
+                            Records.FieldSchema(name: "pin", key: "pin", isOptional: false, isEncrypted: true, kind: Records.FieldCoding((Int).self).kind),
                         ],
                         references: []
                     )
@@ -1445,16 +1439,14 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.name = try CKRecordDecoder.decode((String).self, forKey: "name", from: record)
-                    self.note = try CKRecordDecoder.decodeIfPresent((String).self, forKey: "note", from: record.encryptedValues)
-                    self.pin = try CKRecordDecoder.decode((Int).self, forKey: "pin", from: record.encryptedValues)
+                    self.name = try Records.FieldCoding((String).self).decode("name", from: record)
+                    self.note = try Records.FieldCoding((String).self).decodeIfPresent("note", from: record.encryptedValues)
+                    self.pin = try Records.FieldCoding((Int).self).decode("pin", from: record.encryptedValues)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["name"] = Records.FieldCoding.value(self.name)
-                    record.encryptedValues["note"] = self.note.flatMap {
-                        Records.FieldCoding.value($0)
-                    }
-                    record.encryptedValues["pin"] = Records.FieldCoding.value(self.pin)
+                    record["name"] = Records.FieldCoding((String).self).value(self.name)
+                    record.encryptedValues["note"] = Records.FieldCoding((String).self).value(self.note)
+                    record.encryptedValues["pin"] = Records.FieldCoding((Int).self).value(self.pin)
                 }
             }
             """,
@@ -1790,8 +1782,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self._venue = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "venue", from: record.encryptedValues))
-                    self._home = try Records.LocationField(saved: CKRecordDecoder.decodeIfPresent((Records.LocationField.Stored).self, forKey: "home", from: record.encryptedValues))
+                    self._venue = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("venue", from: record.encryptedValues))
+                    self._home = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("home", from: record.encryptedValues))
                 }
                 func encodeFields(into record: CKRecord) {
                     record.encryptedValues["venue"] = self._venue.location
@@ -1963,7 +1955,7 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Album",
                         fields: [
-                            Records.FieldSchema(name: "year", key: "released", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
+                            Records.FieldSchema(name: "year", key: "released", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((Int).self).kind),
                         ],
                         references: []
                     )
@@ -1973,10 +1965,10 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.year = try CKRecordDecoder.decode((Int).self, forKey: "released", from: record)
+                    self.year = try Records.FieldCoding((Int).self).decode("released", from: record)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["released"] = Records.FieldCoding.value(self.year)
+                    record["released"] = Records.FieldCoding((Int).self).value(self.year)
                 }
             }
             """,
@@ -2420,8 +2412,8 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Note",
                         fields: [
-                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
-                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
+                            Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
+                            Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldCoding((Int).self).kind),
                         ],
                         references: []
                     )
@@ -2431,14 +2423,12 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self.title = try CKRecordDecoder.decode((String).self, forKey: "title", from: record)
-                    self.rating = try CKRecordDecoder.decodeIfPresent((Int).self, forKey: "rating", from: record)
+                    self.title = try Records.FieldCoding((String).self).decode("title", from: record)
+                    self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: record)
                 }
                 func encodeFields(into record: CKRecord) {
-                    record["title"] = Records.FieldCoding.value(self.title)
-                    record["rating"] = self.rating.flatMap {
-                        Records.FieldCoding.value($0)
-                    }
+                    record["title"] = Records.FieldCoding((String).self).value(self.title)
+                    record["rating"] = Records.FieldCoding((Int).self).value(self.rating)
                 }
                 private enum _RecordCodingKeys: String, CodingKey {
                     case `id`

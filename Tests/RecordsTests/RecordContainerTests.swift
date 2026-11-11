@@ -166,12 +166,12 @@ private func temporaryFile() -> URL {
 @Test func fieldsKnowHowTheyAreStored() {
     let kinds = Dictionary(uniqueKeysWithValues: Novel.schema.fields.map { ($0.key, $0.kind) })
     #expect(kinds == ["title": .text, "subtitle": .text, "tags": .archived, "released": .integer, "note": .text, "shop": .archived])
-    #expect(FieldKind(for: Date.self) == .date)
-    #expect(FieldKind(for: Double.self) == .real)
-    #expect(FieldKind(for: Bool.self) == .integer)
-    #expect(FieldKind(for: Data.self) == .bytes)
-    #expect(FieldKind(for: Address.self) == .bytes) // Codable, stored as JSON
-    #expect(FieldKind(for: Mood.self) == .text) // its raw value
-    #expect(FieldKind(for: Rating.self) == .integer)
-    #expect(FieldKind(for: [Mood].self) == .bytes)
+    #expect(FieldCoding(Date.self).kind == .date)
+    #expect(FieldCoding(Double.self).kind == .real)
+    #expect(FieldCoding(Bool.self).kind == .integer)
+    #expect(FieldCoding(Data.self).kind == .bytes)
+    #expect(FieldCoding(Address.self).kind == .bytes) // Codable, stored as JSON
+    #expect(FieldCoding(Mood.self).kind == .text) // its raw value
+    #expect(FieldCoding(Rating.self).kind == .integer)
+    #expect(FieldCoding([Mood].self).kind == .bytes)
 }
