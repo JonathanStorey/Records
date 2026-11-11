@@ -94,7 +94,7 @@ public struct Recordable<Value> {
         get {
             _ = modified
             let zone = self.zone ?? context.defaultZone
-            guard let draft = context.draft(id: record.id, for: type(of: record), in: zone) else { return missing }
+            guard let draft = context.draft(of: record, in: zone) else { return missing }
             guard !expand.isEmpty else { return draft as! Value }
             return context.expanded(draft, expand, in: zone) as! Value
         }
@@ -148,6 +148,11 @@ extension Recordable: @preconcurrency DynamicProperty {}
 extension Recordable: @preconcurrency Identifiable {}
 
 extension RecordContext {
+    /// The record `record` names, as `draft(id:for:in:)` reads it.
+    func draft<R: Record>(of record: R, in zone: Zone) -> R? {
+        draft(id: record.id, for: R.self, in: zone)
+    }
+
     /// `record` with the references `keyPaths` name holding their records, read in `zone`
     /// whatever the current `zone`. A record that can't be read stays as it is.
     func expanded<R: Record>(_ record: R, _ keyPaths: [AnyKeyPath], in zone: Zone) -> R {

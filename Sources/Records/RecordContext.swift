@@ -105,15 +105,20 @@ public final class RecordContext {
     /// saved, the record as the context's pending edits make it. Later calls replace the edit
     /// and keep that base. `date` orders the edits when they are saved.
     func edit(id: UUID, of record: any Record, in zone: Zone, with newValue: (any Record)?, on date: Date = Date()) {
-        checkRegistered(type(of: record))
         var difference = differences[id] ?? RecordDifference(
-            id: id, zone: zone, base: draft(id: record.id, for: type(of: record), in: zone, savedFirst: true),
-            edit: newValue, modified: date
+            id: id, zone: zone, base: base(for: record, in: zone), edit: newValue, modified: date
         )
         difference.edit = newValue
         difference.modified = date
         // A record never saved and then deleted leaves nothing to write.
         differences[id] = difference.base == nil && newValue == nil ? nil : difference
+    }
+
+    /// The base of a first edit to `record` in `zone`: the saved record, or for a record not
+    /// yet saved, the record as the pending edits make it.
+    private func base<R: Record>(for record: R, in zone: Zone) -> R? {
+        checkRegistered(R.self)
+        return draft(id: record.id, for: R.self, in: zone, savedFirst: true)
     }
 
     /// The record with `id` in `zone` as `save()` would write it: the saved record with every
