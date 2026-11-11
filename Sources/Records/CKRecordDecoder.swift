@@ -75,16 +75,20 @@ public struct CKRecordDecoder: Sendable {
         }
 
         for (property, entries) in byProperty {
-            let ordered = entries.sorted { lhs, rhs in
-                let (a, b) = (lhs.target.order ?? "", rhs.target.order ?? "")
-                if a != b { return OrderKey.precedes(a, b) }
-                let (dateA, dateB) = (lhs.link.creationDate ?? .distantPast, rhs.link.creationDate ?? .distantPast)
-                if dateA != dateB { return dateA < dateB }
-                return lhs.link.recordID.recordName < rhs.link.recordID.recordName
-            }
+            let ordered = entries.sorted(by: Self.precedes)
             try decoded.loadReference(property, to: ordered.map(\.target), from: targets, links: links, depth: depth)
         }
         return decoded
+    }
+
+    /// Whether `a` comes before `b` in a to-many reference: by order key, then by when its link
+    /// was created, then by the link's name.
+    private static func precedes(_ a: (target: ReferenceTarget, link: CKRecord), _ b: (target: ReferenceTarget, link: CKRecord)) -> Bool {
+        let (orderA, orderB) = (a.target.order ?? "", b.target.order ?? "")
+        if orderA != orderB { return OrderKey.precedes(orderA, orderB) }
+        let (dateA, dateB) = (a.link.creationDate ?? .distantPast, b.link.creationDate ?? .distantPast)
+        if dateA != dateB { return dateA < dateB }
+        return a.link.recordID.recordName < b.link.recordID.recordName
     }
 
     /// The record's `id`, parsed from its record name. Used by the code `@Record` generates.
@@ -94,71 +98,5 @@ public struct CKRecordDecoder: Sendable {
             throw CKRecordDecodingError.invalidRecordName(name)
         }
         return id
-    }
-
-    // The overloads below match `FieldCoding`'s, so a field type that can't be stored is a
-    // compile error, and the most direct storage wins when a type matches more than one.
-
-    /// The value of `key` as `T`. Used by the code `@Record` generates for non-optional properties.
-    /// Pass `record.encryptedValues` for an `@Encrypted` field.
-    public static func decode<T: CKRecordValueProtocol>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
-        try required(read(key, from: record, FieldCoding.reader(type)), key)
-    }
-
-    public static func decode<T: CKRecordValueProtocol & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
-        try required(read(key, from: record, FieldCoding.reader(type)), key)
-    }
-
-    public static func decode<T: RawRepresentable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T
-    where T.RawValue: CKRecordValueProtocol {
-        try required(read(key, from: record, FieldCoding.reader(type)), key)
-    }
-
-    public static func decode<T: RawRepresentable & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T
-    where T.RawValue: CKRecordValueProtocol {
-        try required(read(key, from: record, FieldCoding.reader(type)), key)
-    }
-
-    public static func decode<T: Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T {
-        try required(read(key, from: record, FieldCoding.reader(type)), key)
-    }
-
-    /// The value of `key` as `T`, or `nil` when the field is missing. Used by the code `@Record`
-    /// generates for optional properties and arrays.
-    /// Pass `record.encryptedValues` for an `@Encrypted` field.
-    public static func decodeIfPresent<T: CKRecordValueProtocol>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
-        try read(key, from: record, FieldCoding.reader(type))
-    }
-
-    public static func decodeIfPresent<T: CKRecordValueProtocol & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
-        try read(key, from: record, FieldCoding.reader(type))
-    }
-
-    public static func decodeIfPresent<T: RawRepresentable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T?
-    where T.RawValue: CKRecordValueProtocol {
-        try read(key, from: record, FieldCoding.reader(type))
-    }
-
-    public static func decodeIfPresent<T: RawRepresentable & Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T?
-    where T.RawValue: CKRecordValueProtocol {
-        try read(key, from: record, FieldCoding.reader(type))
-    }
-
-    public static func decodeIfPresent<T: Decodable>(_ type: T.Type, forKey key: String, from record: any CKRecordKeyValueSetting) throws -> T? {
-        try read(key, from: record, FieldCoding.reader(type))
-    }
-
-    /// The field `key` read with `reader`, or `nil` when it is missing.
-    private static func read<T>(_ key: String, from record: any CKRecordKeyValueSetting, _ reader: (Any) throws -> T?) throws -> T? {
-        guard let value = record.object(forKey: key) else { return nil }
-        guard let typed = try? reader(value) else {
-            throw CKRecordDecodingError.typeMismatch(field: key)
-        }
-        return typed
-    }
-
-    private static func required<T>(_ value: T?, _ key: String) throws -> T {
-        guard let value else { throw CKRecordDecodingError.missingField(key) }
-        return value
     }
 }

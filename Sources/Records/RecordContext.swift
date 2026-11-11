@@ -746,32 +746,10 @@ public final class RecordContext {
             links.values.compactMap { row -> (String, String)? in
                 guard case .text(let source) = row["source"], case .text(let target) = row["targetName"],
                       case .text(let order) = row["order"] else { return nil }
-                return (source + "|" + target, order)
+                return (RecordLink.orderKey(source: source, targetName: target), order)
             },
             uniquingKeysWith: { first, _ in first }
         )
-    }
-
-    // MARK: - Links
-
-    /// A link for each target of each reference that writes links, in order, and one for each
-    /// `@Asset` that holds data. `orders` holds the saved order key of each target by
-    /// `source|targetName`, so a target that keeps its place keeps its key.
-    nonisolated static func links<R: Record>(for record: R, orders: [String: String] = [:]) -> [RecordLink] {
-        let references = record.referenceStates.flatMap { reference -> [RecordLink] in
-            let source = RecordLink.source(type: R.recordType, property: reference.property)
-            // A sorted reference is ordered by its records' fields, so its links carry no keys.
-            let keys: [String?] = reference.isToMany && !reference.isSorted
-                ? OrderKey.assign(reference.ids.map { orders[source + "|" + $0.uuidString] })
-                : reference.ids.map { _ in nil }
-            return zip(reference.ids, keys).map { id, order in
-                RecordLink(reference: reference, sourceType: R.recordType, sourceID: record.id, target: ReferenceTarget(id: id, order: order))
-            }
-        }
-        let assets = record.assetStates.compactMap { asset in
-            asset.id.map { RecordLink(asset: asset, assetID: $0, sourceType: R.recordType, sourceID: record.id) }
-        }
-        return references + assets
     }
 }
 
@@ -928,7 +906,7 @@ extension RecordDifference {
 
     private static func linkRows<R: Record>(of record: R, orders: [String: String]) -> [(String, [String: SQLValue])] {
         let linkKeys = RecordLink.schema.fields.map(\.key)
-        return RecordContext.links(for: record, orders: orders).map { link in
+        return record.links(orders: orders).map { link in
             (link.id.uuidString, Dictionary(uniqueKeysWithValues: zip(linkKeys, link.columnValues())))
         }
     }

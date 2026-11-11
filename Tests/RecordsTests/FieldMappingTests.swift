@@ -88,7 +88,7 @@ struct Shape: Codable, Equatable {
 }
 
 private func json(_ shape: Shape) throws -> String {
-    let data = try #require(FieldCoding.value(shape) as? Data)
+    let data = try #require(FieldCoding(Shape.self).value(shape) as? Data)
     return String(decoding: data, as: UTF8.self)
 }
 

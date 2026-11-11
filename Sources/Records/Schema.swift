@@ -47,9 +47,8 @@ public struct FieldSchema: Hashable, Sendable {
 
 /// How a field's value is stored in its SQLite column.
 ///
-/// The `init(for:)` overloads match `FieldCoding`'s, so a field gets the kind of whatever
-/// `FieldCoding` writes for it: an enum its raw value's kind, and any other Codable value `.bytes`
-/// of JSON.
+/// `FieldCoding` gives each field the kind of what it writes: an enum its raw value's kind, and
+/// any other Codable value `.bytes` of JSON.
 public enum FieldKind: String, Hashable, Sendable {
     /// `TEXT`, from a `String`.
     case text
@@ -64,28 +63,8 @@ public enum FieldKind: String, Hashable, Sendable {
     /// `BLOB` of a keyed archive, from a list or a `CLLocation`.
     case archived
 
-    public init<T: CKRecordValueProtocol>(for type: T.Type) {
-        self = Self.direct(T.self)
-    }
-
-    public init<T: CKRecordValueProtocol & Encodable>(for type: T.Type) {
-        self = Self.direct(T.self)
-    }
-
-    public init<T: RawRepresentable>(for type: T.Type) where T.RawValue: CKRecordValueProtocol {
-        self = Self.direct(T.RawValue.self)
-    }
-
-    public init<T: RawRepresentable & Encodable>(for type: T.Type) where T.RawValue: CKRecordValueProtocol {
-        self = Self.direct(T.RawValue.self)
-    }
-
-    public init<T: Encodable>(for type: T.Type) {
-        self = .bytes
-    }
-
     /// The kind of a value CloudKit stores as is.
-    private static func direct(_ type: Any.Type) -> FieldKind {
+    static func direct(_ type: Any.Type) -> FieldKind {
         switch type {
         case is String.Type: .text
         case is Date.Type: .date
