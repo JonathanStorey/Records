@@ -82,9 +82,9 @@ func expectMatch<R: Record>(_ record: R, sourceLocation: SourceLocation = #_sour
     expectSame(direct, synced, route: "synced row", sourceLocation)
     #expect(synced.recordChangeTag == direct.recordChangeTag, sourceLocation: sourceLocation)
 
-    for ckRecord in [direct, local, synced] {
-        #expect(row(of: try R(record: ckRecord)) == expected, sourceLocation: sourceLocation)
-        #expect(fields(try decoder.decode(ckRecord, of: R.self)) == expected, sourceLocation: sourceLocation)
+    for (route, ckRecord) in [("direct", direct), ("row", local), ("synced row", synced)] {
+        expectSame(row(of: try R(record: ckRecord)), expected, of: R.self, route: "\(route), read back", sourceLocation)
+        expectSame(fields(try decoder.decode(ckRecord, of: R.self)), expected, of: R.self, route: "\(route), decoded", sourceLocation)
     }
 
     // An asset is stored on its link, never as a field.
@@ -130,6 +130,24 @@ private func expectSame(_ expected: CKRecord, _ actual: CKRecord, route: String,
     #expect(Set(actual.allKeys()).subtracting(encrypted) == plain, "\(route): keys", sourceLocation: sourceLocation)
     for key in plain {
         #expect(same(expected[key], actual[key]), "\(route): \(key)", sourceLocation: sourceLocation)
+    }
+}
+
+/// Checks that `actual` holds the same columns as `expected`. An archived column is compared by
+/// the value it holds, since archiving the same value twice can give different bytes.
+private func expectSame<R: Record>(
+    _ actual: RecordRow, _ expected: RecordRow, of type: R.Type, route: String, _ sourceLocation: SourceLocation
+) {
+    #expect(Set(actual.values.keys) == Set(expected.values.keys), "\(route): columns", sourceLocation: sourceLocation)
+    for (key, value) in expected.values {
+        let other = actual.values[key] ?? .null
+        guard other != value else { continue }
+        let kind = R.schema.fields.first { $0.key == key }?.kind
+        print("RecordMatch \(R.self) \(route): column \(key) bytes differ: \(other) vs \(value)")
+        #expect(
+            kind.map { same($0.recordValue(other), $0.recordValue(value)) } == true,
+            "\(route): column \(key) holds \(other), expected \(value)", sourceLocation: sourceLocation
+        )
     }
 }
 
