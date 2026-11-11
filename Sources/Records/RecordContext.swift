@@ -52,10 +52,15 @@ public final class RecordContext {
     /// Whether any change is staged and not yet saved, in any zone.
     public var hasChanges: Bool { !staged.isEmpty }
 
-    /// The changes staged in the current `zone`, in the order they were first staged. A record
-    /// appears at most once: staging it again updates its difference in place, so a view
-    /// reading it sees the new change. `save()` writes the changes of every zone, not only these.
-    public var changes: [RecordDifference] {
+    /// The changes staged in the current `zone`, in the order they were first staged, such as
+    /// `.insert(album.id)`. A record appears at most once: staging it again replaces its change.
+    /// `save()` writes the changes of every zone, not only these.
+    public var changes: [RecordChange] {
+        differences.compactMap(\.change)
+    }
+
+    /// The staged differences in the current `zone`, in the order they were first staged.
+    var differences: [RecordDifference] {
         stagedOrder.filter { $0.zone == zone }.compactMap { staged[$0] }.filter { $0.change != nil }
     }
 
@@ -114,7 +119,7 @@ public final class RecordContext {
     private func stage<R: Record>(_ record: R, isDelete: Bool) {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        let change: RecordDifference.Change = isDelete ? .delete : .insert
+        let change: RecordChange = isDelete ? .delete(record.id) : .insert(record.id)
         if let existing = staged[key] {
             existing.draft = record
             existing.change = change
@@ -217,7 +222,7 @@ public final class RecordContext {
                 guard visited.insert(key).inserted,
                       try Self.currentRow(of: key, in: database) == nil
                 else { continue }
-                try Self.write(RecordDifference(id: target.id, original: nil, draft: target, change: .insert), key: key, now: now, in: database)
+                try Self.write(RecordDifference(id: target.id, original: nil, draft: target, change: .insert(target.id)), key: key, now: now, in: database)
                 queue.append((zone, target))
             }
         }
@@ -713,25 +718,32 @@ struct RecordKey: Hashable, Sendable {
     var values: [SQLValue] { [.text(zone.name), .text(zone.ownerName), .text(name)] }
 }
 
-/// A record staged in a `RecordContext`, waiting for `save()`.
-///
-/// The context keeps one per staged record and lists them in `context.changes`. Staging the
-/// record again updates the same difference, so views reading it stay current.
-@MainActor
-@Observable
-public final class RecordDifference: Identifiable {
-    /// What is to happen to a record when the context saves.
-    public enum Change: Sendable {
-        /// The record is saved: added if new, or updated where it was edited.
-        case insert
-        /// The record is deleted with the links it owns.
-        case delete
-    }
+/// What is to happen to a staged record when its context saves.
+public enum RecordChange: Hashable, Sendable, Identifiable {
+    /// The record is saved: added if new, or updated where it was edited.
+    case insert(UUID)
+    /// The record is deleted with the links it owns.
+    case delete(UUID)
 
     /// The record's ID.
-    public let id: UUID
+    public var id: UUID {
+        switch self {
+        case .insert(let id), .delete(let id): id
+        }
+    }
+}
+
+/// A record staged in a `RecordContext`, waiting for `save()`, or one being edited.
+///
+/// The context keeps one per staged record. Staging the record again updates the same
+/// difference, so anything observing it stays current.
+@MainActor
+@Observable
+final class RecordDifference: Identifiable {
+    /// The record's ID.
+    let id: UUID
     /// What is to happen, or `nil` while the record is only shown and not yet staged.
-    public internal(set) var change: Change?
+    var change: RecordChange?
 
     /// The saved record when editing began, or `nil` when none was saved. It never changes, so
     /// `save()` writes only what the draft changed from it.
@@ -741,7 +753,7 @@ public final class RecordDifference: Identifiable {
     /// The record as edited.
     var draft: (any Record)?
 
-    init(id: UUID, original: (any Record)?, draft: (any Record)? = nil, change: Change? = nil) {
+    init(id: UUID, original: (any Record)?, draft: (any Record)? = nil, change: RecordChange? = nil) {
         self.id = id
         self.original = original
         self.saved = original
@@ -756,7 +768,7 @@ public final class RecordDifference: Identifiable {
 
     /// The record as it reads over `saved` instead of the saved record it holds.
     func value(over saved: (any Record)?) -> (any Record)? {
-        guard change != .delete, let draft else { return nil }
+        guard !isDelete, let draft else { return nil }
         guard let original, let saved else { return draft }
         return Self.merged(draft, over: saved, original: original)
     }
@@ -764,7 +776,9 @@ public final class RecordDifference: Identifiable {
 
 // What `save()` and reads need, worked out from the draft and the original when asked.
 extension RecordDifference {
-    var isDelete: Bool { change == .delete }
+    var isDelete: Bool {
+        if case .delete = change { true } else { false }
+    }
 
     /// The draft, which every staged difference has.
     var record: any Record {

@@ -141,11 +141,12 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     here.insert(kept)
     here.delete(gone)
-    let changes: [RecordDifference] = here.changes
+    let changes: [RecordChange] = here.changes
+    #expect(changes == [.insert(kept.id), .delete(gone.id)])
     #expect(changes.map(\.id) == [kept.id, gone.id])
-    #expect(changes.map(\.change) == [.insert, .delete])
-    #expect((changes[0].original as? Novel)?.title == "Kept")
-    #expect(changes[1].value == nil)
+    let differences = here.differences
+    #expect((differences[0].original as? Novel)?.title == "Kept")
+    #expect(differences[1].value == nil)
 }
 
 /// Staging a record again updates its difference in place, so anything observing it sees the
@@ -160,7 +161,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     var draft = saved
     draft.year = 1972
     here.insert(draft)
-    let difference = try #require(here.changes.first)
+    let difference = try #require(here.differences.first)
 
     let observed = Flag()
     withObservationTracking {
@@ -173,9 +174,9 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     #expect(observed.isSet)
     #expect(here.changes.count == 1)
-    #expect(here.changes.first === difference)
+    #expect(here.differences.first === difference)
     #expect((difference.draft as? Novel)?.year == 1973)
-    #expect(difference.change == .insert)
+    #expect(difference.change == .insert(saved.id))
     #expect((difference.original as? Novel)?.year == 1971)
 }
 
@@ -288,7 +289,7 @@ private final class Flag: @unchecked Sendable {
     let original = novel("Blue", year: 1971)
     var draft = original
     draft.year = 1972
-    let difference = RecordDifference(id: original.id, original: original, draft: draft, change: .insert)
+    let difference = RecordDifference(id: original.id, original: original, draft: draft, change: .insert(draft.id))
     #expect((difference.value as? Novel)?.year == 1972)
 
     var saved = original
@@ -302,7 +303,7 @@ private final class Flag: @unchecked Sendable {
     let savedWriter = Writer(id: writer.id, name: "Ada", bookIDs: [original.id])
     var draftWriter = writer
     draftWriter.name = "Ada L."
-    let writerDifference = RecordDifference(id: writer.id, original: writer, draft: draftWriter, change: .insert)
+    let writerDifference = RecordDifference(id: writer.id, original: writer, draft: draftWriter, change: .insert(writer.id))
     writerDifference.saved = savedWriter
     let writerValue = try #require(writerDifference.value as? Writer)
     #expect(writerValue.name == "Ada L.")
