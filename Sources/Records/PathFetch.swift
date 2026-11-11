@@ -208,7 +208,7 @@ extension RecordContext {
         _ descriptor: RecordDescriptor<R>, matching predicate: Predicate<R>, through traversal: Traversal, filter: SQLFilter?
     ) throws -> [R] {
         // The rows the SQL lets through.
-        let (matching, values) = Self.matching(zone: zone, filter: filter)
+        let (matching, values) = Database.matching(zone: zone, filter: filter)
         let rows = try database.rows("SELECT * FROM \(database.quoted(R.recordType)) WHERE \(matching)", values)
         var roots: [RecordKey] = []
         var graph = Graph(zone: zone)
@@ -299,7 +299,7 @@ extension RecordContext {
             for (recordType, names) in next {
                 guard let schema = types[recordType]?.schema else { continue }
                 for chunk in Array(names).chunked(400) {
-                    let (current, zoneValues) = Self.matching(zone: zone, filter: nil)
+                    let (current, zoneValues) = Database.matching(zone: zone, filter: nil)
                     let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
                     let rows = try database.rows(
                         "SELECT * FROM \(database.quoted(recordType)) WHERE \(current) AND \"_name\" IN (\(placeholders))",
@@ -323,7 +323,7 @@ extension RecordContext {
         let missing = Array(Set(names).subtracting(graph.linksLoaded))
         guard !missing.isEmpty else { return }
         graph.linksLoaded.formUnion(missing)
-        let (current, zoneValues) = Self.matching(zone: zone, filter: nil)
+        let (current, zoneValues) = Database.matching(zone: zone, filter: nil)
         let linkSchema = RecordLink.schema
         for chunk in missing.chunked(400) {
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")

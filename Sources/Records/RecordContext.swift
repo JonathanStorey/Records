@@ -157,7 +157,7 @@ public final class RecordContext {
     /// `draft(id:for:in:)`, or with `savedFirst`, the saved record when there is one.
     private func draft<R: Record>(id: UUID, for type: R.Type, in zone: Zone, savedFirst: Bool) -> R? {
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
-        let saved = (try? Self.load(R.self, key: key, in: database)) ?? nil
+        let saved = (try? database.load(R.self, key: key)) ?? nil
         if savedFirst, let saved { return saved }
         return pending(for: key).reduce(saved) { record, difference in
             difference.laid(over: record) as? R
@@ -181,12 +181,12 @@ public final class RecordContext {
             for difference in changes {
                 // The links a deleted record owns, read before saving removes them.
                 if difference.isDelete {
-                    deleted.append((difference.key, try Self.currentLinks(of: difference.key, in: database)))
+                    deleted.append((difference.key, try database.currentLinks(of: difference.key)))
                 }
-                try Self.write(difference, now: now, in: database)
+                try database.write(difference, now: now)
             }
-            try insertNewTargets(of: changes, now: now, in: database)
-            try finishDeleting(deleted, now: now, in: database)
+            try insertNewTargets(of: changes, now: now)
+            try finishDeleting(deleted, now: now)
         }
         differences = [:]
         directEdits = [:]
@@ -218,7 +218,7 @@ public final class RecordContext {
     /// The saved record `record` names in `zone`, or `nil` when it is missing or deleted.
     private func saved<R: Record>(like record: R, in zone: Zone) -> R? {
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        return (try? Self.load(R.self, key: key, in: database)) ?? nil
+        return (try? database.load(R.self, key: key)) ?? nil
     }
 
     /// Discards every pending edit.
@@ -238,26 +238,26 @@ public final class RecordContext {
     /// through a reference whose `from:` side says `deleteSelf: true`, the same way in turn.
     /// `deleted` holds each record's owned links as they were before saving.
     private func finishDeleting(
-        _ deleted: [(RecordKey, [String: [String: SQLValue]])], now: Double, in database: Database
+        _ deleted: [(RecordKey, [String: [String: SQLValue]])], now: Double
     ) throws {
         var queue = deleted
         var finished: Set<RecordKey> = []
         while !queue.isEmpty {
             let (key, owned) = queue.removeFirst()
             guard finished.insert(key).inserted else { continue }
-            try removeLinks(to: key, now: now, in: database)
+            try removeLinks(to: key, now: now)
 
             for row in owned.values {
                 guard case .text(let source) = row["source"], case .text(let targetName) = row["targetName"],
                       let target = deletedWithOwner(source: source),
                       // Another record may have taken the target over in this save.
-                      try !Self.isLinked(source: source, targetName: targetName, zone: key.zone, in: database)
+                      try !database.isLinked(source: source, targetName: targetName, zone: key.zone)
                 else { continue }
                 let targetKey = RecordKey(recordType: target.recordType, name: targetName, zone: key.zone)
-                guard let targetRow = try Self.currentRow(of: targetKey, in: database), targetRow["_deleted"] != .integer(1) else { continue }
-                let targetOwned = try Self.currentLinks(of: targetKey, in: database)
-                try Self.remove(targetKey, now: now, in: database)
-                try Self.writeLinks([], of: targetKey, saved: targetOwned, removing: nil, now: now, in: database)
+                guard let targetRow = try database.currentRow(of: targetKey), targetRow["_deleted"] != .integer(1) else { continue }
+                let targetOwned = try database.currentLinks(of: targetKey)
+                try database.remove(targetKey, now: now)
+                try database.writeLinks([], of: targetKey, saved: targetOwned, removing: nil, now: now)
                 queue.append((targetKey, targetOwned))
             }
         }
@@ -284,7 +284,7 @@ public final class RecordContext {
     }
 
     /// Removes every current link that points at `key`'s record through a reference.
-    private func removeLinks(to key: RecordKey, now: Double, in database: Database) throws {
+    private func removeLinks(to key: RecordKey, now: Double) throws {
         let rows = try database.rows(
             """
             SELECT "_name", "source" FROM \(database.quoted(RecordLink.recordType)) \
@@ -296,26 +296,14 @@ public final class RecordContext {
             guard case .text(let name) = row["_name"], case .text(let source) = row["source"],
                   linkReference(named: source)?.reference.target.recordType == key.recordType
             else { continue }
-            try Self.remove(RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone), now: now, in: database)
+            try database.remove(RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone), now: now)
         }
-    }
-
-    /// Whether a current link from `source` points at `targetName`.
-    private nonisolated static func isLinked(source: String, targetName: String, zone: Zone, in database: Database) throws -> Bool {
-        try !database.rows(
-            """
-            SELECT 1 FROM \(database.quoted(RecordLink.recordType)) \
-            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "source" = ? AND "targetName" = ? \
-            AND "_isCurrent" = 1 AND "_deleted" = 0 LIMIT 1
-            """,
-            [.text(zone.name), .text(zone.ownerName), .text(source), .text(targetName)]
-        ).isEmpty
     }
 
     /// Inserts the loaded targets of the saved records that exist nowhere yet: not saved in the
     /// zone, deleted or not, and not pending. A target that exists is never written, so a stale
     /// copy can't overwrite it. New targets' own new targets are inserted too.
-    private func insertNewTargets(of changes: [RecordDifference], now: Double, in database: Database) throws {
+    private func insertNewTargets(of changes: [RecordDifference], now: Double) throws {
         var visited = Set(changes.map(\.key))
         var queue = changes.compactMap { change in change.edit.map { (change.zone, $0) } }
         while !queue.isEmpty {
@@ -323,43 +311,12 @@ public final class RecordContext {
             for target in record.loadedTargets {
                 let key = RecordKey(recordType: type(of: target).recordType, name: target.id.uuidString, zone: zone)
                 guard visited.insert(key).inserted,
-                      try Self.currentRow(of: key, in: database) == nil
+                      try database.currentRow(of: key) == nil
                 else { continue }
-                try Self.write(RecordDifference(id: UUID(), zone: zone, base: nil, edit: target, modified: .now), now: now, in: database)
+                try database.write(RecordDifference(id: UUID(), zone: zone, base: nil, edit: target, modified: .now), now: now)
                 queue.append((zone, target))
             }
         }
-    }
-
-    /// Writes one edit: the record's row and its links. With a base, only the fields and links
-    /// the edit changed from it are written, so the saved record keeps anything changed
-    /// elsewhere since that the edit didn't touch.
-    private static func write(_ change: RecordDifference, now: Double, in database: Database) throws {
-        let key = change.key
-        let savedLinks = try currentLinks(of: key, in: database)
-        guard !change.isDelete else {
-            try remove(key, now: now, in: database)
-            try writeLinks([], of: key, saved: savedLinks, removing: nil, now: now, in: database)
-            return
-        }
-        // A record removed or deleted since it was edited comes back whole.
-        let savedRow = try currentRow(of: key, in: database)
-        let hasOriginal = savedRow != nil && savedRow?["_deleted"] != .integer(1) && change.base != nil
-        let edited = hasOriginal ? change.originalValues.map { original in change.values.filter { original[$0.key] != $0.value } } : nil
-        try writeRecord(change.schema, key: key, values: change.values, edited: edited, now: now, in: database)
-
-        let orders = orders(of: savedLinks)
-        let links = change.links(orders)
-        guard hasOriginal, let originalLinks = change.originalLinks(orders) else {
-            try writeLinks(links, of: key, saved: savedLinks, removing: nil, now: now, in: database)
-            return
-        }
-        let original = Dictionary(originalLinks, uniquingKeysWith: { first, _ in first })
-        let kept = Set(links.map(\.0))
-        try writeLinks(
-            links.filter { !matches(original[$0.0], $0.1) }, of: key, saved: savedLinks,
-            removing: Set(original.keys.filter { !kept.contains($0) }), now: now, in: database
-        )
     }
 
     // MARK: - Reading
@@ -372,7 +329,7 @@ public final class RecordContext {
         _ = lastSaved
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
-        return try Self.load(R.self, key: key, in: database)
+        return try database.load(R.self, key: key)
     }
 
     /// The saved record with `id` in the current `zone`, whatever its type, or `nil` when there
@@ -385,7 +342,7 @@ public final class RecordContext {
         guard case .text(let recordType) = try database.rows(lookup.sql, values).first?["type"],
               let type = types[recordType]
         else { return nil }
-        return try Self.load(type, key: RecordKey(recordType: recordType, name: name, zone: zone), in: database)
+        return try database.load(type, key: RecordKey(recordType: recordType, name: name, zone: zone))
     }
 
     /// The saved records of `R` in the current `zone` that match `descriptor`, sorted and limited
@@ -407,7 +364,7 @@ public final class RecordContext {
         let plan = self.plan(for: descriptor)
         if let page = plan.page {
             // The database sorts and limits exactly as Swift would.
-            return try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: page, in: database)
+            return try database.loadAll(R.self, zone: zone, filter: plan.filter, page: page)
         }
 
         if let predicate = descriptor.predicate, let traversal = plan.traversal {
@@ -417,7 +374,7 @@ public final class RecordContext {
 
         // The SQL narrows the rows read. The predicate still decides the result below, so a part
         // of it SQL can't express only widens the query.
-        var records = try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: nil, in: database)
+        var records = try database.loadAll(R.self, zone: zone, filter: plan.filter, page: nil)
 
         if let predicate = descriptor.predicate {
             records = try records.filter { try predicate.evaluate($0) }
@@ -437,7 +394,7 @@ public final class RecordContext {
         let plan = self.plan(for: descriptor)
         guard plan.page != nil else { return try fetchRecords(descriptor).count }
         // The database counts the matches without reading them.
-        let (matching, values) = Self.matching(zone: zone, filter: plan.filter)
+        let (matching, values) = Database.matching(zone: zone, filter: plan.filter)
         let rows = try database.rows(
             "SELECT COUNT(*) AS \"count\" FROM \(database.quoted(R.recordType)) WHERE \(matching)", values
         )
@@ -475,55 +432,6 @@ public final class RecordContext {
         return (filter, page, traversal)
     }
 
-    /// The condition for current, undeleted rows in `zone` that meet `filter`, and its values.
-    nonisolated static func matching(zone: Zone, filter: SQLFilter?) -> (sql: String, values: [SQLValue]) {
-        let current = "\"_zoneName\" = ? AND \"_zoneOwner\" = ? AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
-        let zoneValues: [SQLValue] = [.text(zone.name), .text(zone.ownerName)]
-        return (current + (filter.map { " AND \($0.sql)" } ?? ""), zoneValues + (filter?.values ?? []))
-    }
-
-    /// Every saved, undeleted `R` in `zone` that meets `filter`, in the order and range of `page`
-    /// when given, with references holding IDs. One query reads the rows and one reads every
-    /// link they own or are the target of.
-    private nonisolated static func loadAll<R: Record>(
-        _ type: R.Type, zone: Zone, filter: SQLFilter?, page: SQLPage?, in database: Database
-    ) throws -> [R] {
-        let table = database.quoted(R.recordType)
-        var (matching, matchingValues) = Self.matching(zone: zone, filter: filter)
-        if let page {
-            matching += " ORDER BY \(page.orderBy) LIMIT ? OFFSET ?"
-            matchingValues += [.integer(Int64(page.limit ?? -1)), .integer(Int64(page.offset))]
-        }
-        let rows = try database.rows("SELECT * FROM \(table) WHERE \(matching)", matchingValues)
-        guard !rows.isEmpty else { return [] }
-
-        let (current, zoneValues) = Self.matching(zone: zone, filter: nil)
-        let names = "SELECT \"_name\" FROM \(table) WHERE \(matching)"
-        let linkRows = try database.rows(
-            """
-            SELECT * FROM \(database.quoted(RecordLink.recordType)) WHERE \(current) \
-            AND ("sourceName" IN (\(names)) OR "targetName" IN (\(names)))
-            """,
-            zoneValues + matchingValues + matchingValues
-        )
-        var linksByName: [String: [CKRecord]] = [:]
-        for row in linkRows {
-            guard case .text(let name) = row["_name"] else { continue }
-            let link = RecordLink.schema.record(from: row, name: name, zone: zone)
-            if case .text(let source) = row["sourceName"] { linksByName[source, default: []].append(link) }
-            if case .text(let target) = row["targetName"], row["targetName"] != row["sourceName"] {
-                linksByName[target, default: []].append(link)
-            }
-        }
-
-        let decoder = CKRecordDecoder()
-        return try rows.compactMap { row in
-            guard case .text(let name) = row["_name"] else { return nil }
-            let record = R.schema.record(from: row, name: name, zone: zone)
-            return try decoder.decode(R.self, from: record, links: linksByName[name] ?? [], depth: 0)
-        }
-    }
-
     /// One query that names the table holding a current, undeleted record, given the record's
     /// zone and name once per table. Built once, and its statement is cached like any other.
     @ObservationIgnored private lazy var recordTypeLookup: (sql: String, tables: Int) = {
@@ -531,41 +439,10 @@ public final class RecordContext {
         let selects = recordTypes.map { recordType in
             let literal = "'" + recordType.replacingOccurrences(of: "'", with: "''") + "'"
             return "SELECT \(literal) AS \"type\" FROM \(database.quoted(recordType)) "
-                + "WHERE \(Self.named) AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
+                + "WHERE \(Database.named) AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
         }
         return (selects.joined(separator: " UNION ALL ") + " LIMIT 1", recordTypes.count)
     }()
-
-    /// The saved `R` for `key`, with its references holding IDs, or `nil` when it is missing or
-    /// deleted.
-    private nonisolated static func load<R: Record>(_ type: R.Type, key: RecordKey, in database: Database) throws -> R? {
-        guard let row = try currentRow(of: key, in: database), row["_deleted"] != .integer(1) else { return nil }
-        let record = R.schema.record(from: row, name: key.name, zone: key.zone)
-        let links = try savedLinks(touching: key, in: database).map { name, row in
-            RecordLink.schema.record(from: row, name: name, zone: key.zone)
-        }
-        return try CKRecordDecoder().decode(R.self, from: record, links: links, depth: 0)
-    }
-
-    /// The record's own saved links, and the saved links that point at it for its `from:` sides,
-    /// by link name.
-    private nonisolated static func savedLinks(touching key: RecordKey, in database: Database) throws -> [String: [String: SQLValue]] {
-        let rows = try database.rows(
-            """
-            SELECT * FROM \(database.quoted(RecordLink.recordType)) \
-            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "_isCurrent" = 1 AND "_deleted" = 0 \
-            AND ("sourceName" = ? OR "targetName" = ?)
-            """,
-            key.values + [.text(key.name)]
-        )
-        return Dictionary(
-            rows.compactMap { row in
-                guard case .text(let name) = row["_name"] else { return nil }
-                return (name, row)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-    }
 
     /// Stops with a message when `R` isn't registered, which is a programmer error.
     private func checkRegistered<R: Record>(_ type: R.Type) {
@@ -578,149 +455,7 @@ public final class RecordContext {
 
     // MARK: - Writing
 
-    /// Writes an edited record. A new one is inserted with every field. An existing one has the
-    /// fields that differ updated, and a deleted one comes back with every field. Before a synced
-    /// row first changes, it is copied to its base row, and once it matches its base again the
-    /// base is dropped.
-    private nonisolated static func writeRecord(
-        _ schema: RecordSchema, key: RecordKey, values: [String: SQLValue], edited: [String: SQLValue]?,
-        now: Double, in database: Database
-    ) throws {
-        guard let saved = try currentRow(of: key, in: database) else {
-            try insertRow(schema.recordType, key: key, fields: values, now: now, in: database)
-            return
-        }
-        // A deleted row comes back whole. Otherwise only the edited fields count, or every field
-        // when there is no original to compare with.
-        let candidates = saved["_deleted"] == .integer(1) ? values : (edited ?? values)
-        let fields = saved["_deleted"] == .integer(1) ? values : candidates.filter { saved[$0.key] != $0.value }
-        guard !fields.isEmpty else { return }
-        try keepBase(of: key, in: database)
-        try updateRow(key, fields: fields, now: now, in: database)
-        try dropBaseIfUnchanged(key, schema: schema, in: database)
-    }
-
-    /// Writes `links` where they differ from the saved ones. Removes the saved links named in
-    /// `removing`, or, when it is `nil`, every saved link not in `links`.
-    private nonisolated static func writeLinks(
-        _ links: [(String, [String: SQLValue])], of key: RecordKey, saved: [String: [String: SQLValue]],
-        removing: Set<String>?, now: Double, in database: Database
-    ) throws {
-        for (name, values) in links where !matches(saved[name], values) {
-            let linkKey = RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone)
-            if try currentRow(of: linkKey, in: database) == nil {
-                try insertRow(RecordLink.recordType, key: linkKey, fields: values, now: now, in: database)
-            } else {
-                // A one-to-many target moves to its new source, so its link may belong to another record.
-                try keepBase(of: linkKey, in: database)
-                try updateRow(linkKey, fields: values, now: now, in: database)
-                try dropBaseIfUnchanged(linkKey, schema: RecordLink.schema, in: database)
-            }
-        }
-        let kept = Set(links.map(\.0))
-        for name in saved.keys where removing?.contains(name) ?? !kept.contains(name) {
-            try remove(RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone), now: now, in: database)
-        }
-    }
-
-    /// Removes the current row of `key`. A row that never synced is deleted with any base row.
-    /// A synced row is marked deleted, so the deletion reaches the server.
-    private nonisolated static func remove(_ key: RecordKey, now: Double, in database: Database) throws {
-        guard let row = try currentRow(of: key, in: database) else { return }
-        let table = database.quoted(key.recordType)
-        if row["_systemFields"] == .null {
-            try database.run("DELETE FROM \(table) WHERE \(named)", key.values)
-        } else {
-            try database.run(
-                "UPDATE \(table) SET \"_deleted\" = 1, \"_modifiedAt\" = ? WHERE \(named) AND \"_isCurrent\" = 1",
-                [.real(now)] + key.values
-            )
-        }
-    }
-
-    private nonisolated static func insertRow(
-        _ recordType: CKRecord.RecordType, key: RecordKey, fields: [String: SQLValue], now: Double, in database: Database
-    ) throws {
-        let names = Array(fields.keys)
-        let columns = ["_name", "_isCurrent", "_zoneName", "_zoneOwner", "_createdAt", "_modifiedAt"] + names
-        let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
-        try database.run(
-            "INSERT INTO \(database.quoted(recordType)) (\(columns.map(database.quoted).joined(separator: ", "))) VALUES (\(placeholders))",
-            [.text(key.name), .integer(1), .text(key.zone.name), .text(key.zone.ownerName), .real(now), .real(now)]
-                + names.map { fields[$0]! }
-        )
-    }
-
-    private nonisolated static func updateRow(_ key: RecordKey, fields: [String: SQLValue], now: Double, in database: Database) throws {
-        let names = Array(fields.keys)
-        let assignments = ["\"_deleted\" = 0", "\"_modifiedAt\" = ?"] + names.map { "\(database.quoted($0)) = ?" }
-        try database.run(
-            "UPDATE \(database.quoted(key.recordType)) SET \(assignments.joined(separator: ", ")) WHERE \(named) AND \"_isCurrent\" = 1",
-            [.real(now)] + names.map { fields[$0]! } + key.values
-        )
-    }
-
-    /// Copies the current row of `key` to its base row when the current row has synced and no
-    /// base row exists. The base row holds the server's last known values until the next upload.
-    private nonisolated static func keepBase(of key: RecordKey, in database: Database) throws {
-        let table = database.quoted(key.recordType)
-        let columns = try database.columnNames(key.recordType).map(database.quoted)
-        let selected = columns.map { $0 == "\"_isCurrent\"" ? "0" : $0 }
-        try database.run(
-            """
-            INSERT OR IGNORE INTO \(table) (\(columns.joined(separator: ", "))) \
-            SELECT \(selected.joined(separator: ", ")) FROM \(table) \
-            WHERE \(named) AND "_isCurrent" = 1 AND "_systemFields" IS NOT NULL
-            """,
-            key.values
-        )
-    }
-
-    /// Drops the base row of `key` when the current row's fields match it again, so an edit that
-    /// is undone leaves the record with nothing to upload.
-    private nonisolated static func dropBaseIfUnchanged(_ key: RecordKey, schema: RecordSchema, in database: Database) throws {
-        let rows = try database.rows("SELECT * FROM \(database.quoted(key.recordType)) WHERE \(named)", key.values)
-        guard let current = rows.first(where: { $0["_isCurrent"] == .integer(1) }),
-              let base = rows.first(where: { $0["_isCurrent"] == .integer(0) }),
-              current["_deleted"] == .integer(0),
-              schema.fields.allSatisfy({ current[$0.key] == base[$0.key] })
-        else { return }
-        try database.run(
-            "DELETE FROM \(database.quoted(key.recordType)) WHERE \(named) AND \"_isCurrent\" = 0", key.values
-        )
-    }
-
     // MARK: - Reading
-
-    /// Matches one record's rows by zone and name.
-    private nonisolated static let named = "\"_zoneName\" = ? AND \"_zoneOwner\" = ? AND \"_name\" = ?"
-
-    /// The current row of `key`, or `nil` when there is none.
-    private nonisolated static func currentRow(of key: RecordKey, in database: Database) throws -> [String: SQLValue]? {
-        try database.rows(
-            "SELECT * FROM \(database.quoted(key.recordType)) WHERE \(named) AND \"_isCurrent\" = 1", key.values
-        ).first
-    }
-
-    /// The current, undeleted links `key`'s record owns, by link name.
-    private nonisolated static func currentLinks(of key: RecordKey, in database: Database) throws -> [String: [String: SQLValue]] {
-        let prefix = key.recordType + "."
-        let rows = try database.rows(
-            """
-            SELECT * FROM \(database.quoted(RecordLink.recordType)) \
-            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "sourceName" = ? AND "_isCurrent" = 1 AND "_deleted" = 0 \
-            AND substr("source", 1, ?) = ?
-            """,
-            key.values + [.integer(Int64(prefix.count)), .text(prefix)]
-        )
-        return Dictionary(
-            rows.compactMap { row in
-                guard case .text(let name) = row["_name"] else { return nil }
-                return (name, row)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-    }
 
     /// Whether `row` exists and holds every value in `values`.
     nonisolated static func matches(_ row: [String: SQLValue]?, _ values: [String: SQLValue]) -> Bool {
@@ -748,7 +483,7 @@ struct RecordKey: Hashable, Sendable {
     let name: String
     let zone: Zone
 
-    /// The values for `RecordContext.named`, in order.
+    /// The values for `Database.named`, in order.
     var values: [SQLValue] { [.text(zone.name), .text(zone.ownerName), .text(name)] }
 }
 

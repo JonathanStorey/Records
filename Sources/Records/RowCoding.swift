@@ -73,9 +73,11 @@ extension Record {
 
 extension RecordSchema {
     /// A record named `name` in `zone`, holding the fields of `row`. It is what `encodeFields`
-    /// would write, so the record's generated initializer reads it back.
+    /// would write, so the record's generated initializer reads it back. A row that has synced
+    /// starts from its system fields, so the record carries the server's dates.
     func record(from row: [String: SQLValue], name: String, zone: Zone) -> CKRecord {
-        let record = CKRecord(recordType: recordType, recordID: CKRecord.ID(recordName: name, zoneID: zone.zoneID))
+        let record = synced(row["_systemFields"], name: name, zone: zone)
+            ?? CKRecord(recordType: recordType, recordID: CKRecord.ID(recordName: name, zoneID: zone.zoneID))
         for field in fields {
             guard let value = field.kind.recordValue(row[field.key] ?? .null) else { continue }
             if field.isEncrypted {
@@ -84,6 +86,18 @@ extension RecordSchema {
                 record[field.key] = value
             }
         }
+        return record
+    }
+
+    /// The record the server last returned, read from its archived system fields, or `nil` when
+    /// there are none or they name another record.
+    private func synced(_ value: SQLValue?, name: String, zone: Zone) -> CKRecord? {
+        guard case .blob(let data)? = value, let coder = try? NSKeyedUnarchiver(forReadingFrom: data) else { return nil }
+        coder.requiresSecureCoding = true
+        defer { coder.finishDecoding() }
+        guard let record = CKRecord(coder: coder), record.recordType == recordType,
+              record.recordID.recordName == name, record.recordID.zoneID == zone.zoneID
+        else { return nil }
         return record
     }
 }

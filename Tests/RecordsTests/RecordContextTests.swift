@@ -754,3 +754,21 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
     try context.save()
     #expect(try context.database.rows("SELECT * FROM \"Label\"").isEmpty)
 }
+
+@MainActor
+@Test func aSyncedRowReadsBackFromItsSystemFields() throws {
+    let context = try makeContext(for: Page.self)
+    let page = Page(id: UUID(), title: "Synced", labels: [], pinnedIDs: [])
+    context.insert(page)
+    try context.save()
+    // Stand in for a sync, which stores the system fields of the record the server returns.
+    let synced = CKRecord(recordType: "Page", recordID: CKRecord.ID(recordName: page.id.uuidString, zoneID: Zone.records.zoneID))
+    let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+    synced.encodeSystemFields(with: archiver)
+    archiver.finishEncoding()
+    try context.database.run("UPDATE \"Page\" SET \"_systemFields\" = ?", [.blob(archiver.encodedData)])
+
+    let read = try context.record(id: page.id, for: Page.self)
+    #expect(read?.title == "Synced")
+    #expect(read?.labels.isEmpty == true)
+}
