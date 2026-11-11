@@ -73,6 +73,10 @@ public final class RecordContext {
     /// Stages deleting `record` from the current `zone`, with the links it owns. When saved, a
     /// record that never synced is removed outright, and a synced one is kept as a deletion until
     /// the server confirms it.
+    ///
+    /// Saving also removes the links other records hold to it, so their references drop it, and
+    /// deletes the records it owns through a reference whose `from:` side says `deleteSelf: true`,
+    /// unless another record has taken them over in the same save.
     public func delete(_ record: some Record) {
         stage(record, isDelete: true)
     }
@@ -85,10 +89,15 @@ public final class RecordContext {
         let now = Date().timeIntervalSince1970
         let database = self.database
         try database.transaction {
+            // The links each deleted record owns, read before saving removes them.
+            let deleted = try changes.filter { $0.1.isDelete }.map { key, _ in
+                (key, try Self.currentLinks(of: key, in: database))
+            }
             for (key, change) in changes {
                 try Self.write(change, key: key, now: now, in: database)
             }
             try insertNewTargets(of: changes, now: now, in: database)
+            try finishDeleting(deleted, now: now, in: database)
         }
         staged.removeAll()
         stagedOrder.removeAll()
@@ -114,6 +123,84 @@ public final class RecordContext {
         let original = (try? Self.load(R.self, key: key, in: database)) ?? nil
         staged[key] = RecordDifference(change: change, original: original)
         stagedOrder.append(key)
+    }
+
+    /// Removes the links that point at each deleted record, and deletes the records it owned
+    /// through a reference whose `from:` side says `deleteSelf: true`, the same way in turn.
+    /// `deleted` holds each record's owned links as they were before saving.
+    private func finishDeleting(
+        _ deleted: [(RecordKey, [String: [String: SQLValue]])], now: Double, in database: Database
+    ) throws {
+        var queue = deleted
+        var finished: Set<RecordKey> = []
+        while !queue.isEmpty {
+            let (key, owned) = queue.removeFirst()
+            guard finished.insert(key).inserted else { continue }
+            try removeLinks(to: key, now: now, in: database)
+
+            for row in owned.values {
+                guard case .text(let source) = row["source"], case .text(let targetName) = row["targetName"],
+                      let target = deletedWithOwner(source: source),
+                      // Another record may have taken the target over in this save.
+                      try !Self.isLinked(source: source, targetName: targetName, zone: key.zone, in: database)
+                else { continue }
+                let targetKey = RecordKey(recordType: target.recordType, name: targetName, zone: key.zone)
+                guard let targetRow = try Self.currentRow(of: targetKey, in: database), targetRow["_deleted"] != .integer(1) else { continue }
+                let targetOwned = try Self.currentLinks(of: targetKey, in: database)
+                try Self.remove(targetKey, now: now, in: database)
+                try Self.writeLinks([], of: targetKey, saved: targetOwned, removing: nil, now: now, in: database)
+                queue.append((targetKey, targetOwned))
+            }
+        }
+    }
+
+    /// The type a link with `source` points at, when that type's `from:` side for it says
+    /// `deleteSelf: true`.
+    private func deletedWithOwner(source: String) -> (any Record.Type)? {
+        guard let found = linkReference(named: source) else { return nil }
+        let target = found.reference.target
+        let deletesSelf = target.schema.references.contains {
+            $0.inverseOf == found.reference.property && $0.target.recordType == found.owner.recordType && $0.deleteSelf
+        }
+        return deletesSelf ? target : nil
+    }
+
+    /// The owning type and reference a link's `source`, `Type.property`, names.
+    private func linkReference(named source: String) -> (owner: any Record.Type, reference: ReferenceSchema)? {
+        let parts = source.split(separator: ".", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let owner = types[parts[0]],
+              let reference = owner.schema.references.first(where: { $0.property == parts[1] && !$0.isFrom })
+        else { return nil }
+        return (owner, reference)
+    }
+
+    /// Removes every current link that points at `key`'s record through a reference.
+    private func removeLinks(to key: RecordKey, now: Double, in database: Database) throws {
+        let rows = try database.rows(
+            """
+            SELECT "_name", "source" FROM \(database.quoted(RecordLink.recordType)) \
+            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "targetName" = ? AND "_isCurrent" = 1 AND "_deleted" = 0
+            """,
+            key.values
+        )
+        for row in rows {
+            guard case .text(let name) = row["_name"], case .text(let source) = row["source"],
+                  linkReference(named: source)?.reference.target.recordType == key.recordType
+            else { continue }
+            try Self.remove(RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone), now: now, in: database)
+        }
+    }
+
+    /// Whether a current link from `source` points at `targetName`.
+    private nonisolated static func isLinked(source: String, targetName: String, zone: Zone, in database: Database) throws -> Bool {
+        try !database.rows(
+            """
+            SELECT 1 FROM \(database.quoted(RecordLink.recordType)) \
+            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "source" = ? AND "targetName" = ? \
+            AND "_isCurrent" = 1 AND "_deleted" = 0 LIMIT 1
+            """,
+            [.text(zone.name), .text(zone.ownerName), .text(source), .text(targetName)]
+        ).isEmpty
     }
 
     /// Inserts the loaded targets of the saved records that exist nowhere yet: not saved in the

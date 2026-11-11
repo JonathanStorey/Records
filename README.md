@@ -425,6 +425,12 @@ inserting a record again updates its difference in place, so each record appears
 and a view showing it stays current. `save()` writes the changes of every
 zone.
 
+Saving a delete also removes the links other records hold to the deleted record, so their
+references drop it. It deletes the records the deleted one owns through a reference whose `from:`
+side says `deleteSelf: true`, and theirs in turn, unless another record took them over in the same
+save. Deleting an album deletes its tracks, but moving a track to another album and deleting the
+old one keeps it.
+
 The first time a saved record is inserted, the context keeps the saved version as its original.
 Saving writes only the fields and links you changed from that original, keeps the creation date,
 and leaves everything else as the database holds it then. So if another context saves a new
@@ -600,8 +606,6 @@ depth runs out, then holds only an ID.
   synced copy of each record, so it finds the fields and links that changed by comparing against
   it, and uploads only those.
 - `CKSyncEngine` sync.
-- Deletion with `deleteSelf`. The container knows the flag from each type's `@Reference(from:)`
-  declaration, and the store will delete the targets.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store
   enforces it.
 
