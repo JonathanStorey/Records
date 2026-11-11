@@ -495,6 +495,21 @@ label too. `changes` and `hasChanges` move only when an edit begins, turns into 
 ends, so a Save button that reads `hasChanges` redraws on the first edit and on save, not while
 you type. A `@Recordable` reads all three.
 
+When one context saves, the container refreshes its other contexts. Each pending edit there
+keeps the fields it changed and takes everything else from the record as saved now, and their
+views redraw. A field changed elsewhere after you started editing shows, and your save won't
+undo it. An edit to a record deleted elsewhere brings it back when saved. Sync will refresh
+contexts the same way when it writes changes from the server.
+
+Lists show saved records, so a list beside an editor shows an edit once it is saved. Save when
+the user commits, such as on submit or when the editor goes away:
+
+```swift
+AlbumEditor(album: album)
+    .onSubmit { try? context.save() }
+    .onDisappear { try? context.save() }
+```
+
 Each `@Recordable` is one edit, named by its own `id`: `_album.id` names the edit, and
 `album.id` the record. Two views editing one record each save only the fields they changed, so
 both land, and when both change the same field the later edit wins. Insert a new record before
