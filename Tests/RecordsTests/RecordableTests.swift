@@ -87,21 +87,37 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(try context.record(id: fresh.id, for: Novel.self)?.year == 2025)
 }
 
-/// Without a zone, a wrapper keeps the context's zone from when it connected, so switching the
-/// context's zone doesn't move it.
+/// Without a zone, a wrapper edits in the container's default zone, whatever the context's
+/// current zone.
 @MainActor
-@Test func aRecordableKeepsItsZone() throws {
+@Test func aRecordableUsesTheDefaultZone() throws {
     let context = try context()
+    context.zone = "Work"
     let fresh = novel("New", year: 2024)
     let storage = RecordableStorage(fresh)
     storage.connect(to: context)
-    context.zone = "Work"
-    storage.connect(to: context)
     storage.value.year = 2025
 
-    #expect(storage.zone == .records)
     #expect(context.changes.isEmpty)
     context.zone = .records
+    #expect(context.changes == [.insert(fresh.id)])
+}
+
+/// A container's default zone is where its contexts start and where wrappers edit.
+@MainActor
+@Test func theContainerSetsTheDefaultZone() throws {
+    let container = try RecordContainer(for: [Novel.self, Page.self], url: nil, defaultZone: "Work")
+    #expect(container.defaultZone == "Work")
+    let context = container.mainContext
+    #expect(context.zone == "Work")
+
+    let fresh = novel("New", year: 2024)
+    let storage = RecordableStorage(fresh)
+    context.zone = .records
+    storage.connect(to: context)
+    storage.value.year = 2025
+    #expect(context.changes.isEmpty)
+    context.zone = "Work"
     #expect(context.changes == [.insert(fresh.id)])
 }
 
