@@ -299,8 +299,7 @@ private final class Flag: @unchecked Sendable {
     #expect(value.year == 1972)
 
     let writer = Writer(id: UUID(), name: "Ada", bookIDs: [])
-    var savedWriter = writer
-    savedWriter.bookIDs = [original.id]
+    let savedWriter = Writer(id: writer.id, name: "Ada", bookIDs: [original.id])
     var draftWriter = writer
     draftWriter.name = "Ada L."
     let writerDifference = RecordDifference(id: writer.id, original: writer, draft: draftWriter, change: .insert)
