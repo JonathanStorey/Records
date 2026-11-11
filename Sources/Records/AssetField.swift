@@ -6,7 +6,7 @@ import Foundation
 /// Each value gets a new ID, which names its file, `<id>.asset` in `directory`, and is stored on
 /// the asset's link, so two devices can tell whether they hold the same data without comparing
 /// it. Setting the property writes the file right away, so `$name` always has a URL to hand to a
-/// view. Reading the property reads that file, so a record that is loaded but never asked for its
+/// view. Setting `$name` to a file copies it in instead, without reading it into memory. Reading the property reads that file, so a record that is loaded but never asked for its
 /// data never loads it.
 public struct AssetField {
     /// Where asset files are kept: `Application Support/Records/Assets`.
@@ -56,8 +56,22 @@ public struct AssetField {
     }
 
     /// The file that holds the data, or `nil` when there is none.
+    ///
+    /// Setting it to a file gives the asset a new ID and copies the file in as its `.asset` file,
+    /// without reading the data into memory. When the copy fails, the asset uses the file where it
+    /// is. Setting it to `nil` clears the asset.
     public var fileURL: URL? {
-        if case .file(let url) = source { url } else { nil }
+        get {
+            if case .file(let url) = source { url } else { nil }
+        }
+        set {
+            (id, source) = Self.store(file: newValue)
+        }
+    }
+
+    /// An asset holding a copy of the file at `url`, read only when its data is asked for.
+    public init(contentsOf url: URL) {
+        (id, source) = Self.store(file: url)
     }
 
     /// The file to save, writing it first if that failed when the data was set.
@@ -85,6 +99,21 @@ public struct AssetField {
         guard let data else { return (nil, .none) }
         let id = UUID()
         return (id, (try? write(data, id: id)).map(Source.file) ?? .data(data))
+    }
+
+    private static func store(file url: URL?) -> (UUID?, Source) {
+        guard let url else { return (nil, .none) }
+        let id = UUID()
+        return (id, .file((try? copy(url, id: id)) ?? url))
+    }
+
+    /// Copies the file at `url` in as the asset with `id`. On APFS the copy is a clone, so it
+    /// takes no time or space until either file changes.
+    private static func copy(_ url: URL, id: UUID) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = Self.url(for: id)
+        try FileManager.default.copyItem(at: url, to: destination)
+        return destination
     }
 
     private static func write(_ data: Data, id: UUID) throws -> URL {

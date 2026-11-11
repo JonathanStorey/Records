@@ -35,6 +35,53 @@ private let decoder = CKRecordDecoder()
     #expect(poster.image == Data("second".utf8))
 }
 
+/// Setting `$image` to a file copies it in as a new asset, without reading it.
+@Test func settingTheFileURLCopiesTheFileIn() throws {
+    let source = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
+    try png.write(to: source)
+    var poster = Poster(id: UUID(), title: "Tour", image: nil)
+    poster.$image = source
+
+    let id = try #require(poster._image.id)
+    let url = try #require(poster.$image)
+    #expect(url == AssetField.url(for: id))
+    #expect(url != source)
+    #expect(poster.image == png)
+
+    // The copy is the asset's own: the source can go away.
+    try FileManager.default.removeItem(at: source)
+    #expect(poster.image == png)
+}
+
+@Test func eachFileSetGetsANewID() throws {
+    let source = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
+    try png.write(to: source)
+    var poster = Poster(id: UUID(), title: "Tour", image: nil)
+    poster.$image = source
+    let first = poster._image.id
+    poster.$image = source
+    #expect(poster._image.id != first)
+    #expect(poster._image.id != nil)
+}
+
+@Test func settingTheFileURLToNilClearsTheAsset() {
+    var poster = Poster(id: UUID(), title: "Tour", image: png)
+    poster.$image = nil
+    #expect(poster._image.id == nil)
+    #expect(poster.image == nil)
+    #expect(poster.$image == nil)
+}
+
+/// A file that can't be copied is used where it is.
+@Test func aFileThatCantBeCopiedIsUsedInPlace() throws {
+    let missing = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
+    var poster = Poster(id: UUID(), title: "Tour", image: nil)
+    poster.$image = missing
+    #expect(poster._image.id != nil)
+    #expect(poster.$image == missing)
+    #expect(poster.image == nil)
+}
+
 @Test func anAssetMissingHereReadsTheDownloadedFile() throws {
     let downloaded = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).tmp")
     try png.write(to: downloaded)
