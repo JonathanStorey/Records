@@ -427,6 +427,8 @@ which writes every staged change in one transaction. `rollback()` discards them,
 records as `RecordDifference.Change` values, such as `.insert(album.id)` or `.delete(oldAlbum.id)`.
 Inserting a record again replaces its change, so each record appears once per zone. To read the
 record itself, use `context.record(id:)`, which shows the draft laid over the latest saved copy.
+`context.difference(id:)` returns the staged record's `RecordDifference`, an `@Observable`
+object that stays the same while the record is staged, for a view or property wrapper to watch.
 `save()` writes the changes of every zone.
 
 Saving a delete also removes the links other records hold to the deleted record, so their
