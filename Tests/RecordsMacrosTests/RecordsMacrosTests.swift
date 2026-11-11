@@ -1638,7 +1638,12 @@ final class RecordMacroTests: XCTestCase {
                 var _image: Records.AssetField
 
                 var $image: URL? {
-                    _image.fileURL
+                    get {
+                        _image.fileURL
+                    }
+                    set {
+                        _image.fileURL = newValue
+                    }
                 }
                 var thumbnail: Data? {
                     @storageRestrictions(initializes: _thumbnail)
@@ -1656,7 +1661,12 @@ final class RecordMacroTests: XCTestCase {
                 var _thumbnail: Records.AssetField
 
                 var $thumbnail: URL? {
-                    _thumbnail.fileURL
+                    get {
+                        _thumbnail.fileURL
+                    }
+                    set {
+                        _thumbnail.fileURL = newValue
+                    }
                 }
             }
 

@@ -60,7 +60,12 @@ struct Artwork {
 artwork.image = pngData   // written to a new .asset file right away
 artwork.$image            // that file's URL, ready for an image view
 artwork.image             // read from the file only when asked for
+artwork.$image = videoURL // copied in as a new .asset file, never read into memory
 ```
+
+Setting `$image` to a file suits large files such as video: the file is copied, which on APFS is
+a clone that costs no time or space, and its data is never loaded. If the copy fails, the asset
+uses the file where it is.
 
 The asset isn't a field of the record. It rides on its own link for `Artwork.image`, so
 editing the record's other fields never uploads it again. Each new value gets a new ID and its own

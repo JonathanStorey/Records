@@ -6,7 +6,7 @@ import SwiftSyntaxMacros
 ///
 /// Turns the property into a computed one backed by a `Records.AssetField` named with a leading
 /// underscore, which keeps the file and reads it only when the property is read. `$name` gives the
-/// file's URL. An init accessor keeps the property in the memberwise initializer.
+/// file's URL, and setting it copies a file in without reading it. An init accessor keeps the property in the memberwise initializer.
 ///
 /// Only the peer role reports problems, so each one is reported once.
 public struct AssetMacro: AccessorMacro, PeerMacro {
@@ -51,7 +51,12 @@ public struct AssetMacro: AccessorMacro, PeerMacro {
             "var \(raw: storage): Records.AssetField",
             """
             \(raw: accessLevel(of: variable))var $\(raw: key): URL? {
-                \(raw: storage).fileURL
+                get {
+                    \(raw: storage).fileURL
+                }
+                set {
+                    \(raw: storage).fileURL = newValue
+                }
             }
             """,
         ]
