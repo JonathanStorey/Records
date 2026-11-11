@@ -171,9 +171,6 @@ extension RecordContext {
     /// `record` with the references `keyPaths` name holding their records, read in `zone`
     /// whatever the current `zone`. A record that can't be read stays as it is.
     func expanded<R: Record>(_ record: R, _ keyPaths: [AnyKeyPath], in zone: Zone) -> R {
-        let current = self.zone
-        self.zone = zone
-        defer { self.zone = current }
-        return (try? prefetch(keyPaths, into: [record]).first) ?? record
+        (try? prefetch(keyPaths, into: [record], in: zone).first) ?? record
     }
 }
