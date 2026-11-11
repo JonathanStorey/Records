@@ -30,11 +30,24 @@ import Testing
     var gig = Gig(id: UUID(), title: "Proms", venue: nil, home: Coordinate(latitude: 40.7, longitude: -74))
     gig.$venue = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5009, longitude: -0.1773), altitude: 30,
-        horizontalAccuracy: 5, verticalAccuracy: 3, course: 90, courseAccuracy: 1,
-        speed: 2, speedAccuracy: 0.5, timestamp: Date(timeIntervalSince1970: 1000)
+        horizontalAccuracy: 5, verticalAccuracy: 3, course: 90, speed: 2, timestamp: Date(timeIntervalSince1970: 1000)
     )
     try expectMatch(gig)
     try expectMatch(Gig(id: UUID(), title: "Nowhere", venue: nil, home: nil))
+}
+
+/// A location keeps its coordinate, altitude, accuracies, course, speed and timestamp, but not how
+/// accurate its course and speed are. Archiving a `CLLocation` leaves those two out.
+@Test func courseAndSpeedAccuracyAreNotKept() throws {
+    var gig = Gig(id: UUID(), title: "Proms", venue: nil, home: nil)
+    gig.$venue = CLLocation(
+        coordinate: CLLocationCoordinate2D(latitude: 51.5009, longitude: -0.1773), altitude: 30,
+        horizontalAccuracy: 5, verticalAccuracy: 3, course: 90, courseAccuracy: 1,
+        speed: 2, speedAccuracy: 0.5, timestamp: Date(timeIntervalSince1970: 1000)
+    )
+    let saved = try #require(try Gig(from: row(of: gig)).$venue)
+    #expect(saved.course == 90 && saved.speed == 2 && saved.horizontalAccuracy == 5)
+    #expect(saved.courseAccuracy == -1 && saved.speedAccuracy == -1)
 }
 
 @Test func assetsMatch() throws {
@@ -56,8 +69,7 @@ import Testing
     )
     novel.$shop = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5, longitude: -0.12), altitude: 12,
-        horizontalAccuracy: 4, verticalAccuracy: 2, course: 180, courseAccuracy: 3,
-        speed: 1.5, speedAccuracy: 0.25, timestamp: Date(timeIntervalSince1970: 2000)
+        horizontalAccuracy: 4, verticalAccuracy: 2, course: 180, speed: 1.5, timestamp: Date(timeIntervalSince1970: 2000)
     )
     try expectMatch(novel)
 }
@@ -143,7 +155,6 @@ private func expectSame<R: Record>(
         let other = actual.values[key] ?? .null
         guard other != value else { continue }
         let kind = R.schema.fields.first { $0.key == key }?.kind
-        print("RecordMatch \(R.self) \(route): column \(key) bytes differ: \(other) vs \(value)")
         #expect(
             kind.map { same($0.recordValue(other), $0.recordValue(value)) } == true,
             "\(route): column \(key) holds \(other), expected \(value)", sourceLocation: sourceLocation
@@ -158,15 +169,6 @@ private func same(_ lhs: Any?, _ rhs: Any?) -> Bool {
     case (.none, .none):
         return true
     case let (lhs as CLLocation, rhs as CLLocation):
-        let details: [(String, Any, Any)] = [
-            ("lat", lhs.coordinate.latitude, rhs.coordinate.latitude), ("lon", lhs.coordinate.longitude, rhs.coordinate.longitude),
-            ("alt", lhs.altitude, rhs.altitude), ("hacc", lhs.horizontalAccuracy, rhs.horizontalAccuracy),
-            ("vacc", lhs.verticalAccuracy, rhs.verticalAccuracy), ("course", lhs.course, rhs.course),
-            ("courseAcc", lhs.courseAccuracy, rhs.courseAccuracy), ("speed", lhs.speed, rhs.speed),
-            ("speedAcc", lhs.speedAccuracy, rhs.speedAccuracy), ("time", lhs.timestamp.timeIntervalSince1970, rhs.timestamp.timeIntervalSince1970),
-            ("ellAlt", lhs.ellipsoidalAltitude, rhs.ellipsoidalAltitude),
-        ]
-        print("RecordMatch location", details.map { "\($0.0)=\($0.1)/\($0.2)" }.joined(separator: " "))
         return lhs.coordinate.latitude == rhs.coordinate.latitude
             && lhs.coordinate.longitude == rhs.coordinate.longitude
             && lhs.altitude == rhs.altitude
