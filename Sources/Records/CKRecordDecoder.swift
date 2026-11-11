@@ -97,8 +97,9 @@ public struct CKRecordDecoder: Sendable {
         return a.link.recordID.recordName < b.link.recordID.recordName
     }
 
-    /// `record` as `R`'s database row: each field's column value, with the record's name and the
-    /// server's dates. Sync writes it to the database.
+    /// `record` as `R`'s database row: each field's column value, with the record's name, the
+    /// server's dates, and its archived system fields, so the next upload updates it. Sync
+    /// writes it to the database.
     public func decode<R: Record>(_ record: CKRecord, of type: R.Type) throws -> RecordRow {
         guard record.recordType == R.recordType else {
             throw CKRecordDecodingError.recordTypeMismatch(expected: R.recordType, found: record.recordType)
@@ -107,6 +108,7 @@ public struct CKRecordDecoder: Sendable {
             "_name": .text(record.recordID.recordName),
             "_createdAt": record.creationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
             "_modifiedAt": record.modificationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
+            "_systemFields": RecordRow.systemFields(of: record),
         ])
         for field in R.schema.fields {
             let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]

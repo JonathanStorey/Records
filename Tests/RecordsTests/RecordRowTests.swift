@@ -37,14 +37,21 @@ private let novel = Novel(
     }
 }
 
+/// `row` without the system fields, which only a `CKRecord` from the server has.
+private func fields(_ row: RecordRow) -> RecordRow {
+    var row = row
+    row.values["_systemFields"] = nil
+    return row
+}
+
 /// The two routes from a record to a `CKRecord`, directly and through its row, give the same
 /// fields, and each reads back the same way.
 private func agree<R: Record>(_ record: any Record, as type: R.Type, encoder: CKRecordEncoder, decoder: CKRecordDecoder) throws {
     let record = try #require(record as? R)
     let direct = encoder.encode(record, in: .records)
     let throughRow = encoder.encode(row(of: record), of: R.self, in: .records)
-    #expect(try decoder.decode(direct, of: R.self) == row(of: record))
-    #expect(try decoder.decode(throughRow, of: R.self) == row(of: record))
+    #expect(try fields(decoder.decode(direct, of: R.self)) == row(of: record))
+    #expect(try fields(decoder.decode(throughRow, of: R.self)) == row(of: record))
     #expect(row(of: try R(record: throughRow)) == row(of: record))
     #expect(row(of: try R(from: decoder.decode(direct, of: R.self))) == row(of: record))
 }
@@ -67,4 +74,27 @@ private func agree<R: Record>(_ record: any Record, as type: R.Type, encoder: CK
     let saved = try #require(try context.record(id: memo.id, for: Memo.self))
     #expect(saved.createdAt != nil)
     #expect(saved.createdAt == saved.modifiedAt)
+}
+
+@Test func aSyncedRowEncodesOntoTheServersRecord() throws {
+    let server = CKRecordEncoder().encode(venue, in: .records)
+    var row = try CKRecordDecoder().decode(server, of: Venue.self)
+    guard case .blob = row.values["_systemFields"] else {
+        Issue.record("The row keeps the server's system fields")
+        return
+    }
+
+    // A field cleared locally is set on the upload, so the server clears it too.
+    row.values["rating"] = .null
+    let upload = CKRecordEncoder().encode(row, of: Venue.self, in: .records)
+    #expect(upload.recordID == server.recordID)
+    #expect(upload.recordChangeTag == server.recordChangeTag)
+    #expect(upload["rating"] == nil)
+    #expect(upload["title"] as? String == "Hall")
+    #expect(try Venue(record: upload).rating == nil)
+
+    // System fields for another record are ignored.
+    var other = row
+    other.values["_name"] = .text(UUID().uuidString)
+    #expect(CKRecordEncoder().encode(other, of: Venue.self, in: .records).recordID.recordName != server.recordID.recordName)
 }

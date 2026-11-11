@@ -16,13 +16,15 @@ public struct CKRecordEncoder: Sendable {
         return ckRecord
     }
 
-    /// A new `CKRecord` for `R`'s database row `row` in `zone`, with every field. Its dates are
-    /// the server's to set, so the row's are left out.
+    /// The `CKRecord` to upload for `R`'s database row `row` in `zone`, with every field. A row
+    /// that has synced starts from the record the server last returned, so the upload carries
+    /// its change tag and the server treats it as an update. Otherwise it is a new record.
     public func encode<R: Record>(_ row: RecordRow, of type: R.Type, in zone: Zone) -> CKRecord {
         guard case .text(let name) = row.values["_name"] else {
             preconditionFailure("A RecordRow always holds its record's name")
         }
-        return R.schema.record(from: row.values, name: name, zone: zone)
+        let base = row.serverRecord(recordType: R.recordType, name: name, zone: zone)
+        return R.schema.record(from: row.values, name: name, zone: zone, onto: base)
     }
 
     // MARK: Links

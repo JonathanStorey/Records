@@ -71,10 +71,14 @@ extension Record {
 extension RecordSchema {
     /// A record named `name` in `zone`, holding the fields of `row`. It is what `encodeFields`
     /// would write, so the record's generated initializer reads it back.
-    func record(from row: [String: SQLValue], name: String, zone: Zone) -> CKRecord {
-        let record = CKRecord(recordType: recordType, recordID: CKRecord.ID(recordName: name, zoneID: zone.zoneID))
+    ///
+    /// Starting from `base`, every field is set, `nil` included, so a field cleared since the
+    /// server's copy uploads as cleared.
+    func record(from row: [String: SQLValue], name: String, zone: Zone, onto base: CKRecord? = nil) -> CKRecord {
+        let record = base ?? CKRecord(recordType: recordType, recordID: CKRecord.ID(recordName: name, zoneID: zone.zoneID))
         for field in fields {
-            guard let value = field.kind.recordValue(row[field.key] ?? .null) else { continue }
+            let value = field.kind.recordValue(row[field.key] ?? .null)
+            guard value != nil || base != nil else { continue }
             if field.isEncrypted {
                 record.encryptedValues[field.key] = value
             } else {

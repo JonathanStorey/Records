@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 
 /// A record as its database row holds it: each field's column value by field key, with the
@@ -32,5 +33,28 @@ public struct RecordRow: Equatable {
     private func date(_ column: String) -> Date? {
         guard case .real(let seconds) = values[column] else { return nil }
         return Date(timeIntervalSince1970: seconds)
+    }
+
+    /// The record the server last returned, rebuilt from the archived system fields, so it
+    /// carries the server's dates and change tag. `nil` before the record first syncs, or when
+    /// the system fields name another record.
+    func serverRecord(recordType: CKRecord.RecordType, name: String, zone: Zone) -> CKRecord? {
+        guard case .blob(let data) = values["_systemFields"],
+              let coder = try? NSKeyedUnarchiver(forReadingFrom: data)
+        else { return nil }
+        coder.requiresSecureCoding = true
+        defer { coder.finishDecoding() }
+        guard let record = CKRecord(coder: coder), record.recordType == recordType,
+              record.recordID.recordName == name, record.recordID.zoneID == zone.zoneID
+        else { return nil }
+        return record
+    }
+
+    /// `record`'s system fields, archived as `_systemFields` holds them.
+    static func systemFields(of record: CKRecord) -> SQLValue {
+        let archiver = NSKeyedArchiver(requiringSecureCoding: true)
+        record.encodeSystemFields(with: archiver)
+        archiver.finishEncoding()
+        return .blob(archiver.encodedData)
     }
 }
