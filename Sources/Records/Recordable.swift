@@ -18,12 +18,19 @@ extension EnvironmentValues {
         }
         set { self[RecordContextKey.self] = newValue }
     }
+
+    /// The context, or `nil` where none is set. SwiftUI reads environment values when it
+    /// pleases, so `@Recordable` reads this one and stops only when it uses a missing context.
+    var setRecordContext: RecordContext? {
+        get { self[RecordContextKey.self] }
+        set { self[RecordContextKey.self] = newValue }
+    }
 }
 
 extension View {
     /// Sets the context that `@Recordable` properties in this view and its children edit records in.
     public func recordContext(_ context: RecordContext) -> some View {
-        environment(\.recordContext, context)
+        environment(\.setRecordContext, context)
     }
 }
 
@@ -65,7 +72,7 @@ extension View {
 @MainActor
 @propertyWrapper
 public struct Recordable<Value> {
-    @Environment(\.recordContext) private var context
+    @Environment(\.setRecordContext) private var setContext
     /// The ID of this wrapper's edit, which names its pending change in the context.
     @State public private(set) var id = UUID()
     /// When this wrapper last edited its record. Setting it redraws the view.
@@ -103,6 +110,14 @@ public struct Recordable<Value> {
             modified = now
             context.edit(id: id, of: record, in: zone ?? context.defaultZone, with: newValue as? any Record, on: now)
         }
+    }
+
+    /// The environment's context. A missing one is a programmer error.
+    private var context: RecordContext {
+        guard let setContext else {
+            preconditionFailure("No RecordContext in the environment. Set one with .recordContext(_:).")
+        }
+        return setContext
     }
 
     /// A binding to the record, so `$album.title` binds to one field.
