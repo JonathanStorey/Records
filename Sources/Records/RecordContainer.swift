@@ -66,31 +66,34 @@ public final class RecordContainer: Sendable {
     /// Every registered type by record type, including related types and Records' own.
     let types: [CKRecord.RecordType: any Record.Type]
     let database: Database
+    /// The zone contexts start in, and the zone `@Recordable` edits in when it isn't given one.
+    public let defaultZone: Zone
     /// Created the first time `mainContext` is read, and only read and written on the main actor.
     nonisolated(unsafe) private var mainContextStorage: RecordContext?
 
     /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
     /// database in that group's shared folder, so the app's extensions and widgets can open it
-    /// too.
-    public convenience init(for types: any Record.Type..., appGroup: String? = nil) throws {
-        try self.init(for: types, appGroup: appGroup)
+    /// too. `defaultZone` is the zone contexts start in and `@Recordable` edits in.
+    public convenience init(for types: any Record.Type..., appGroup: String? = nil, defaultZone: Zone = .records) throws {
+        try self.init(for: types, appGroup: appGroup, defaultZone: defaultZone)
     }
 
     /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
     /// database in that group's shared folder, so the app's extensions and widgets can open it
-    /// too.
-    public convenience init(for types: [any Record.Type], appGroup: String? = nil) throws {
-        try self.init(for: types, url: Self.url(appGroup: appGroup))
+    /// too. `defaultZone` is the zone contexts start in and `@Recordable` edits in.
+    public convenience init(for types: [any Record.Type], appGroup: String? = nil, defaultZone: Zone = .records) throws {
+        try self.init(for: types, url: Self.url(appGroup: appGroup), defaultZone: defaultZone)
     }
 
     /// A container whose database lives in memory and never syncs, for tests and previews. It
     /// starts empty every time.
-    public static func inMemory(for types: any Record.Type...) throws -> RecordContainer {
-        try RecordContainer(for: types, url: nil)
+    public static func inMemory(for types: any Record.Type..., defaultZone: Zone = .records) throws -> RecordContainer {
+        try RecordContainer(for: types, url: nil, defaultZone: defaultZone)
     }
 
     /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
-    init(for types: [any Record.Type], url: URL?) throws {
+    init(for types: [any Record.Type], url: URL?, defaultZone: Zone = .records) throws {
+        self.defaultZone = defaultZone
         self.types = try Self.register(types)
         try Self.validate(self.types)
         database = try Database(url: url)

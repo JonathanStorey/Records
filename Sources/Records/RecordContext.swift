@@ -36,9 +36,12 @@ public final class RecordContext {
     /// keep its main context without the two keeping each other alive.
     let database: Database
 
-    /// The zone records are inserted into and deleted from. Set it to switch zones at any time.
-    /// Changes already staged keep the zone they were staged in.
-    public var zone: Zone = .records
+    /// The zone records are inserted into and deleted from. It starts as the container's
+    /// `defaultZone`. Set it to switch zones at any time. Changes already staged keep the zone
+    /// they were staged in.
+    public var zone: Zone
+    /// The container's `defaultZone`, which `@Recordable` edits in when it isn't given a zone.
+    let defaultZone: Zone
 
     /// Staged changes by record, in the order they were first staged.
     var staged: [RecordKey: RecordDifference] = [:]
@@ -49,6 +52,8 @@ public final class RecordContext {
     init(container: RecordContainer) {
         types = container.types
         database = container.database
+        defaultZone = container.defaultZone
+        zone = container.defaultZone
     }
 
     /// Whether any change is staged and not yet saved, in any zone.

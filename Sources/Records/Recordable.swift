@@ -54,8 +54,7 @@ public struct Recordable<R: Record> {
     @Environment(\.recordContext) private var environmentContext
     @State private var storage: RecordableStorage<R>
 
-    /// A property that edits `record` in `zone`. Without a zone, it uses the context's `zone`
-    /// when the view first appears, and keeps that zone from then on.
+    /// A property that edits `record` in `zone`, or in the container's `defaultZone` without one.
     public init(_ record: R, zone: Zone? = nil) {
         _storage = State(initialValue: RecordableStorage(record, zone: zone))
     }
@@ -90,22 +89,20 @@ final class RecordableStorage<R: Record> {
     @ObservationIgnored private var record: R
     @ObservationIgnored private weak var context: RecordContext?
     @ObservationIgnored private(set) var difference: RecordDifference?
-    /// The zone the record is edited in, fixed once the wrapper first connects.
-    @ObservationIgnored private(set) var zone: Zone?
+    /// The zone the record is edited in, or `nil` for the container's `defaultZone`.
+    @ObservationIgnored let zone: Zone?
 
     init(_ record: R, zone: Zone? = nil) {
         self.record = record
         self.zone = zone
     }
 
-    /// Uses `context`'s difference for the record, in the wrapper's zone. Without one, the zone
-    /// is the context's current zone, which the wrapper keeps from then on.
+    /// Uses `context`'s difference for the record, in the wrapper's zone or the container's
+    /// `defaultZone`. The context's current `zone` never matters.
     func connect(to context: RecordContext) {
         guard context !== self.context || difference == nil else { return }
         self.context = context
-        let zone = self.zone ?? context.zone
-        self.zone = zone
-        difference = context.difference(for: record, in: zone)
+        difference = context.difference(for: record, in: zone ?? context.defaultZone)
     }
 
     /// The record as edited. Setting it stages the edit in the context.

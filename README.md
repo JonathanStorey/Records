@@ -487,9 +487,10 @@ would, and nothing is written until you call `context.save()`. `rollback()` retu
 so two views stay in step as you type. A record that isn't saved yet shows as given and is
 inserted on its first edit.
 
-A `@Recordable` edits its record in one zone. Pass one with `Recordable(album, zone: "Work")`.
-Without one, it uses the context's `zone` when the view first appears and keeps it, so changing
-`context.zone` later doesn't move an open editor.
+A `@Recordable` edits its record in the container's `defaultZone`, or in the zone you pass with
+`Recordable(album, zone: "Work")`. Changing `context.zone` never moves it. Set the default when
+opening the container with `RecordContainer(for: Album.self, defaultZone: "Work")`. It is
+`.records` unless you set it, and every context starts with its `zone` set to it.
 
 Any view can reach the context with `@Environment(\.recordContext) private var context`, for
 example to call `save()`. Using `@Recordable` or reading `recordContext` without setting it
