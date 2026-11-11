@@ -60,7 +60,7 @@ struct Traversal {
         }
         var frontier: Set<CKRecord.RecordType> = [R.recordType]
         while hops < references.count {
-            let next = Set(frontier.flatMap { targets[$0] ?? [] }.map(\.recordType))
+            let next = Set(frontier.flatMap { targets[$0] ?? [] }.map { $0.recordType })
             guard !next.isEmpty else { break }
             hops += 1
             frontier = next
