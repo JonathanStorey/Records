@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import Records
 
@@ -140,14 +141,45 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     here.insert(kept)
     here.delete(gone)
-    let changes: [RecordDifference.Change] = here.changes
+    let changes: [RecordDifference] = here.changes
     #expect(changes.map(\.id) == [kept.id, gone.id])
-    guard case .insert(let inserted) = changes[0], case .delete(let deleted) = changes[1] else {
+    guard case .insert(let inserted) = changes[0].change, case .delete(let deleted) = changes[1].change else {
         Issue.record("expected an insert and a delete")
         return
     }
     #expect(inserted.id == kept.id)
     #expect(deleted.id == gone.id)
+    #expect((changes[0].original as? Novel)?.title == "Kept")
+}
+
+/// Staging a record again updates its difference in place, so anything observing it sees the
+/// new change. The original stays the one first staged.
+@MainActor
+@Test func stagingAgainUpdatesTheSameDifference() throws {
+    let (here, _) = try twoContexts()
+    let saved = novel("Blue", year: 1971)
+    here.insert(saved)
+    try here.save()
+
+    var draft = saved
+    draft.year = 1972
+    here.insert(draft)
+    let difference = try #require(here.changes.first)
+
+    let observed = Flag()
+    withObservationTracking {
+        _ = difference.change
+    } onChange: {
+        observed.set()
+    }
+    draft.year = 1973
+    here.insert(draft)
+
+    #expect(observed.isSet)
+    #expect(here.changes.count == 1)
+    #expect(here.changes.first === difference)
+    #expect((difference.change.record as? Novel)?.year == 1973)
+    #expect((difference.original as? Novel)?.year == 1971)
 }
 
 @MainActor
@@ -242,4 +274,12 @@ private func novel(_ title: String, year: Int) -> Novel {
     let ids = Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
     #expect(ids == [labels[0].id, labels[2].id, labels[3].id])
     #expect(here.hasChanges)
+}
+
+/// A flag an observation's change handler can set from any thread.
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func set() { lock.withLock { value = true } }
+    var isSet: Bool { lock.withLock { value } }
 }
