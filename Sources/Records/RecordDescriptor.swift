@@ -19,10 +19,14 @@ public struct RecordDescriptor<R: Record> {
     public var fetchLimit: Int?
     /// How many matching records to skip before the first one returned.
     public var fetchOffset: Int?
-    /// References to load with the results, such as `\.artist` or `\.tracks`. Each comes back
-    /// holding its records instead of only their IDs, loaded for every result at once. The
-    /// loaded records' own references hold IDs. A reference that holds IDs is left as it is.
-    public var relationshipKeyPathsForPrefetching: [PartialKeyPath<R>] = []
+    /// References to load with the results, each named on its own record type, such as
+    /// `[\Album.artist, \Album.tracks]`. Each comes back holding its records instead of only
+    /// their IDs, loaded for every result at once.
+    ///
+    /// Name references on the loaded records' types to go deeper: `[\Review.album, \Album.artist]`
+    /// loads each review's album and each of those albums' artists. References not named hold IDs,
+    /// and a reference that holds IDs is left as it is.
+    public var relationshipKeyPathsForPrefetching: [AnyKeyPath] = []
 
     public init(
         predicate: Predicate<R>? = nil,
