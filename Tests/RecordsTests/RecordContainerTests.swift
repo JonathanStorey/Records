@@ -165,7 +165,7 @@ private func temporaryFile() -> URL {
 
 @Test func fieldsKnowHowTheyAreStored() {
     let kinds = Dictionary(uniqueKeysWithValues: Novel.schema.fields.map { ($0.key, $0.kind) })
-    #expect(kinds == ["title": .text, "subtitle": .text, "tags": .archived, "released": .integer, "note": .text, "shop": .archived])
+    #expect(kinds == ["title": .text, "subtitle": .text, "tags": .archived, "released": .integer, "note": .text, "shop": .bytes])
     #expect(FieldCoding(Date.self).kind == .date)
     #expect(FieldCoding(Double.self).kind == .real)
     #expect(FieldCoding(Bool.self).kind == .integer)
