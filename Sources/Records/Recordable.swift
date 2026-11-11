@@ -7,8 +7,15 @@ private struct RecordContextKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// The context that `@Recordable` properties edit records in.
-    public var recordContext: RecordContext? {
+    /// The context that `@Recordable` properties edit records in, set with `.recordContext(_:)`.
+    /// Reading it where none is set stops with a message, since that is a programmer error.
+    public var recordContext: RecordContext {
+        get {
+            guard let context = self[RecordContextKey.self] else {
+                preconditionFailure("No RecordContext in the environment. Set one with .recordContext(_:).")
+            }
+            return context
+        }
         get { self[RecordContextKey.self] }
         set { self[RecordContextKey.self] = newValue }
     }
@@ -88,15 +95,14 @@ final class RecordableStorage<R: Record> {
         self.record = record
     }
 
-    /// Uses `context`'s difference for the record, or none without a context.
-    func connect(to context: RecordContext?) {
+    /// Uses `context`'s difference for the record.
+    func connect(to context: RecordContext) {
         guard context !== self.context || difference == nil else { return }
         self.context = context
-        difference = context?.difference(for: record)
+        difference = context.difference(for: record)
     }
 
-    /// The record as edited. Setting it stages the edit in the context, or only keeps it here
-    /// when there is no context.
+    /// The record as edited. Setting it stages the edit in the context.
     var value: R {
         get { (difference?.value as? R) ?? record }
         set {

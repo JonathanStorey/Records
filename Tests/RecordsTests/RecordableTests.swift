@@ -86,12 +86,3 @@ private func novel(_ title: String, year: Int) -> Novel {
     try context.save()
     #expect(try context.record(id: fresh.id, for: Novel.self)?.year == 2025)
 }
-
-/// Without a context, edits stay in the wrapper.
-@MainActor
-@Test func withoutAContextEditsStayLocal() {
-    let storage = RecordableStorage(novel("Blue", year: 1971))
-    storage.connect(to: nil)
-    storage.value.year = 1972
-    #expect(storage.value.year == 1972)
-}

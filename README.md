@@ -487,6 +487,10 @@ would, and nothing is written until you call `context.save()`. `rollback()` retu
 so two views stay in step as you type. A record that isn't saved yet shows as given and is
 inserted on its first edit.
 
+Any view can reach the context with `@Environment(\.recordContext) private var context`, for
+example to call `save()`. Using `@Recordable` or reading `recordContext` without setting it
+first stops the app with a message.
+
 ## Reading records
 
 ```swift
