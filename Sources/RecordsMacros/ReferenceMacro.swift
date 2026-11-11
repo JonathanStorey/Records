@@ -73,31 +73,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         }
         let reference = try reference(variable, attribute: node, owner: owner(in: context))
         let storageType = "Records.\(reference.isToMany ? "ToMany" : "ToOne")<\(reference.target)>"
-        var peers: [DeclSyntax] = ["var \(raw: reference.storage): \(raw: storageType)"]
-        // The record form reads `nil` or `[]` where loading stopped, so `$name` holds the IDs
-        // either way. It is read-only and as visible as the property.
-        if !reference.isID {
-            let (type, member) = reference.isToMany ? ("[UUID]", "ids") : ("UUID?", "id")
-            peers.append(
-                """
-                \(raw: accessLevel(of: variable))var $\(raw: reference.key): \(raw: type) {
-                    \(raw: reference.storage).\(raw: member)
-                }
-                """
-            )
-        }
-        return peers
-    }
-
-    /// `public `, `package `, `fileprivate `, or `private ` when the property has it.
-    private static func accessLevel(of variable: VariableDeclSyntax) -> String {
-        let levels: [Keyword] = [.public, .package, .internal, .fileprivate, .private]
-        for modifier in variable.modifiers where modifier.detail == nil {
-            if case .keyword(let keyword) = modifier.name.tokenKind, levels.contains(keyword) {
-                return keyword == .internal ? "" : "\(modifier.name.text) "
-            }
-        }
-        return ""
+        return ["var \(raw: reference.storage): \(raw: storageType)"]
     }
 
     /// A valid to-one `@Reference` property.

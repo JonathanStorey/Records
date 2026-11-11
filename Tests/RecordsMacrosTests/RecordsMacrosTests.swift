@@ -412,10 +412,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _author: Records.ToOne<Person>
-
-                var $author: UUID? {
-                    _author.id
-                }
             }
 
             extension Article: Records.Record {
@@ -586,10 +582,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _tags: Records.ToMany<Tag>
-
-                var $tags: [UUID] {
-                    _tags.ids
-                }
                 var pinnedIDs: [UUID] {
                     @storageRestrictions(initializes: _pinnedIDs)
                     init(initialValue) {
@@ -822,10 +814,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _manager: Records.ToOne<Person>
-
-                var $manager: UUID? {
-                    _manager.id
-                }
                 var mentor: Self? {
                     @storageRestrictions(initializes: _mentor)
                     init(initialValue) {
@@ -840,10 +828,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _mentor: Records.ToOne<Person>
-
-                var $mentor: UUID? {
-                    _mentor.id
-                }
             }
             """,
             macroSpecs: macroSpecs
@@ -936,10 +920,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _profile: Records.ToOne<Profile>
-
-                var $profile: UUID? {
-                    _profile.id
-                }
             }
 
             extension User: Records.Record {
@@ -1536,10 +1516,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _owner: Records.ToOne<Account>
-
-                var $owner: UUID? {
-                    _owner.id
-                }
             }
             """,
             diagnostics: [
@@ -2095,10 +2071,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _discs: Records.ToMany<Disc>
-
-                var $discs: [UUID] {
-                    _discs.ids
-                }
             }
             """,
             macroSpecs: macroSpecs
@@ -2132,10 +2104,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _discs: Records.ToMany<Disc>
-
-                var $discs: [UUID] {
-                    _discs.ids
-                }
             }
             """,
             macroSpecs: macroSpecs

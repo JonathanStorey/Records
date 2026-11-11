@@ -130,12 +130,12 @@ private func savedArticle(
 
     let bare = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 0)
     #expect(bare.manager == nil)
-    #expect(bare.$manager == boss.id)
+    #expect(bare.referenceID(at: \.manager) == boss.id)
 
     let one = try decoder.decode(Employee.self, from: records[0], links: links, targets: records)
     #expect(one.manager?.name == "Grace")
     #expect(one.manager?.manager == nil)
-    #expect(one.manager?.$manager == top.id)
+    #expect(one.manager?.referenceID(at: \.manager) == top.id)
 
     let two = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 2)
     #expect(two.manager?.manager?.name == "Linus")
