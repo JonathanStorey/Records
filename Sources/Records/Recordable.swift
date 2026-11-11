@@ -108,7 +108,7 @@ final class RecordableStorage<R: Record> {
             record = newValue
             if let context, let difference {
                 difference.draft = newValue
-                context.stage(difference)
+                context.didEdit(difference)
             }
         }
     }

@@ -88,8 +88,8 @@ public final class RecordContext {
         return difference
     }
 
-    /// Stages `difference` as an insert of its draft, after its draft was edited.
-    func stage(_ difference: RecordDifference) {
+    /// Called after `difference`'s draft was edited: stages it as an insert of its draft.
+    func didEdit(_ difference: RecordDifference) {
         let key = RecordKey(recordType: type(of: difference.record).recordType, name: difference.id.uuidString, zone: difference.zone)
         difference.change = .insert(difference.id)
         stage(difference, key: key)
