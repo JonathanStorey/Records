@@ -421,11 +421,12 @@ context.delete(oldAlbum)
 try context.save()
 ```
 
-`insert` and `delete` stage changes in the context. Nothing reaches the database until `save()`,
-which writes every staged change in one transaction. `rollback()` discards them, and
-`hasChanges` tells you whether any are waiting. `changes` is the set of the current zone's
-changes as `RecordDifference.Change` values, such as `.insert(album.id)` or `.delete(oldAlbum.id)`.
-Inserting a record again replaces its change, so each record appears once per zone.
+`insert` and `delete` record changes in the context. Nothing reaches the database until `save()`,
+which writes every pending change in one transaction. `rollback()` discards them,
+`rollback(id:)` discards the ones to a single record, and `hasChanges` tells you whether any are
+waiting. `changes` is the set of the current zone's changes as `RecordDifference.Change` values:
+`.insert(id)` for a new record, `.update(id)` for a saved one, and `.delete(id)`. Inserting a
+record again replaces its change, and deleting a record that was never saved drops it.
 `save()` writes the changes of every zone. Reads and fetches show saved records only, so a
 change shows once it is saved.
 
@@ -435,15 +436,15 @@ side says `deleteSelf: true`, and theirs in turn, unless another record took the
 save. Deleting an album deletes its tracks, but moving a track to another album and deleting the
 old one keeps it.
 
-The first time a saved record is inserted, the context keeps the saved version as its original.
-Saving writes only the fields and links you changed from that original, keeps the creation date,
+The first time a saved record is inserted, the context keeps the saved version as its base.
+Saving writes only the fields and links you changed from that base, keeps the creation date,
 and leaves everything else as the database holds it then. So if another context saves a new
 title while you edit the year, saving your copy keeps their title. A field both of you changed
-takes the value saved last. Inserting the same record again keeps the first original, and a
+takes the value saved last. Inserting the same record again keeps the first base, and a
 record deleted in the meantime comes back whole.
 
 A reference that holds records can hold new ones. When saved, any target that exists nowhere yet
-(not saved in the zone and not staged) is inserted too, along with its own new targets. A target
+(not saved in the zone and not pending) is inserted too, along with its own new targets. A target
 that already exists is never written from a record that refers to it, so an old copy can't
 overwrite newer values. Insert it directly to save changes to it.
 
@@ -453,7 +454,7 @@ named by its zone and ID together, so the same record can be saved to more than 
 
 ```swift
 context.zone = "Work"
-context.insert(note)   // staged for the Work zone
+context.insert(note)   // saved to the Work zone
 ```
 
 ## Editing records in SwiftUI
@@ -481,14 +482,19 @@ struct AlbumEditor: View {
 }
 ```
 
-Reading `album` shows the record as edited. Each change stages it in the context, as `insert`
-would, and nothing is written until you call `context.save()`. `rollback()` returns every
-`@Recordable` to its saved record, or a new record to the one it was given. Every `@Recordable`
-showing the same record shares its edits, so two views stay in step as you type. A record that
-isn't saved yet shows as given and is inserted on its first edit.
+Reading `album` shows the saved record with every pending edit to it. Each change is recorded
+in the context, and nothing is written until you call `context.save()`. `rollback()` returns
+every `@Recordable` to its saved record.
+
+Each `@Recordable` is one edit, named by its own `id`: `_album.id` names the edit, and
+`album.id` the record. Two views editing one record each save only the fields they changed, so
+both land, and when both change the same field the later edit wins. Insert a new record before
+a view shows it, as with SwiftData. A `@Recordable` that isn't optional shows a new record as
+given until its first edit inserts it.
 
 Declare it optional to see deletes. It reads `nil` once the record is deleted, whether or not
-the delete is saved yet, and setting it to `nil` deletes the record:
+the delete is saved yet, or when a new record isn't inserted. Setting it to `nil` deletes the
+record:
 
 ```swift
 @Recordable var album: Album?
@@ -501,7 +507,7 @@ var body: some View {
 }
 ```
 
-Setting a record again inserts it again. A new record set to `nil` before it is saved is simply
+Setting a record again keeps it. A new record set to `nil` before it is saved is simply
 dropped. A `@Recordable` that isn't optional keeps showing its record after a delete.
 
 References hold IDs. Name the ones to load with `expand:`, which works like

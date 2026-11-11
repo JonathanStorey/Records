@@ -17,8 +17,8 @@ public enum RecordContextError: Error, Equatable, CustomStringConvertible {
 
 /// Reads and writes records in a container's database.
 ///
-/// The app's main actor uses `container.mainContext`. Changes are staged in the context and
-/// reach the database together when `save()` runs, in one transaction:
+/// The app's main actor uses `container.mainContext`. Changes wait in the context and reach
+/// the database together when `save()` runs, in one transaction:
 ///
 /// ```swift
 /// context.insert(album)
@@ -37,15 +37,18 @@ public final class RecordContext {
     let database: Database
 
     /// The zone records are inserted into and deleted from. It starts as the container's
-    /// `defaultZone`. Set it to switch zones at any time. Changes already staged keep the zone
-    /// they were staged in.
+    /// `defaultZone`. Set it to switch zones at any time. Pending changes keep the zone they
+    /// were made in.
     public var zone: Zone
     /// The container's `defaultZone`, which `@Recordable` edits in when it isn't given a zone.
     let defaultZone: Zone
 
-    /// One difference per record, changed or only handed out. One without a change is dropped
-    /// once the context is all that holds it.
-    var differences: [RecordKey: RecordDifference] = [:]
+    /// The pending edits, by each edit's `id`. A record can have several: one per `@Recordable`
+    /// that edited it, and one per direct `insert` or `delete`.
+    var differences: [UUID: RecordDifference] = [:]
+    /// The edit `insert` and `delete` share for each record, so calling them again replaces
+    /// that edit and keeps its base.
+    private var directEdits: [RecordKey: UUID] = [:]
 
     init(container: RecordContainer) {
         types = container.types
@@ -54,139 +57,122 @@ public final class RecordContext {
         zone = container.defaultZone
     }
 
-    /// Whether any change is staged and not yet saved, in any zone.
-    public var hasChanges: Bool { differences.values.contains { $0.change != nil } }
+    /// Whether any change is waiting for `save()`, in any zone.
+    public var hasChanges: Bool { !differences.isEmpty }
 
-    /// The changes in the current `zone`, such as `.insert(album.id)`. A record appears at most
-    /// once: staging it again replaces its change. `save()` writes the changes of every zone,
-    /// not only these.
+    /// The changes in the current `zone`, such as `.update(album.id)`. `save()` writes the
+    /// changes of every zone, not only these.
     public var changes: Set<RecordDifference.Change> {
-        Set(changedKeys().compactMap { differences[$0]?.change })
+        Set(differences.values.lazy.filter { $0.zone == self.zone }.map(\.change))
     }
 
-    /// The keys of the changed records in the current `zone`.
-    func changedKeys() -> [RecordKey] {
-        differences.compactMap { key, difference in key.zone == zone && difference.change != nil ? key : nil }
-    }
+    // MARK: - Editing
 
-    /// The difference with a change for the record with `id` in the current `zone`, or `nil`
-    /// when it has none. It is `@Observable` and stays the same object while anything holds it,
-    /// so a view or property wrapper holding it sees each new change.
-    func difference(id: UUID) -> RecordDifference? {
-        let name = id.uuidString
-        return differences.first { $0.key.zone == zone && $0.key.name == name && $0.value.change != nil }?.value
-    }
-
-    /// The difference for `record` in `zone`, or the current `zone` when `nil`, staged or not.
-    /// Everything that asks for the same record gets the same object while any of them holds it.
-    /// A new one starts from the saved record, or from `record` when none is saved, with nothing
-    /// staged.
-    func difference<R: Record>(for record: R, in zone: Zone? = nil) -> RecordDifference {
-        checkRegistered(R.self)
-        let zone = zone ?? self.zone
-        let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        if let difference = differences[key] { return difference }
-        dropUnused()
-        let original = (try? Self.load(R.self, key: key, in: database)) ?? nil
-        let difference = RecordDifference(id: record.id, zone: zone, original: original, draft: original ?? record)
-        differences[key] = difference
-        return difference
-    }
-
-    /// Drops the differences without a change that nothing else holds any more.
-    private func dropUnused() {
-        for key in Array(differences.keys)
-        where differences[key]?.change == nil && isKnownUniquelyReferenced(&differences[key]!) {
-            differences[key] = nil
-        }
-    }
-
-    // MARK: - Staging
-
-    /// Stages `record` in the current `zone`. Nothing is written until `save()`.
+    /// Adds `record` to the current `zone`, or updates it there. Nothing is written until
+    /// `save()`.
     ///
-    /// `record` becomes the record's value: `save()` adds it if it is new, and otherwise writes
-    /// the fields and links that differ from the saved copy. Only `record` itself is staged.
-    /// Records its references point at are staged by inserting them too.
+    /// `save()` adds the record if it is new, and otherwise writes the fields and links that
+    /// differ from the saved copy. Only `record` itself is changed. Records its references point
+    /// at are changed by inserting them too.
     public func insert(_ record: some Record) {
-        stage(record, isDelete: false)
+        edit(id: directEdit(of: record), of: record, in: zone, with: record)
     }
 
-    /// Stages deleting `record` from the current `zone`, with the links it owns. When saved, a
-    /// record that never synced is removed outright, and a synced one is kept as a deletion until
-    /// the server confirms it.
+    /// Deletes `record` from the current `zone` when the context saves, with the links it owns.
+    /// When saved, a record that never synced is removed outright, and a synced one is kept as a
+    /// deletion until the server confirms it.
     ///
     /// Saving also removes the links other records hold to it, so their references drop it, and
     /// deletes the records it owns through a reference whose `from:` side says `deleteSelf: true`,
     /// unless another record has taken them over in the same save.
     public func delete(_ record: some Record) {
-        stage(record, isDelete: true)
+        edit(id: directEdit(of: record), of: record, in: zone, with: nil)
     }
 
-    /// Writes every staged change in one transaction, then clears them. If any write fails,
-    /// nothing is written and the changes stay staged.
+    /// The ID of the edit `insert` and `delete` make to `record` in the current `zone`.
+    private func directEdit<R: Record>(of record: R) -> UUID {
+        let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
+        if let id = directEdits[key], differences[id] != nil { return id }
+        let id = UUID()
+        directEdits[key] = id
+        return id
+    }
+
+    /// Records one edit to `record` in `zone` under the edit's `id`. This is the only way an
+    /// edit enters the context. `newValue` is the record as edited, or `nil` to delete it.
+    ///
+    /// The first call for an `id` sets its base: the saved record, or for a record not yet
+    /// saved, the record as the context's pending edits make it. Later calls replace the edit
+    /// and keep that base. `date` orders the edits when they are saved.
+    func edit(id: UUID, of record: any Record, in zone: Zone, with newValue: (any Record)?, on date: Date = Date()) {
+        var difference = differences[id] ?? RecordDifference(
+            id: id, zone: zone, base: base(for: record, in: zone), edit: newValue, modified: date
+        )
+        difference.edit = newValue
+        difference.modified = date
+        // A record never saved and then deleted leaves nothing to write.
+        differences[id] = difference.base == nil && newValue == nil ? nil : difference
+    }
+
+    /// The base of a first edit to `record` in `zone`: the saved record, or for a record not
+    /// yet saved, the record as the pending edits make it.
+    private func base<R: Record>(for record: R, in zone: Zone) -> R? {
+        checkRegistered(R.self)
+        return draft(id: record.id, for: R.self, in: zone, savedFirst: true)
+    }
+
+    /// The record with `id` in `zone` as `save()` would write it: the saved record with every
+    /// pending edit to it laid over, oldest first, or `nil` when it is missing or deleted.
+    func draft<R: Record>(id: UUID, for type: R.Type, in zone: Zone) -> R? {
+        draft(id: id, for: type, in: zone, savedFirst: false)
+    }
+
+    /// `draft(id:for:in:)`, or with `savedFirst`, the saved record when there is one.
+    private func draft<R: Record>(id: UUID, for type: R.Type, in zone: Zone, savedFirst: Bool) -> R? {
+        let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
+        let saved = (try? Self.load(R.self, key: key, in: database)) ?? nil
+        if savedFirst, let saved { return saved }
+        return pending(for: key).reduce(saved) { record, difference in
+            difference.laid(over: record) as? R
+        }
+    }
+
+    /// The pending edits to the record `key` names, oldest first.
+    private func pending(for key: RecordKey) -> [RecordDifference] {
+        differences.values.filter { $0.key == key }.sorted(by: RecordDifference.isOlder)
+    }
+
+    /// Writes every pending edit in one transaction, oldest first, then clears them. If any
+    /// write fails, nothing is written and the edits stay pending.
     public func save() throws {
         guard hasChanges else { return }
-        // Written in its own function, so nothing here still holds a difference when
-        // `dropUnused()` drops the ones no view uses.
-        try writeChanges()
-        dropUnused()
-    }
-
-    /// Writes every change in one transaction, then starts each difference over from the
-    /// record as written.
-    private func writeChanges() throws {
-        // Sorted by name, so the writes happen in the same order every time.
-        let changes = differences.filter { $0.value.change != nil }
-            .sorted { $0.key.name < $1.key.name }
-            .map { ($0.key, $0.value) }
+        let changes = differences.values.sorted(by: RecordDifference.isOlder)
         let now = Date().timeIntervalSince1970
         let database = self.database
         try database.transaction {
-            // The links each deleted record owns, read before saving removes them.
-            let deleted = try changes.filter { $0.1.isDelete }.map { key, _ in
-                (key, try Self.currentLinks(of: key, in: database))
-            }
-            for (key, change) in changes {
-                try Self.write(change, key: key, now: now, in: database)
+            var deleted: [(RecordKey, [String: [String: SQLValue]])] = []
+            for difference in changes {
+                // The links a deleted record owns, read before saving removes them.
+                if difference.isDelete {
+                    deleted.append((difference.key, try Self.currentLinks(of: difference.key, in: database)))
+                }
+                try Self.write(difference, now: now, in: database)
             }
             try insertNewTargets(of: changes, now: now, in: database)
             try finishDeleting(deleted, now: now, in: database)
         }
-        // Each difference starts over from the record as written, so later edits compare with it.
-        for (key, difference) in changes {
-            let written = difference.isDelete ? nil : (try? Self.loadSaved(like: difference.record, key: key, in: database)) ?? nil
-            difference.original = written
-            difference.saved = nil
-            // A saved delete leaves no draft, which is how a deleted record reads.
-            if difference.isDelete { difference.draft = nil } else if let written { difference.draft = written }
-            difference.change = nil
-        }
+        rollback()
     }
 
-    /// Discards every staged change. Each record's draft goes back to its saved record.
+    /// Discards every pending edit.
     public func rollback() {
-        for difference in differences.values where difference.change != nil {
-            if let saved = difference.saved ?? difference.original { difference.draft = saved }
-            difference.change = nil
-        }
-        dropUnused()
+        differences = [:]
+        directEdits = [:]
     }
 
-    /// Stages `record`. The first time, the saved record becomes the original that `save()`
-    /// compares with. Staging it again updates the same difference and keeps that original.
-    private func stage<R: Record>(_ record: R, isDelete: Bool) {
-        checkRegistered(R.self)
-        let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        let change: RecordDifference.Change = isDelete ? .delete(record.id) : .insert(record.id)
-        if let existing = differences[key] {
-            existing.draft = record
-            existing.change = change
-            return
-        }
-        // A record that can't be read counts as unsaved, so save writes every field.
-        let original = (try? Self.load(R.self, key: key, in: database)) ?? nil
-        differences[key] = RecordDifference(id: record.id, zone: zone, original: original, draft: record, change: change)
+    /// Discards every pending edit to the record with `id` in the current `zone`.
+    public func rollback(id: UUID) {
+        differences = differences.filter { $0.value.zone != zone || $0.value.recordID != id }
     }
 
     /// Removes the links that point at each deleted record, and deletes the records it owned
@@ -268,11 +254,11 @@ public final class RecordContext {
     }
 
     /// Inserts the loaded targets of the saved records that exist nowhere yet: not saved in the
-    /// zone, deleted or not, and not staged. A target that exists is never written, so a stale
+    /// zone, deleted or not, and not pending. A target that exists is never written, so a stale
     /// copy can't overwrite it. New targets' own new targets are inserted too.
-    private func insertNewTargets(of changes: [(RecordKey, RecordDifference)], now: Double, in database: Database) throws {
-        var visited = Set(changes.map(\.0))
-        var queue = changes.compactMap { key, change in change.isDelete ? nil : (key.zone, change.record) }
+    private func insertNewTargets(of changes: [RecordDifference], now: Double, in database: Database) throws {
+        var visited = Set(changes.map(\.key))
+        var queue = changes.compactMap { change in change.edit.map { (change.zone, $0) } }
         while !queue.isEmpty {
             let (zone, record) = queue.removeFirst()
             for target in record.loadedTargets {
@@ -280,25 +266,26 @@ public final class RecordContext {
                 guard visited.insert(key).inserted,
                       try Self.currentRow(of: key, in: database) == nil
                 else { continue }
-                try Self.write(RecordDifference(id: target.id, zone: zone, original: nil, draft: target, change: .insert(target.id)), key: key, now: now, in: database)
+                try Self.write(RecordDifference(id: UUID(), zone: zone, base: nil, edit: target, modified: .now), now: now, in: database)
                 queue.append((zone, target))
             }
         }
     }
 
-    /// Writes one change: the record's row and its links. With an original, only the fields and
-    /// links that differ from it are written, so the saved record keeps anything changed
-    /// elsewhere since that the draft didn't touch.
-    private static func write(_ change: RecordDifference, key: RecordKey, now: Double, in database: Database) throws {
+    /// Writes one edit: the record's row and its links. With a base, only the fields and links
+    /// the edit changed from it are written, so the saved record keeps anything changed
+    /// elsewhere since that the edit didn't touch.
+    private static func write(_ change: RecordDifference, now: Double, in database: Database) throws {
+        let key = change.key
         let savedLinks = try currentLinks(of: key, in: database)
         guard !change.isDelete else {
             try remove(key, now: now, in: database)
             try writeLinks([], of: key, saved: savedLinks, removing: nil, now: now, in: database)
             return
         }
-        // A record removed or deleted since it was staged comes back whole.
+        // A record removed or deleted since it was edited comes back whole.
         let savedRow = try currentRow(of: key, in: database)
-        let hasOriginal = savedRow != nil && savedRow?["_deleted"] != .integer(1) && change.original != nil
+        let hasOriginal = savedRow != nil && savedRow?["_deleted"] != .integer(1) && change.base != nil
         let edited = hasOriginal ? change.originalValues.map { original in change.values.filter { original[$0.key] != $0.value } } : nil
         try writeRecord(change.schema, key: key, values: change.values, edited: edited, now: now, in: database)
 
@@ -517,11 +504,6 @@ public final class RecordContext {
         )
     }
 
-    /// The saved record of `key`, of the same type as `record`.
-    private nonisolated static func loadSaved<R: Record>(like _: R, key: RecordKey, in database: Database) throws -> (any Record)? {
-        try load(R.self, key: key, in: database)
-    }
-
     /// Stops with a message when `R` isn't registered, which is a programmer error.
     private func checkRegistered<R: Record>(_ type: R.Type) {
         guard let registered = types[R.recordType], ObjectIdentifier(registered) == ObjectIdentifier(R.self) else {
@@ -531,7 +513,7 @@ public final class RecordContext {
 
     // MARK: - Writing
 
-    /// Writes a staged record. A new one is inserted with every field. An existing one has the
+    /// Writes an edited record. A new one is inserted with every field. An existing one has the
     /// fields that differ updated, and a deleted one comes back with every field. Before a synced
     /// row first changes, it is copied to its base row, and once it matches its base again the
     /// base is dropped.
@@ -727,83 +709,86 @@ struct RecordKey: Hashable, Sendable {
     var values: [SQLValue] { [.text(zone.name), .text(zone.ownerName), .text(name)] }
 }
 
-/// A record staged in a `RecordContext`, waiting for `save()`, or one being edited.
+/// One pending edit to a record in a `RecordContext`, waiting for `save()`.
 ///
-/// The context keeps one per staged record. Staging the record again updates the same
-/// difference, so anything observing it stays current. Only its `Change` is public.
-@MainActor
-@Observable
-public final class RecordDifference {
-    /// What is to happen to a staged record when its context saves.
+/// Each `@Recordable` that edits a record makes its own, and so does each direct `insert` or
+/// `delete`. Only its `id` and `Change` are public.
+public struct RecordDifference: Identifiable {
+    /// What is to happen to a record when its context saves.
     public enum Change: Hashable, Sendable, Identifiable {
-        /// The record is saved: added if new, or updated where it was edited.
+        /// The record is added.
         case insert(UUID)
+        /// The record is updated where it was edited.
+        case update(UUID)
         /// The record is deleted with the links it owns.
         case delete(UUID)
 
         /// The record's ID.
         public var id: UUID {
             switch self {
-            case .insert(let id), .delete(let id): id
+            case .insert(let id), .update(let id), .delete(let id): id
             }
         }
     }
 
-    /// The record's ID.
-    let id: UUID
+    /// The edit's ID: a `@Recordable`'s own, or a new one for each direct `insert` or `delete`.
+    public let id: UUID
     /// The zone the record is in.
     let zone: Zone
-    /// What is to happen, or `nil` while the record is only shown and not yet staged.
-    var change: Change?
+    /// The record the edit started from, or `nil` for a new record. `save()` writes only what
+    /// `edit` changed from it.
+    var base: (any Record)?
+    /// The record as edited, or `nil` for a delete.
+    var edit: (any Record)?
+    /// When the record was last edited. Saves write the oldest edit first.
+    var modified: Date
 
-    /// The saved record when editing began, or `nil` when none was saved. `save()` writes only
-    /// what the draft changed from it.
-    var original: (any Record)?
-    /// A record saved since `original`, or `nil` when nothing newer is known, so the draft reads
-    /// as it is without merging.
-    var saved: (any Record)?
-    /// The record as edited, or `nil` once its delete is saved.
-    var draft: (any Record)?
-
-    init(
-        id: UUID, zone: Zone = .records, original: (any Record)?, draft: (any Record)? = nil,
-        change: RecordDifference.Change? = nil
-    ) {
-        self.id = id
-        self.zone = zone
-        self.original = original
-        self.draft = draft
-        self.change = change
+    /// What saving does: an insert without a base, a delete without an edit, and otherwise an
+    /// update.
+    public var change: Change {
+        guard edit != nil else { return .delete(recordID) }
+        return base == nil ? .insert(recordID) : .update(recordID)
     }
 
-    /// The record as it reads: `saved` with what `draft` changed from `original` laid over it,
-    /// so changes made elsewhere to anything else show. `nil` for a delete. Without an original
-    /// or a newer saved record, the draft reads whole, with no merging.
-    var value: (any Record)? { value(over: saved) }
+    /// Moves the edit onto `newBase`, the record as saved elsewhere since: each field and link
+    /// the edit changed from `base` is laid over `newBase`. When `newBase` is `nil`, the record
+    /// was deleted elsewhere, and an edit brings it back as an insert.
+    mutating func rebase(onto newBase: (any Record)?) {
+        if let edit, let base, let newBase { self.edit = Self.merged(edit, over: newBase, original: base) }
+        base = newBase
+    }
 
-    /// The record as it reads over `saved` instead of the saved record it holds.
-    func value(over saved: (any Record)?) -> (any Record)? {
-        guard !isDelete, let draft else { return nil }
-        guard let original, let saved else { return draft }
-        return Self.merged(draft, over: saved, original: original)
+    /// `record` with this edit laid over it, as `save()` would leave it: `nil` for a delete,
+    /// the edit whole for an insert or when `record` is `nil`, and otherwise the fields and
+    /// links the edit changed from `base` laid over `record`.
+    func laid(over record: (any Record)?) -> (any Record)? {
+        guard let edit else { return nil }
+        guard let base, let record else { return edit }
+        return Self.merged(edit, over: record, original: base)
+    }
+
+    /// Whether `a` is saved before `b`: the older edit first, and by `id` when both are as old.
+    static func isOlder(_ a: RecordDifference, _ b: RecordDifference) -> Bool {
+        a.modified != b.modified ? a.modified < b.modified : a.id.uuidString < b.id.uuidString
     }
 }
 
-// What `save()` and reads need, worked out from the draft and the original when asked.
+// What `save()` and reads need, worked out from the edit and the base when asked.
 extension RecordDifference {
-    var isDelete: Bool {
-        if case .delete = change { true } else { false }
+    var isDelete: Bool { edit == nil }
+
+    /// The edit, or the base for a delete. A difference always has one of them.
+    var record: any Record {
+        guard let record = edit ?? base else { preconditionFailure("A difference has no record") }
+        return record
     }
 
-    /// The draft, which every difference with a change has.
-    var record: any Record {
-        guard let draft else { preconditionFailure("A difference has no draft") }
-        return draft
-    }
+    /// The ID of the record edited.
+    var recordID: UUID { record.id }
 
     /// Where the record is kept: its type, its ID and its zone.
     var key: RecordKey {
-        RecordKey(recordType: type(of: record).recordType, name: id.uuidString, zone: zone)
+        RecordKey(recordType: type(of: record).recordType, name: recordID.uuidString, zone: zone)
     }
 
     var schema: RecordSchema { type(of: record).schema }
@@ -811,24 +796,24 @@ extension RecordDifference {
     /// Every field's column value, by field key.
     var values: [String: SQLValue] { Self.columns(of: record) }
 
-    /// `original`'s column values, by field key.
-    var originalValues: [String: SQLValue]? { original.map { Self.columns(of: $0) } }
+    /// `base`'s column values, by field key.
+    var originalValues: [String: SQLValue]? { base.map { Self.columns(of: $0) } }
 
-    /// The draft's links by name, given the saved order key of each target by
+    /// The edit's links by name, given the saved order key of each target by
     /// `source|targetName`.
     func links(_ orders: [String: String]) -> [(String, [String: SQLValue])] {
         Self.linkRows(of: record, orders: orders)
     }
 
-    /// `original`'s links, the same way, or `nil` when there is no original.
+    /// `base`'s links, the same way, or `nil` when there is no base.
     func originalLinks(_ orders: [String: String]) -> [(String, [String: SQLValue])]? {
-        original.map { Self.linkRows(of: $0, orders: orders) }
+        base.map { Self.linkRows(of: $0, orders: orders) }
     }
 
     /// `draft` laid over `saved`: each field and owned link the draft changed from `original`
     /// replaces the saved one. The `from:` sides, which the record doesn't own, come from
     /// `saved`. A record of another type, or one that can't be read back, reads as the draft.
-    private static func merged<R: Record>(_ draft: R, over saved: any Record, original: any Record) -> any Record {
+    fileprivate static func merged<R: Record>(_ draft: R, over saved: any Record, original: any Record) -> any Record {
         guard let saved = saved as? R, let original = original as? R else { return draft }
         var row = columns(of: saved)
         let originalValues = columns(of: original)

@@ -1,12 +1,57 @@
 import Foundation
 import Testing
 @testable import Records
+#if canImport(AppKit)
+import AppKit
+import SwiftUI
+#endif
 
-// `@Recordable` is a thin SwiftUI wrapper over `RecordableStorage`, which these tests drive.
+// `@Recordable` reads with `context.draft(id:for:in:)` and writes with
+// `context.edit(id:of:in:with:on:)`. `Editor` does the same outside a view, so these tests
+// cover the rules. One hosted test at the end covers the SwiftUI wiring.
+
+/// One edit of a record, made the way `@Recordable` makes it.
+@MainActor
+private final class Editor<R: Record> {
+    let id = UUID()
+    let context: RecordContext
+    let record: R
+    let zone: Zone?
+    let expand: [AnyKeyPath]
+
+    init(_ record: R, in context: RecordContext, zone: Zone? = nil, expand: [AnyKeyPath] = []) {
+        self.record = record
+        self.context = context
+        self.zone = zone
+        self.expand = expand
+    }
+
+    /// The record with its pending edits, or `nil` when it is missing or deleted.
+    var value: R? {
+        get {
+            let zone = self.zone ?? context.defaultZone
+            guard let draft = context.draft(id: record.id, for: R.self, in: zone) else { return nil }
+            return expand.isEmpty ? draft : context.expanded(draft, expand, in: zone)
+        }
+        set { edit(newValue) }
+    }
+
+    func edit(_ newValue: R?, on date: Date = Date()) {
+        context.edit(id: id, of: record, in: zone ?? context.defaultZone, with: newValue, on: date)
+    }
+}
 
 @MainActor
 private func context() throws -> RecordContext {
     try RecordContainer(for: [Novel.self, Page.self], url: nil).mainContext
+}
+
+@MainActor
+private func savedNovel(in context: RecordContext) throws -> Novel {
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+    return saved
 }
 
 private func novel(_ title: String, year: Int) -> Novel {
@@ -16,318 +61,242 @@ private func novel(_ title: String, year: Int) -> Novel {
     )
 }
 
-/// Two wrappers on the same record share its difference, so an edit through one shows in the
-/// other at once.
-@MainActor
-@Test func twoRecordablesShareEdits() throws {
-    let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
+// MARK: - Editing
 
-    let first = RecordableStorage(saved)
-    let second = RecordableStorage(saved)
-    first.connect(to: context)
-    second.connect(to: context)
-    #expect(first.difference === second.difference)
-
-    first.value.year = 1972
-    #expect(second.value.year == 1972)
-    #expect(context.changes == [.insert(saved.id)])
-}
-
-/// Editing stages the record, and nothing is written until the context saves.
+/// Editing records the change, and nothing is written until the context saves.
 @MainActor
 @Test func editingWritesNothingUntilSave() throws {
     let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
+    let saved = try savedNovel(in: context)
 
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
-    storage.value.title = "Blue (Live)"
-    #expect(context.hasChanges)
+    let editor = Editor(saved, in: context)
+    editor.value?.title = "Blue (Live)"
+    #expect(context.changes == [.update(saved.id)])
+    #expect(editor.value?.title == "Blue (Live)")
+    #expect(try context.record(id: saved.id, for: Novel.self)?.title == "Blue")
 
     try context.save()
     #expect(!context.hasChanges)
-    #expect(storage.value.title == "Blue (Live)")
+    #expect(editor.value?.title == "Blue (Live)")
     #expect(try context.record(id: saved.id, for: Novel.self)?.title == "Blue (Live)")
 }
 
-/// Rolling back returns the wrapper to the saved record.
+/// Each editor is its own difference. Two editors see each other's edits, and each saves only
+/// the fields it changed.
 @MainActor
-@Test func rollbackRestoresTheRecordable() throws {
+@Test func twoEditorsEachSaveTheirOwnFields() throws {
     let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
+    let saved = try savedNovel(in: context)
 
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
-    storage.value.year = 1980
+    let first = Editor(saved, in: context)
+    let second = Editor(saved, in: context)
+    first.value?.year = 1972
+    #expect(second.value?.year == 1972)
+    second.value?.title = "Blue (Live)"
+    #expect(context.differences.count == 2)
+    #expect(context.changes == [.update(saved.id)])
+
+    try context.save()
+    let read = try #require(try context.record(id: saved.id, for: Novel.self))
+    #expect(read.title == "Blue (Live)")
+    #expect(read.year == 1972)
+}
+
+/// When two editors change the same field, the newer edit wins.
+@MainActor
+@Test func theNewerEditOfAFieldWins() throws {
+    let context = try context()
+    let saved = try savedNovel(in: context)
+    let start = Date(timeIntervalSince1970: 1_000)
+
+    var older = saved
+    older.year = 1980
+    var newer = saved
+    newer.year = 1990
+    let first = Editor(saved, in: context)
+    let second = Editor(saved, in: context)
+    second.edit(newer, on: start.addingTimeInterval(1))
+    first.edit(older, on: start)
+    #expect(first.value?.year == 1990)
+
+    try context.save()
+    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1990)
+}
+
+/// Rolling back discards every edit and shows the saved record again.
+@MainActor
+@Test func rollbackRestoresTheSavedRecord() throws {
+    let context = try context()
+    let saved = try savedNovel(in: context)
+
+    let editor = Editor(saved, in: context)
+    editor.value?.year = 1980
     context.rollback()
-    #expect(storage.value.year == 1971)
+    #expect(editor.value?.year == 1971)
     #expect(!context.hasChanges)
 }
 
-/// A new record shows as given, and its first edit stages it as an insert.
+/// `rollback(id:)` discards the edits to one record and keeps the rest.
+@MainActor
+@Test func rollbackOfOneRecordKeepsTheOthers() throws {
+    let context = try context()
+    let blue = try savedNovel(in: context)
+    let court = novel("Court and Spark", year: 1974)
+    context.insert(court)
+    try context.save()
+
+    let first = Editor(blue, in: context)
+    let second = Editor(blue, in: context)
+    first.value?.year = 1972
+    second.value?.title = "Blue (Live)"
+    Editor(court, in: context).value?.year = 1975
+
+    context.rollback(id: blue.id)
+    #expect(first.value?.year == 1971)
+    #expect(first.value?.title == "Blue")
+    #expect(context.changes == [.update(court.id)])
+}
+
+/// A new record's first edit is an insert.
 @MainActor
 @Test func aNewRecordIsInsertedOnItsFirstEdit() throws {
     let context = try context()
     let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(fresh)
-    storage.connect(to: context)
-    #expect(storage.value.title == "New")
+    let editor = Editor(fresh, in: context)
+    #expect(editor.value == nil)
+
+    editor.value = fresh
+    #expect(context.changes == [.insert(fresh.id)])
+    try context.save()
+    #expect(try context.record(id: fresh.id, for: Novel.self)?.title == "New")
+}
+
+/// A second edit of a new record starts from the first, so it updates only its own fields.
+@MainActor
+@Test func aSecondEditOfANewRecordUpdatesItsOwnFields() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    context.insert(fresh)
+
+    let first = Editor(fresh, in: context)
+    let second = Editor(fresh, in: context)
+    first.value?.title = "Newer"
+    second.value?.year = 2025
+    #expect(context.differences[second.id]?.change == .update(fresh.id))
+
+    try context.save()
+    let read = try #require(try context.record(id: fresh.id, for: Novel.self))
+    #expect(read.title == "Newer")
+    #expect(read.year == 2025)
+}
+
+/// An editor shows an insert already made through the context.
+@MainActor
+@Test func anEditorShowsAnInsertAlreadyMade() throws {
+    let context = try context()
+    let saved = try savedNovel(in: context)
+    var edited = saved
+    edited.year = 1980
+    context.insert(edited)
+
+    #expect(Editor(saved, in: context).value?.year == 1980)
+}
+
+/// After a save, an editor's next edit starts from the record as written.
+@MainActor
+@Test func editsAfterASaveAreChangesAgain() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let editor = Editor(fresh, in: context)
+    editor.value = fresh
+    try context.save()
     #expect(!context.hasChanges)
 
-    storage.value.year = 2025
-    #expect(context.changes == [.insert(fresh.id)])
+    editor.value?.year = 2025
+    #expect(context.changes == [.update(fresh.id)])
     try context.save()
     #expect(try context.record(id: fresh.id, for: Novel.self)?.year == 2025)
 }
 
-/// Without a zone, a wrapper edits in the container's default zone, whatever the context's
-/// current zone.
-@MainActor
-@Test func aRecordableUsesTheDefaultZone() throws {
-    let context = try context()
-    context.zone = "Work"
-    let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(fresh)
-    storage.connect(to: context)
-    storage.value.year = 2025
-
-    #expect(context.changes.isEmpty)
-    context.zone = .records
-    #expect(context.changes == [.insert(fresh.id)])
-}
-
-/// A container's default zone is where its contexts start and where wrappers edit.
-@MainActor
-@Test func theContainerSetsTheDefaultZone() throws {
-    let container = try RecordContainer(for: [Novel.self, Page.self], url: nil, defaultZone: "Work")
-    #expect(container.defaultZone == "Work")
-    let context = container.mainContext
-    #expect(context.zone == "Work")
-
-    let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(fresh)
-    context.zone = .records
-    storage.connect(to: context)
-    storage.value.year = 2025
-    #expect(context.changes.isEmpty)
-    context.zone = "Work"
-    #expect(context.changes == [.insert(fresh.id)])
-}
-
-/// A wrapper given a zone edits the record there, whatever the context's zone.
-@MainActor
-@Test func aRecordableEditsInTheZoneItWasGiven() throws {
-    let context = try context()
-    let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(fresh, zone: "Work")
-    storage.connect(to: context)
-    storage.value.year = 2025
-
-    #expect(context.changes.isEmpty)
-    context.zone = "Work"
-    #expect(context.changes == [.insert(fresh.id)])
-}
-
-// MARK: - Edge cases
-
-/// A wrapper on a record the context already changed shows that change.
-@MainActor
-@Test func aRecordableShowsAnInsertAlreadyMade() throws {
-    let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    var edited = saved
-    edited.year = 1972
-    context.insert(edited)
-
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
-    #expect(storage.value.year == 1972)
-}
-
-/// An insert through the context after the wrapper connected shows in the wrapper.
-@MainActor
-@Test func aRecordableFollowsInsertsThroughTheContext() throws {
-    let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
-    var edited = saved
-    edited.year = 1972
-    context.insert(edited)
-    #expect(storage.value.year == 1972)
-}
-
-/// After a save the wrapper keeps the same difference, and its next edit is a new change.
-@MainActor
-@Test func editsAfterASaveAreChangesAgain() throws {
-    let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
-    let difference = storage.difference
-    storage.value.year = 1972
-    try context.save()
-    #expect(context.changes.isEmpty)
-    #expect(storage.difference === difference)
-    #expect(context.difference(for: saved) === difference)
-
-    storage.value.year = 1973
-    #expect(context.changes == [.insert(saved.id)])
-    try context.save()
-    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1973)
-}
-
-/// An edit stays in the context after its wrapper is gone, and the next save writes it.
-@MainActor
-@Test func anEditOutlivesItsRecordable() throws {
-    let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    do {
-        let storage = RecordableStorage(saved)
-        storage.connect(to: context)
-        storage.value.year = 1972
-    }
-    // Handing out another difference drops the unused ones.
-    _ = context.difference(for: novel("Other", year: 2000))
-    #expect(context.changes == [.insert(saved.id)])
-
-    try context.save()
-    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1972)
-}
-
-/// A wrapper that never edited leaves nothing behind once it is gone.
-@MainActor
-@Test func anUneditedRecordableLeavesNothingBehind() throws {
-    let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    do {
-        let storage = RecordableStorage(saved)
-        storage.connect(to: context)
-        #expect(context.differences.count == 1)
-    }
-    let other = novel("Other", year: 2000)
-    _ = context.difference(for: other)
-    #expect(context.differences.keys.map(\.name) == [other.id.uuidString])
-    #expect(!context.hasChanges)
-}
-
-/// The same record in two zones is two records, so wrappers in each edit apart.
-@MainActor
-@Test func recordablesInDifferentZonesStayApart() throws {
-    let context = try context()
-    let fresh = novel("New", year: 2024)
-    let here = RecordableStorage(fresh)
-    let work = RecordableStorage(fresh, zone: "Work")
-    here.connect(to: context)
-    work.connect(to: context)
-    #expect(here.difference !== work.difference)
-
-    here.value.year = 2025
-    #expect(work.value.year == 2024)
-    #expect(context.changes == [.insert(fresh.id)])
-    context.zone = "Work"
-    #expect(context.changes.isEmpty)
-}
-
-/// Saving writes only the fields the wrapper edited, so a field another context saved since
-/// is kept, and the wrapper then shows both.
+/// Saving writes only the fields the editor changed, so a field another context saved since
+/// is kept.
 @MainActor
 @Test func savingKeepsFieldsSavedElsewhere() throws {
     let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
     let context = container.mainContext
-    let other = RecordContext(container: container)
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
+    let saved = try savedNovel(in: context)
+
+    let editor = Editor(saved, in: context)
+    editor.value?.year = 1972
+
+    let elsewhere = RecordContext(container: container)
+    var remote = saved
+    remote.title = "Blue (Remastered)"
+    elsewhere.insert(remote)
+    try elsewhere.save()
+    #expect(editor.value?.title == "Blue (Remastered)")
+    #expect(editor.value?.year == 1972)
+
     try context.save()
-
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
-    storage.value.year = 1972
-
-    var renamed = saved
-    renamed.title = "Green"
-    other.insert(renamed)
-    try other.save()
-
-    try context.save()
-    let written = try #require(try context.record(id: saved.id, for: Novel.self))
-    #expect(written.title == "Green")
-    #expect(written.year == 1972)
-    #expect(storage.value.title == "Green")
-    #expect(storage.value.year == 1972)
+    let read = try #require(try context.record(id: saved.id, for: Novel.self))
+    #expect(read.title == "Blue (Remastered)")
+    #expect(read.year == 1972)
 }
 
-/// Moving a wrapper to another context shows that context's copy, and leaves the first
-/// context's change where it was.
+// MARK: - Zones
+
+/// Without a zone, an editor edits in the container's default zone, whatever the context's
+/// current zone.
 @MainActor
-@Test func aRecordableMovedToAnotherContextStartsFromItsCopy() throws {
-    let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
-    let context = container.mainContext
-    let other = RecordContext(container: container)
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
-    storage.value.year = 1972
-    storage.connect(to: other)
-
-    #expect(storage.value.year == 1971)
-    #expect(context.changes == [.insert(saved.id)])
-    #expect(!other.hasChanges)
-}
-
-/// Connecting to the same context again keeps the same difference.
-@MainActor
-@Test func reconnectingToTheSameContextKeepsTheDifference() throws {
+@Test func anEditorUsesTheDefaultZone() throws {
     let context = try context()
-    let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(fresh)
-    storage.connect(to: context)
-    let difference = storage.difference
-    storage.value.year = 2025
-    storage.connect(to: context)
-    #expect(storage.difference === difference)
-    #expect(storage.value.year == 2025)
+    let saved = try savedNovel(in: context)
+
+    context.zone = "Work"
+    let editor = Editor(saved, in: context)
+    editor.value?.year = 1972
+    #expect(context.changes.isEmpty)
+    context.zone = .records
+    #expect(context.changes == [.update(saved.id)])
 }
 
-/// Rolling back an edit to a new record shows it as the wrapper was given it.
+/// A container's default zone is where its contexts start and where editors edit.
 @MainActor
-@Test func rollbackShowsANewRecordAsItStarted() throws {
-    let context = try context()
-    let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(fresh)
-    storage.connect(to: context)
-    storage.value.year = 2025
-    context.rollback()
-    #expect(storage.value.year == 2024)
-    #expect(!context.hasChanges)
+@Test func theContainerSetsTheDefaultZone() throws {
+    let context = try RecordContainer(for: [Novel.self, Page.self], url: nil, defaultZone: "Work").mainContext
+    #expect(context.zone == "Work")
+    #expect(context.defaultZone == "Work")
 
-    storage.value.year = 2026
+    let fresh = novel("New", year: 2024)
+    Editor(fresh, in: context).value = fresh
+    context.zone = .records
+    #expect(context.changes.isEmpty)
+    context.zone = "Work"
     #expect(context.changes == [.insert(fresh.id)])
+}
+
+/// An editor given a zone edits the record there, and the same record in two zones is two
+/// records.
+@MainActor
+@Test func editorsInDifferentZonesStayApart() throws {
+    let context = try context()
+    let saved = try savedNovel(in: context)
+    context.zone = "Work"
+    context.insert(saved)
+    try context.save()
+    context.zone = .records
+
+    let home = Editor(saved, in: context)
+    let work = Editor(saved, in: context, zone: "Work")
+    home.value?.year = 1972
+    work.value?.year = 1980
+    #expect(home.value?.year == 1972)
+    #expect(work.value?.year == 1980)
+
+    try context.save()
+    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1972)
+    context.zone = "Work"
+    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1980)
 }
 
 // MARK: - Expanding references
@@ -348,153 +317,180 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     let (context, lp, _) = try savedLP()
     #expect(lp.musician == nil)
 
-    let storage = RecordableStorage(lp, expand: [\LP.musician])
-    storage.connect(to: context)
-    #expect(storage.value.musician?.name == "Nova")
-    #expect(storage.value.cuts.isEmpty)
+    let editor = Editor(lp, in: context, expand: [\LP.musician])
+    #expect(editor.value?.musician?.name == "Nova")
+    #expect(editor.value?.cuts.isEmpty == true)
 }
 
 /// Expanded targets show changes to them once saved.
 @MainActor
 @Test func expandShowsChangesToTargets() throws {
     let (context, lp, nova) = try savedLP()
-    let storage = RecordableStorage(lp, expand: [\LP.musician])
-    storage.connect(to: context)
+    let editor = Editor(lp, in: context, expand: [\LP.musician])
 
     var renamed = nova
     renamed.name = "Nova II"
     context.insert(renamed)
-    #expect(storage.value.musician?.name == "Nova")
+    #expect(editor.value?.musician?.name == "Nova")
     try context.save()
-    #expect(storage.value.musician?.name == "Nova II")
+    #expect(editor.value?.musician?.name == "Nova II")
 }
 
 /// Editing an expanded record saves its own fields, and its targets stay as they were saved.
 @MainActor
 @Test func editingAnExpandedRecordSavesOnlyItsOwnFields() throws {
     let (context, lp, nova) = try savedLP()
-    let storage = RecordableStorage(lp, expand: [\LP.musician, \LP.cuts])
-    storage.connect(to: context)
-    storage.value.title = "A (Live)"
-    storage.value.musician?.name = "Changed"
-    #expect(context.changes == [.insert(lp.id)])
+    let editor = Editor(lp, in: context, expand: [\LP.musician, \LP.cuts])
+    var edited = try #require(editor.value)
+    edited.title = "A (Live)"
+    edited.musician?.name = "Changed"
+    editor.value = edited
+    #expect(context.changes == [.update(lp.id)])
 
     try context.save()
     #expect(try context.record(id: lp.id, for: LP.self)?.title == "A (Live)")
     #expect(try context.record(id: nova.id, for: Musician.self)?.name == "Nova")
-    #expect(storage.value.title == "A (Live)")
-    #expect(storage.value.musician?.name == "Nova")
-    #expect(storage.value.cuts.map(\.title) == ["Bloom"])
+    #expect(editor.value?.title == "A (Live)")
+    #expect(editor.value?.musician?.name == "Nova")
+    #expect(editor.value?.cuts.map(\.title) == ["Bloom"])
 }
 
-/// A wrapper expands in its own zone, whatever the context's current zone.
+/// An editor expands in its own zone, whatever the context's current zone.
 @MainActor
-@Test func expandReadsInTheRecordablesZone() throws {
+@Test func expandReadsInTheEditorsZone() throws {
     let (context, lp, _) = try savedLP()
-    let storage = RecordableStorage(lp, expand: [\LP.musician])
-    storage.connect(to: context)
+    let editor = Editor(lp, in: context, expand: [\LP.musician])
     context.zone = "Work"
-    #expect(storage.value.musician?.name == "Nova")
+    #expect(editor.value?.musician?.name == "Nova")
     #expect(context.zone == "Work")
 }
 
-// MARK: - Optional
+// MARK: - Deleting
 
-/// An optional wrapper reads `nil` once its record is deleted, before and after the save.
+/// A record reads `nil` once deleted, before and after the save.
 @MainActor
-@Test func anOptionalRecordableReadsNilOnceDeleted() throws {
+@Test func aDeletedRecordReadsNil() throws {
     let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    let storage = RecordableStorage(optional: saved)
-    storage.connect(to: context)
-    #expect(storage.value?.title == "Blue")
+    let saved = try savedNovel(in: context)
+    let editor = Editor(saved, in: context)
 
     context.delete(saved)
-    #expect(storage.value == nil)
+    #expect(editor.value == nil)
+    #expect(context.changes == [.delete(saved.id)])
     try context.save()
-    #expect(storage.value == nil)
+    #expect(editor.value == nil)
     #expect(try context.record(id: saved.id, for: Novel.self) == nil)
 }
 
-/// Setting an optional wrapper to `nil` deletes its record.
+/// Setting `nil` deletes the record.
 @MainActor
 @Test func settingNilDeletesTheRecord() throws {
     let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
+    let saved = try savedNovel(in: context)
 
-    let storage = RecordableStorage(optional: saved)
-    storage.connect(to: context)
-    storage.value = nil
+    let editor = Editor(saved, in: context)
+    editor.value = nil
     #expect(context.changes == [.delete(saved.id)])
     try context.save()
     #expect(try context.record(id: saved.id, for: Novel.self) == nil)
 }
 
-/// Setting a record after `nil` inserts it again, and rolling back a delete restores it.
+/// Setting a record after `nil` keeps it, and rolling back a delete restores it.
 @MainActor
 @Test func aDeleteCanBeUndone() throws {
     let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
+    let saved = try savedNovel(in: context)
 
-    let storage = RecordableStorage(optional: saved)
-    storage.connect(to: context)
-    storage.value = nil
-    storage.value = saved
-    #expect(context.changes == [.insert(saved.id)])
-    #expect(storage.value?.title == "Blue")
+    let editor = Editor(saved, in: context)
+    editor.value = nil
+    editor.value = saved
+    #expect(context.changes == [.update(saved.id)])
+    #expect(editor.value?.title == "Blue")
 
-    storage.value = nil
+    editor.value = nil
     context.rollback()
-    #expect(storage.value?.title == "Blue")
+    #expect(editor.value?.title == "Blue")
     #expect(!context.hasChanges)
 }
 
-/// An optional wrapper edits fields as the plain one does, and a new record reads as given.
+/// Editing a record after it was deleted elsewhere brings it back.
 @MainActor
-@Test func anOptionalRecordableEditsFields() throws {
+@Test func editingAfterADeleteBringsTheRecordBack() throws {
     let context = try context()
-    let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(optional: fresh)
-    storage.connect(to: context)
-    #expect(storage.value?.title == "New")
-
-    storage.value?.year = 2025
-    #expect(context.changes == [.insert(fresh.id)])
-    try context.save()
-    #expect(try context.record(id: fresh.id, for: Novel.self)?.year == 2025)
-}
-
-/// Setting a new record's wrapper to `nil` drops it with its insert, since nothing is saved.
-@MainActor
-@Test func settingANewRecordToNilDropsIt() throws {
-    let context = try context()
-    let fresh = novel("New", year: 2024)
-    let storage = RecordableStorage(optional: fresh)
-    storage.connect(to: context)
-    storage.value?.year = 2025
-    storage.value = nil
-    #expect(storage.value == nil)
-    #expect(!context.hasChanges)
-}
-
-/// A wrapper that isn't optional keeps showing its record after a saved delete.
-@MainActor
-@Test func aPlainRecordableShowsItsRecordAfterADelete() throws {
-    let context = try context()
-    let saved = novel("Blue", year: 1971)
-    context.insert(saved)
-    try context.save()
-
-    let storage = RecordableStorage(saved)
-    storage.connect(to: context)
+    let saved = try savedNovel(in: context)
+    let editor = Editor(saved, in: context)
+    editor.value?.year = 1972
     context.delete(saved)
+    #expect(editor.value == nil)
+
+    var revived = saved
+    revived.year = 1980
+    editor.value = revived
     try context.save()
-    #expect(storage.value.title == "Blue")
+    #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1980)
 }
+
+/// Deleting a new record before it is saved drops it with its insert.
+@MainActor
+@Test func deletingANewRecordDropsIt() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let editor = Editor(fresh, in: context)
+    editor.value = fresh
+    editor.value?.year = 2025
+    editor.value = nil
+    #expect(editor.value == nil)
+    #expect(!context.hasChanges)
+}
+
+// MARK: - The wrapper in a view
+
+#if canImport(AppKit)
+/// What a hosted view hands back to the test.
+@MainActor
+private final class Probe {
+    var title: String?
+    var id: UUID?
+    var binding: Binding<Novel>?
+}
+
+private struct NovelEditor: View {
+    @Recordable var novel: Novel
+    let probe: Probe
+
+    init(novel: Novel, probe: Probe) {
+        _novel = Recordable(novel)
+        self.probe = probe
+    }
+
+    var body: some View {
+        probe.title = novel.title
+        probe.id = _novel.id
+        probe.binding = $novel
+        return Text(novel.title)
+    }
+}
+
+/// `@Recordable` in a hosted view reads the record, records an edit under its own `id`, and
+/// reads the edit back.
+@MainActor
+@Test func aRecordableInAViewEditsItsRecord() throws {
+    let context = try context()
+    let saved = try savedNovel(in: context)
+    let probe = Probe()
+    let host = NSHostingView(rootView: NovelEditor(novel: saved, probe: probe).recordContext(context))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 50), styleMask: [], backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    #expect(probe.title == "Blue")
+
+    let binding = try #require(probe.binding)
+    binding.wrappedValue.title = "Blue (Live)"
+    let id = try #require(probe.id)
+    #expect(context.differences[id]?.change == .update(saved.id))
+
+    #expect(binding.wrappedValue.title == "Blue (Live)")
+    try context.save()
+    #expect(try context.record(id: saved.id, for: Novel.self)?.title == "Blue (Live)")
+}
+#endif
