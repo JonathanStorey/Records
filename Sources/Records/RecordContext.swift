@@ -64,17 +64,9 @@ public final class RecordContext {
         Set(changedKeys().compactMap { differences[$0]?.change })
     }
 
-    /// The difference with a change for `key`, or `nil` when it has none.
-    func changed(_ key: RecordKey) -> RecordDifference? {
-        differences[key].flatMap { $0.change == nil ? nil : $0 }
-    }
-
-    /// The keys of the changed records in the current `zone`, of `recordType` when given, sorted
-    /// by name so reads that use them come out the same every time.
-    func changedKeys(_ recordType: String? = nil) -> [RecordKey] {
-        differences.compactMap { key, difference in
-            key.zone == zone && difference.change != nil && (recordType == nil || key.recordType == recordType) ? key : nil
-        }.sorted { $0.name < $1.name }
+    /// The keys of the changed records in the current `zone`.
+    func changedKeys() -> [RecordKey] {
+        differences.compactMap { key, difference in key.zone == zone && difference.change != nil ? key : nil }
     }
 
     /// The difference with a change for the record with `id` in the current `zone`, or `nil`
@@ -326,29 +318,20 @@ public final class RecordContext {
 
     // MARK: - Reading
 
-    /// The `R` with `id` in the current `zone`, or `nil` when there is none. A staged change
-    /// comes first: a staged insert returns the latest saved record with the draft's edits laid
-    /// over it, and a staged delete returns `nil`.
+    /// The saved `R` with `id` in the current `zone`, or `nil` when there is none. Changes not
+    /// yet saved don't show until `save()`.
     ///
     /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
     public func record<R: Record>(id: UUID, for type: R.Type = R.self) throws -> R? {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
-        if let change = changed(key) {
-            return try draftRecord(change, key: key) as? R
-        }
         return try Self.load(R.self, key: key, in: database)
     }
 
-    /// The record with `id` in the current `zone`, whatever its type, or `nil` when there is none.
-    /// A staged change comes first, as in `record(id:for:)`. Finding the type takes one indexed
-    /// query across every table.
+    /// The saved record with `id` in the current `zone`, whatever its type, or `nil` when there
+    /// is none. Finding the type takes one indexed query across every table.
     public func record(id: UUID) throws -> (any Record)? {
         let name = id.uuidString
-        if let key = changedKeys().first(where: { $0.name == name && $0.recordType != RecordLink.recordType }),
-           let change = changed(key) {
-            return try draftRecord(change, key: key)
-        }
         let lookup = recordTypeLookup
         let values = Array(repeating: RecordKey(recordType: "", name: name, zone: zone).values, count: lookup.tables).flatMap { $0 }
         guard case .text(let recordType) = try database.rows(lookup.sql, values).first?["type"],
@@ -357,9 +340,9 @@ public final class RecordContext {
         return try Self.load(type, key: RecordKey(recordType: recordType, name: name, zone: zone), in: database)
     }
 
-    /// The records of `R` in the current `zone` that match `descriptor`, sorted and limited as it
-    /// says. Staged changes count: a staged insert is the latest saved record with the draft's
-    /// edits laid over it, and a staged delete leaves its record out. References hold their targets' IDs.
+    /// The saved records of `R` in the current `zone` that match `descriptor`, sorted and limited
+    /// as it says. Changes not yet saved don't show until `save()`. References hold their
+    /// targets' IDs.
     ///
     /// The references named in `relationshipKeyPathsForPrefetching` come back holding their
     /// records, loaded together for every result.
@@ -386,17 +369,6 @@ public final class RecordContext {
         // The SQL narrows the rows read. The predicate still decides the result below, so a part
         // of it SQL can't express only widens the query.
         var records = try Self.loadAll(R.self, zone: zone, filter: plan.filter, page: nil, in: database)
-
-        // Staged changes in this zone replace or remove the saved records they name.
-        let changedHere = changedKeys(R.recordType)
-        if !changedHere.isEmpty {
-            let names = Set(changedHere.map(\.name))
-            records.removeAll { names.contains($0.id.uuidString) }
-            records += try changedHere.compactMap { key in
-                guard let change = changed(key) else { return nil }
-                return try draftRecord(change, key: key) as? R
-            }
-        }
 
         if let predicate = descriptor.predicate {
             records = try records.filter { try predicate.evaluate($0) }
@@ -428,16 +400,13 @@ public final class RecordContext {
     /// answer the whole descriptor alone, the order and range of rows to read. When the
     /// predicate reads through references to records, also the references it reads.
     ///
-    /// The database answers alone when the predicate translates exactly, every sort translates,
-    /// and no change to `R` is staged in this zone. A path into linked records is left to Swift
-    /// when a change to a type it could reach is staged, since the database doesn't hold it.
+    /// The database answers alone when the predicate translates exactly and every sort
+    /// translates.
     private func plan<R: Record>(
         for descriptor: RecordDescriptor<R>
     ) -> (filter: SQLFilter?, page: SQLPage?, traversal: Traversal?) {
         let traversal = descriptor.predicate.map { Traversal($0.expression) }.flatMap { $0.isEmpty ? nil : $0 }
-        let reachable = traversal == nil ? [] : Self.reachableTypes(from: R.self)
-        let allowsPaths = !changedKeys().contains { reachable.contains($0.recordType) }
-        let translator = PredicateTranslator(for: R.self, allowsPaths: allowsPaths)
+        let translator = PredicateTranslator(for: R.self)
         var filter: SQLFilter?
         var isExact = true
         if let predicate = descriptor.predicate {
@@ -445,7 +414,7 @@ public final class RecordContext {
             filter = translated?.filter
             isExact = translated?.isExact ?? false
         }
-        guard isExact, changedKeys(R.recordType).isEmpty, let order = translator.orderBy(descriptor.sortBy) else {
+        guard isExact, let order = translator.orderBy(descriptor.sortBy) else {
             return (filter, nil, traversal)
         }
         let page = SQLPage(
@@ -454,18 +423,6 @@ public final class RecordContext {
             offset: max(descriptor.fetchOffset ?? 0, 0)
         )
         return (filter, page, traversal)
-    }
-
-    /// Every record type a reference of `R` reaches, directly or through other records.
-    private nonisolated static func reachableTypes<R: Record>(from type: R.Type) -> Set<CKRecord.RecordType> {
-        var found: Set<CKRecord.RecordType> = [R.recordType]
-        var pending: [any Record.Type] = [R.self]
-        while let next = pending.popLast() {
-            for reference in next.schema.references where found.insert(reference.target.recordType).inserted {
-                pending.append(reference.target)
-            }
-        }
-        return found
     }
 
     /// The condition for current, undeleted rows in `zone` that meet `filter`, and its values.
@@ -558,15 +515,6 @@ public final class RecordContext {
             },
             uniquingKeysWith: { first, _ in first }
         )
-    }
-
-    /// The record a staged change reads as: the latest saved record with the draft's edited
-    /// fields and links laid over it, as `save()` would write it, or `nil` for a delete. Reading
-    /// writes nothing, and a record with no draft never comes here.
-    func draftRecord(_ change: RecordDifference, key: RecordKey) throws -> (any Record)? {
-        guard !change.isDelete else { return nil }
-        guard change.original != nil else { return change.draft }
-        return change.value(over: try Self.loadSaved(like: change.record, key: key, in: database))
     }
 
     /// The saved record of `key`, of the same type as `record`.

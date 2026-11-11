@@ -81,9 +81,9 @@ private func save(_ records: [some Record], in context: RecordContext) throws {
     #expect(try context.fetchCount(RecordDescriptor(sortBy: sorted, fetchLimit: 3)) == 3)
 }
 
-/// Staged inserts are included as staged, and staged deletes leave their records out.
+/// Changes not yet saved stay out of a fetch until `save()`.
 @MainActor
-@Test func fetchIncludesStagedChanges() throws {
+@Test func fetchShowsChangesOnlyAfterSave() throws {
     let context = try makeContext(for: Page.self)
     var edited = page("old")
     let deleted = page("gone")
@@ -94,8 +94,12 @@ private func save(_ records: [some Record], in context: RecordContext) throws {
     context.delete(deleted)
     context.insert(page("added"))
 
-    let titles = try context.fetch(RecordDescriptor<Page>(sortBy: [SortDescriptor(\.title)])).map(\.title)
-    #expect(titles == ["added", "kept", "new"])
+    let sorted = RecordDescriptor<Page>(sortBy: [SortDescriptor(\.title)])
+    #expect(try context.fetch(sorted).map(\.title) == ["gone", "kept", "old"])
+    #expect(try context.fetch(RecordDescriptor<Page>(predicate: #Predicate { $0.title == "new" })).isEmpty)
+
+    try context.save()
+    #expect(try context.fetch(sorted).map(\.title) == ["added", "kept", "new"])
     let matching = try context.fetch(RecordDescriptor<Page>(predicate: #Predicate { $0.title == "new" }))
     #expect(matching.map(\.id) == [edited.id])
 }
@@ -106,12 +110,14 @@ private func save(_ records: [some Record], in context: RecordContext) throws {
     try save([page("records")], in: context)
     context.zone = "Work"
     try save([page("work")], in: context)
-    context.insert(page("staged in work"))
+    context.insert(page("unsaved in work"))
+    try context.save()
     context.zone = .records
-    context.insert(page("staged in records"))
+    context.insert(page("unsaved in records"))
+    try context.save()
 
     let titles = try context.fetch(RecordDescriptor<Page>(sortBy: [SortDescriptor(\.title)])).map(\.title)
-    #expect(titles == ["records", "staged in records"])
+    #expect(titles == ["records", "unsaved in records"])
 }
 
 @MainActor
