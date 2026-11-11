@@ -753,9 +753,9 @@ public final class RecordDifference {
     /// What is to happen, or `nil` while the record is only shown and not yet staged.
     var change: Change?
 
-    /// The saved record when editing began, or `nil` when none was saved. It never changes, so
-    /// `save()` writes only what the draft changed from it.
-    let original: (any Record)?
+    /// The saved record when editing began, or `nil` when none was saved. It changes only when
+    /// the record is saved or discarded, so `save()` writes only what the draft changed from it.
+    var original: (any Record)?
     /// The latest saved record.
     var saved: (any Record)?
     /// The record as edited.
@@ -779,6 +779,22 @@ public final class RecordDifference {
         guard !isDelete, let draft else { return nil }
         guard let original, let saved else { return draft }
         return Self.merged(draft, over: saved, original: original)
+    }
+
+    /// Marks the record as saved: the record as written becomes the original, the saved record,
+    /// and the draft, and nothing is staged. After a delete, no saved record remains.
+    func markSaved() {
+        let written = value
+        original = written
+        saved = written
+        if let written { draft = written }
+        change = nil
+    }
+
+    /// Discards the edits: the draft goes back to the saved record, and nothing is staged.
+    func discard() {
+        if let saved { draft = saved }
+        change = nil
     }
 }
 
