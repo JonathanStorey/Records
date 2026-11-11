@@ -88,6 +88,10 @@ private struct Graph {
     var linksLoaded: Set<String> = []
     private var linkNames: Set<String> = []
 
+    init(zone: Zone) {
+        self.zone = zone
+    }
+
     /// Adds `link` under each record it names, once.
     mutating func add(link: CKRecord) {
         guard linkNames.insert(link.recordID.recordName).inserted else { return }
