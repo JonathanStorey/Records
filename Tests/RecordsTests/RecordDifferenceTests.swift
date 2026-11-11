@@ -1,10 +1,9 @@
 import Foundation
-import Observation
 import Testing
 @testable import Records
 
-// A staged record is saved as its difference from the saved record it started from, so changes
-// made elsewhere in the meantime to anything it didn't touch survive.
+// An edit is saved as its difference from the saved record it started from, so changes made
+// elsewhere in the meantime to anything it didn't touch survive.
 
 @MainActor
 private func twoContexts() throws -> (RecordContext, RecordContext) {
@@ -42,7 +41,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 }
 
 @MainActor
-@Test func stagingAgainKeepsTheFirstOriginal() throws {
+@Test func insertingAgainKeepsTheFirstBase() throws {
     let (here, elsewhere) = try twoContexts()
     let saved = novel("Blue", year: 1971)
     here.insert(saved)
@@ -131,7 +130,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 }
 
 @MainActor
-@Test func changesListTheStagedDifferences() throws {
+@Test func changesListThePendingEdits() throws {
     let (here, _) = try twoContexts()
     let kept = novel("Kept", year: 2000)
     let gone = novel("Gone", year: 2001)
@@ -139,18 +138,16 @@ private func novel(_ title: String, year: Int) -> Novel {
     here.insert(gone)
     try here.save()
 
+    let added = novel("Added", year: 2002)
     here.insert(kept)
     here.delete(gone)
-    let changes: Set<RecordDifference.Change> = here.changes
-    #expect(changes == [.insert(kept.id), .delete(gone.id)])
-    #expect((here.difference(id: kept.id)?.original as? Novel)?.title == "Kept")
-    #expect(here.difference(id: gone.id)?.value == nil)
+    here.insert(added)
+    #expect(here.changes == [.update(kept.id), .delete(gone.id), .insert(added.id)])
 }
 
-/// Staging a record again updates its difference in place, so anything observing it sees the
-/// new change. The original stays the one first staged.
+/// Inserting a record again replaces the same edit, which keeps the base it started from.
 @MainActor
-@Test func stagingAgainUpdatesTheSameDifference() throws {
+@Test func insertingAgainReplacesTheSameEdit() throws {
     let (here, _) = try twoContexts()
     let saved = novel("Blue", year: 1971)
     here.insert(saved)
@@ -159,23 +156,18 @@ private func novel(_ title: String, year: Int) -> Novel {
     var draft = saved
     draft.year = 1972
     here.insert(draft)
-    let difference = try #require(here.difference(id: saved.id))
-
-    let observed = Flag()
-    withObservationTracking {
-        _ = difference.draft
-    } onChange: {
-        observed.set()
-    }
     draft.year = 1973
     here.insert(draft)
 
-    #expect(observed.isSet)
-    #expect(here.changes.count == 1)
-    #expect(here.difference(id: saved.id) === difference)
-    #expect((difference.draft as? Novel)?.year == 1973)
-    #expect(difference.change == .insert(saved.id))
-    #expect((difference.original as? Novel)?.year == 1971)
+    let difference = try #require(here.differences.values.first)
+    #expect(here.differences.count == 1)
+    #expect((difference.edit as? Novel)?.year == 1973)
+    #expect((difference.base as? Novel)?.year == 1971)
+    #expect(difference.change == .update(saved.id))
+
+    here.delete(draft)
+    #expect(here.differences.count == 1)
+    #expect(here.changes == [.delete(saved.id)])
 }
 
 @MainActor
@@ -281,182 +273,98 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(try labelIDs() == [labels[0].id, labels[2].id, labels[3].id])
 }
 
-/// A flag an observation's change handler can set from any thread.
-private final class Flag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-    func set() { lock.withLock { value = true } }
-    var isSet: Bool { lock.withLock { value } }
-}
-
-/// `value` lays the draft's edits over the latest saved record in memory, so an edit made
-/// elsewhere to another field shows, and the `from:` sides come from the saved record.
-@MainActor
-@Test func valueLaysTheDraftOverTheSavedRecord() throws {
+/// An edit laid over a record keeps that record's other fields and its `from:` sides.
+@Test func anEditLaysOverTheSavedRecord() throws {
     let original = novel("Blue", year: 1971)
-    var draft = original
-    draft.year = 1972
-    let difference = RecordDifference(id: original.id, original: original, draft: draft, change: .insert(draft.id))
-    #expect((difference.value as? Novel)?.year == 1972)
+    var edit = original
+    edit.year = 1972
+    let difference = RecordDifference(id: UUID(), zone: .records, base: original, edit: edit, modified: .now)
+    #expect((difference.laid(over: nil) as? Novel)?.year == 1972)
 
     var saved = original
     saved.title = "Blue (Remastered)"
-    difference.saved = saved
-    let value = try #require(difference.value as? Novel)
+    let value = try #require(difference.laid(over: saved) as? Novel)
     #expect(value.title == "Blue (Remastered)")
     #expect(value.year == 1972)
 
     let writer = Writer(id: UUID(), name: "Ada", bookIDs: [])
     let savedWriter = Writer(id: writer.id, name: "Ada", bookIDs: [original.id])
-    var draftWriter = writer
-    draftWriter.name = "Ada L."
-    let writerDifference = RecordDifference(id: writer.id, original: writer, draft: draftWriter, change: .insert(writer.id))
-    writerDifference.saved = savedWriter
-    let writerValue = try #require(writerDifference.value as? Writer)
+    var editedWriter = writer
+    editedWriter.name = "Ada L."
+    let writerDifference = RecordDifference(id: UUID(), zone: .records, base: writer, edit: editedWriter, modified: .now)
+    let writerValue = try #require(writerDifference.laid(over: savedWriter) as? Writer)
     #expect(writerValue.name == "Ada L.")
     #expect(writerValue.bookIDs == [original.id])
 }
 
-/// A difference that is only shown, not staged, isn't listed in `changes`, and a new record
-/// reads as its draft.
-@MainActor
-@Test func aDifferenceWithoutAChangeReadsAsItsDraft() throws {
-    let draft = novel("New", year: 2024)
-    let difference = RecordDifference(id: draft.id, original: nil, draft: draft)
-    #expect(difference.change == nil)
-    #expect((difference.value as? Novel)?.title == "New")
+/// A difference's change follows its base and edit.
+@Test func theChangeFollowsTheBaseAndEdit() {
+    let record = novel("Blue", year: 1971)
+    var difference = RecordDifference(id: UUID(), zone: .records, base: nil, edit: record, modified: .now)
+    #expect(difference.change == .insert(record.id))
+    difference.base = record
+    #expect(difference.change == .update(record.id))
+    difference.edit = nil
+    #expect(difference.change == .delete(record.id))
+    #expect(difference.change.id == record.id)
 }
 
-/// `difference(id:)` finds the staged difference in the current zone, the same object each time.
-@MainActor
-@Test func differenceFindsTheStagedRecord() throws {
-    let (here, _) = try twoContexts()
-    let staged = novel("Blue", year: 1971)
-    #expect(here.difference(id: staged.id) == nil)
+/// Rebasing keeps the fields the edit changed and takes the rest from the new base. A base
+/// deleted elsewhere turns the edit into an insert.
+@Test func rebasingMovesTheEditOntoTheNewBase() throws {
+    let original = novel("Blue", year: 1971)
+    var edit = original
+    edit.year = 1972
+    var difference = RecordDifference(id: UUID(), zone: .records, base: original, edit: edit, modified: .now)
 
-    here.insert(staged)
-    let difference = try #require(here.difference(id: staged.id))
-    #expect(difference.change == .insert(staged.id))
-    #expect(here.difference(id: staged.id) === difference)
+    var remote = original
+    remote.title = "Blue (Remastered)"
+    difference.rebase(onto: remote)
+    let rebased = try #require(difference.edit as? Novel)
+    #expect(rebased.title == "Blue (Remastered)")
+    #expect(rebased.year == 1972)
+    #expect((difference.base as? Novel)?.title == "Blue (Remastered)")
 
-    here.delete(staged)
-    #expect(here.difference(id: staged.id) === difference)
-    #expect(difference.change == .delete(staged.id))
-
-    here.zone = "Work"
-    #expect(here.difference(id: staged.id) == nil)
-    here.zone = .records
-    try here.save()
-    #expect(here.difference(id: staged.id) == nil)
+    difference.rebase(onto: nil)
+    #expect(difference.change == .insert(original.id))
+    #expect((difference.edit as? Novel)?.year == 1972)
 }
 
-// MARK: - Differences handed out for editing
-
-/// Asking for a record's difference twice gives the same object, and an edit through it stages
-/// the record.
+/// Saving writes the edits oldest first, so the newer edit of a field wins.
 @MainActor
-@Test func editingAHandedOutDifferenceStagesIt() throws {
+@Test func savingWritesTheOldestEditFirst() throws {
     let (here, _) = try twoContexts()
     let saved = novel("Blue", year: 1971)
     here.insert(saved)
     try here.save()
 
-    let difference = here.difference(for: saved)
-    #expect(here.difference(for: saved) === difference)
-    #expect(difference.change == nil)
+    var older = saved
+    older.year = 1980
+    var newer = saved
+    newer.year = 1990
+    let start = Date(timeIntervalSince1970: 1_000)
+    here.edit(id: UUID(), of: saved, in: .records, with: newer, on: start.addingTimeInterval(1))
+    here.edit(id: UUID(), of: saved, in: .records, with: older, on: start)
+    #expect(here.draft(id: saved.id, for: Novel.self, in: .records)?.year == 1990)
+
+    try here.save()
+    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1990)
     #expect(!here.hasChanges)
-    #expect(here.changes.isEmpty)
-
-    var draft = saved
-    draft.year = 1972
-    difference.draft = draft
-    difference.change = .insert(saved.id)
-    #expect(difference.change == .insert(saved.id))
-    #expect(here.hasChanges)
-    #expect(here.difference(for: saved) === difference)
-    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1971)
-    try here.save()
-    #expect(try here.record(id: saved.id, for: Novel.self)?.year == 1972)
 }
 
-/// Inserting a record that has a difference handed out stages that same difference.
+/// Rolling back discards every edit, and the record reads as saved.
 @MainActor
-@Test func insertingUsesTheHandedOutDifference() throws {
+@Test func rollingBackDiscardsEveryEdit() throws {
     let (here, _) = try twoContexts()
     let saved = novel("Blue", year: 1971)
     here.insert(saved)
     try here.save()
 
-    let difference = here.difference(for: saved)
     var draft = saved
     draft.year = 1972
     here.insert(draft)
-    #expect(difference.change == .insert(saved.id))
-    #expect((difference.draft as? Novel)?.year == 1972)
-}
-
-/// Saving keeps each difference and starts it over from the record as written.
-@MainActor
-@Test func savingStartsTheDifferenceOverFromTheWrittenRecord() throws {
-    let (here, elsewhere) = try twoContexts()
-    let saved = novel("Blue", year: 1971)
-    here.insert(saved)
-    try here.save()
-
-    let difference = here.difference(for: saved)
-    var draft = saved
-    draft.year = 1972
-    difference.draft = draft
-    difference.change = .insert(saved.id)
-
-    var remote = saved
-    remote.title = "Blue (Remastered)"
-    elsewhere.insert(remote)
-    try elsewhere.save()
-
-    try here.save()
-    #expect(difference.change == nil)
-    #expect(difference.saved == nil)
-    #expect((difference.original as? Novel)?.title == "Blue (Remastered)")
-    #expect((difference.original as? Novel)?.year == 1972)
-    #expect((difference.draft as? Novel)?.title == "Blue (Remastered)")
-    #expect(!here.hasChanges)
-    #expect(here.difference(for: saved) === difference)
-}
-
-/// Rolling back returns the draft to the saved record and keeps the difference.
-@MainActor
-@Test func rollingBackReturnsTheDraftToTheSavedRecord() throws {
-    let (here, _) = try twoContexts()
-    let saved = novel("Blue", year: 1971)
-    here.insert(saved)
-    try here.save()
-
-    let difference = here.difference(for: saved)
-    var draft = saved
-    draft.year = 1972
-    difference.draft = draft
-    difference.change = .insert(saved.id)
+    here.edit(id: UUID(), of: saved, in: .records, with: draft)
     here.rollback()
-
-    #expect(difference.change == nil)
-    #expect((difference.draft as? Novel)?.year == 1971)
     #expect(!here.hasChanges)
-    #expect(here.difference(for: saved) === difference)
-}
-
-/// The context drops an unstaged difference once nothing else holds it, the next time it hands
-/// one out or saves.
-@MainActor
-@Test func anUnusedDifferenceIsReleased() throws {
-    let (here, _) = try twoContexts()
-    let saved = novel("Blue", year: 1971)
-    weak var released: RecordDifference?
-    do {
-        let difference = here.difference(for: saved)
-        released = difference
-        #expect(released != nil)
-    }
-    _ = here.difference(for: novel("Other", year: 2000))
-    #expect(released == nil)
+    #expect(here.draft(id: saved.id, for: Novel.self, in: .records)?.year == 1971)
 }

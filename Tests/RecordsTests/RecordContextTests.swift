@@ -500,12 +500,12 @@ private func makeVenue() -> Venue {
 @MainActor
 private func insertedTitles(_ context: RecordContext) -> [String] {
     context.differences.values.compactMap { difference in
-        guard case .insert = difference.change, let page = difference.draft as? Page else { return nil }
+        guard case .insert = difference.change, let page = difference.edit as? Page else { return nil }
         return page.title
     }.sorted()
 }
 
-/// Inserting a record again replaces its change in place, so a record appears once.
+/// Inserting a record again replaces its edit, so a record appears once.
 @MainActor
 @Test func insertingAgainReplacesTheChange() throws {
     let context = try makeContext(for: Page.self)
@@ -547,8 +547,14 @@ private func insertedTitles(_ context: RecordContext) -> [String] {
     let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: [])
     context.insert(page)
     context.delete(page)
+    // Never saved, so nothing is left to write.
+    #expect(!context.hasChanges)
+
+    context.insert(page)
+    try context.save()
+    context.delete(page)
     #expect(context.changes == [.delete(page.id)])
-    #expect(context.changes.count == 1)
+    #expect(context.differences.count == 1)
 }
 
 // MARK: - Looking up a record
