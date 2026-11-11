@@ -505,12 +505,15 @@ results, as with SwiftData:
 
 ```swift
 var descriptor = RecordDescriptor<Album>(sortBy: [SortDescriptor(\.year)])
-descriptor.relationshipKeyPathsForPrefetching = [\.artist, \.tracks]
+descriptor.relationshipKeyPathsForPrefetching = [\Album.artist, \Album.tracks]
 let albums = try context.fetch(descriptor)   // albums[0].artist?.name is loaded
 ```
 
-The targets of every result are read together, one query per type, with staged changes laid
-over them. They load one level deep, so their own references hold IDs.
+Each key path names a reference on its own type, so naming references on the loaded types goes
+deeper. `[\Review.album, \Album.artist]` loads each review's album and each album's artist, and
+`[\Album.tracks, \Track.composer]` works through a to-many reference the same way. References
+not named hold IDs. The targets are read together, one query per type per level, with staged
+changes laid over them.
 
 When the whole predicate runs in the database and every sort is by a number or a date, the
 database also sorts and applies `fetchLimit` and `fetchOffset`, so only the records returned are
