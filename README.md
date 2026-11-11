@@ -456,6 +456,37 @@ context.zone = "Work"
 context.insert(note)   // staged for the Work zone
 ```
 
+## Editing records in SwiftUI
+
+`@Recordable` edits a record in a view. Set the context once near the root of your app:
+
+```swift
+ContentView()
+    .recordContext(container.mainContext)
+```
+
+Then give a view a `@Recordable` built from a record you already have:
+
+```swift
+struct AlbumEditor: View {
+    @Recordable var album: Album
+
+    init(album: Album) {
+        _album = Recordable(album)
+    }
+
+    var body: some View {
+        TextField("Title", text: $album.title)
+    }
+}
+```
+
+Reading `album` shows the record as edited. Each change stages it in the context, as `insert`
+would, and nothing is written until you call `context.save()`. `rollback()` returns every
+`@Recordable` to its saved record. Every `@Recordable` showing the same record shares its edits,
+so two views stay in step as you type. A record that isn't saved yet shows as given and is
+inserted on its first edit.
+
 ## Reading records
 
 ```swift
