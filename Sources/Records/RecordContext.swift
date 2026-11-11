@@ -156,6 +156,15 @@ public final class RecordContext {
     /// nothing is written and the changes stay staged.
     public func save() throws {
         guard hasChanges else { return }
+        // Written in its own function, so nothing here still holds a difference when
+        // `unstageAll()` drops the ones no view uses.
+        try writeStaged()
+        unstageAll()
+    }
+
+    /// Writes every staged change in one transaction, then starts each difference over from the
+    /// record as written.
+    private func writeStaged() throws {
         let changes = stagedOrder.compactMap { key in staged[key].map { (key, $0) } }
         let now = Date().timeIntervalSince1970
         let database = self.database
@@ -178,7 +187,6 @@ public final class RecordContext {
             if let written { difference.draft = written }
             difference.change = nil
         }
-        unstageAll()
     }
 
     /// Discards every staged change. Each record's draft goes back to its saved record.
