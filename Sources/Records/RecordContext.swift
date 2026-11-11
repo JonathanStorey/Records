@@ -753,9 +753,9 @@ public final class RecordDifference {
     /// What is to happen, or `nil` while the record is only shown and not yet staged.
     var change: Change?
 
-    /// The saved record when editing began, or `nil` when none was saved. It never changes, so
-    /// `save()` writes only what the draft changed from it.
-    let original: (any Record)?
+    /// The saved record when editing began, or `nil` when none was saved. `save()` writes only
+    /// what the draft changed from it.
+    var original: (any Record)?
     /// The latest saved record.
     var saved: (any Record)?
     /// The record as edited.
