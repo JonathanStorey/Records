@@ -138,7 +138,7 @@ extension RecordContext {
     func fetch<R: Record>(
         _ descriptor: RecordDescriptor<R>, matching predicate: Predicate<R>, through traversal: Traversal, filter: SQLFilter?
     ) throws -> [R] {
-        let overlay = overlay()
+        let overlay = try overlay()
 
         // The rows the SQL lets through, with staged records of `R` in place of their rows.
         let (matching, values) = Self.matching(zone: zone, filter: filter)
@@ -196,28 +196,24 @@ extension RecordContext {
         let start = min(max(descriptor.fetchOffset ?? 0, 0), matches.count)
         let end = descriptor.fetchLimit.map { min(start + max($0, 0), matches.count) } ?? matches.count
 
-        // Return records as `fetch` always does: staged as staged, saved with references holding IDs.
+        // Return records as `fetch` always does, with references holding IDs.
         return try matches[start..<end].map { match in
-            if let change = staged[RecordKey(recordType: R.recordType, name: match.root.name, zone: zone)],
-               let record = change.record as? R {
-                return record
-            }
             guard let record = graph.records[match.root] else { return match.loaded }
             return try decoder.decode(R.self, from: record, links: graph.linksByName[match.root.name] ?? [], depth: 0)
         }
     }
 
-    /// The staged changes in the current zone.
-    private func overlay() -> Overlay {
+    /// The staged changes in the current zone, each draft laid over its latest saved record.
+    private func overlay() throws -> Overlay {
         var overlay = Overlay()
         let encoder = CKRecordEncoder()
         for key in stagedOrder where key.zone == zone {
             guard let change = staged[key] else { continue }
             let node = NodeKey(recordType: key.recordType, name: key.name)
             overlay.staged.insert(node)
-            if !change.isDelete {
-                overlay.saved[node] = encoder.encode(change.record, in: zone)
-                overlay.links += encoder.links(for: change.record, in: zone)
+            if let record = try draftRecord(change, key: key) {
+                overlay.saved[node] = encoder.encode(record, in: zone)
+                overlay.links += encoder.links(for: record, in: zone)
             }
         }
         return overlay
