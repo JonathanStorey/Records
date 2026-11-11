@@ -86,3 +86,35 @@ private func novel(_ title: String, year: Int) -> Novel {
     try context.save()
     #expect(try context.record(id: fresh.id, for: Novel.self)?.year == 2025)
 }
+
+/// Without a zone, a wrapper keeps the context's zone from when it connected, so switching the
+/// context's zone doesn't move it.
+@MainActor
+@Test func aRecordableKeepsItsZone() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let storage = RecordableStorage(fresh)
+    storage.connect(to: context)
+    context.zone = "Work"
+    storage.connect(to: context)
+    storage.value.year = 2025
+
+    #expect(storage.zone == .records)
+    #expect(context.changes.isEmpty)
+    context.zone = .records
+    #expect(context.changes == [.insert(fresh.id)])
+}
+
+/// A wrapper given a zone edits the record there, whatever the context's zone.
+@MainActor
+@Test func aRecordableEditsInTheZoneItWasGiven() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let storage = RecordableStorage(fresh, zone: "Work")
+    storage.connect(to: context)
+    storage.value.year = 2025
+
+    #expect(context.changes.isEmpty)
+    context.zone = "Work"
+    #expect(context.changes == [.insert(fresh.id)])
+}

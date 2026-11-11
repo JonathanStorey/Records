@@ -54,14 +54,15 @@ public struct Recordable<R: Record> {
     @Environment(\.recordContext) private var environmentContext
     @State private var storage: RecordableStorage<R>
 
-    /// A property that edits `record`.
-    public init(_ record: R) {
-        _storage = State(initialValue: RecordableStorage(record))
+    /// A property that edits `record` in `zone`. Without a zone, it uses the context's `zone`
+    /// when the view first appears, and keeps that zone from then on.
+    public init(_ record: R, zone: Zone? = nil) {
+        _storage = State(initialValue: RecordableStorage(record, zone: zone))
     }
 
-    /// A property that edits `wrappedValue`.
-    public init(wrappedValue: R) {
-        self.init(wrappedValue)
+    /// A property that edits `wrappedValue` in `zone`, as `@Recordable(.records) var album = album`.
+    public init(wrappedValue: R, _ zone: Zone? = nil) {
+        self.init(wrappedValue, zone: zone)
     }
 
     /// The record as edited.
@@ -89,16 +90,22 @@ final class RecordableStorage<R: Record> {
     @ObservationIgnored private var record: R
     @ObservationIgnored private weak var context: RecordContext?
     @ObservationIgnored private(set) var difference: RecordDifference?
+    /// The zone the record is edited in, fixed once the wrapper first connects.
+    @ObservationIgnored private(set) var zone: Zone?
 
-    init(_ record: R) {
+    init(_ record: R, zone: Zone? = nil) {
         self.record = record
+        self.zone = zone
     }
 
-    /// Uses `context`'s difference for the record.
+    /// Uses `context`'s difference for the record, in the wrapper's zone. Without one, the zone
+    /// is the context's current zone, which the wrapper keeps from then on.
     func connect(to context: RecordContext) {
         guard context !== self.context || difference == nil else { return }
         self.context = context
-        difference = context.difference(for: record)
+        let zone = self.zone ?? context.zone
+        self.zone = zone
+        difference = context.difference(for: record, in: zone)
     }
 
     /// The record as edited. Setting it stages the edit in the context.

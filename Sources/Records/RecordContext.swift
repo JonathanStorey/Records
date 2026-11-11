@@ -74,11 +74,13 @@ public final class RecordContext {
         return stagedOrder.first { $0.zone == zone && $0.name == name }.flatMap { staged[$0] }
     }
 
-    /// The difference for `record` in the current `zone`, staged or not. Everything that asks for
-    /// the same record gets the same object while any of them holds it. A new one starts from the
-    /// saved record, or from `record` when none is saved, with nothing staged.
-    func difference<R: Record>(for record: R) -> RecordDifference {
+    /// The difference for `record` in `zone`, or the current `zone` when `nil`, staged or not.
+    /// Everything that asks for the same record gets the same object while any of them holds it.
+    /// A new one starts from the saved record, or from `record` when none is saved, with nothing
+    /// staged.
+    func difference<R: Record>(for record: R, in zone: Zone? = nil) -> RecordDifference {
         checkRegistered(R.self)
+        let zone = zone ?? self.zone
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
         if let difference = existingDifference(for: key) { return difference }
         shown = shown.filter { $0.value.difference != nil }
