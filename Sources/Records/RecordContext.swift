@@ -500,7 +500,12 @@ public final class RecordContext {
     func draftRecord(_ change: RecordDifference, key: RecordKey) throws -> (any Record)? {
         guard !change.isDelete else { return nil }
         guard change.original != nil else { return change.draft }
-        return change.value(over: try Self.load(type(of: change.record), key: key, in: database))
+        return change.value(over: try Self.loadSaved(like: change.record, key: key, in: database))
+    }
+
+    /// The saved record of `key`, of the same type as `record`.
+    private nonisolated static func loadSaved<R: Record>(like _: R, key: RecordKey, in database: Database) throws -> (any Record)? {
+        try load(R.self, key: key, in: database)
     }
 
     /// Stops with a message when `R` isn't registered, which is a programmer error.
