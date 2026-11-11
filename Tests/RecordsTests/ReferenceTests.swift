@@ -168,3 +168,14 @@ private func savedArticle(
     #expect(decoded._author.id == nil)
     #expect(decoded.editorID == nil)
 }
+
+@Test func referenceIDsReadByKeyPath() {
+    let shelf = Shelf(id: UUID(), name: "Fiction", bookIDs: [])
+    let book = Book(id: UUID(), title: "Dune", shelf: shelf)
+    let songs = ["Intro", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
+    let release = Release(id: UUID(), tracks: songs)
+
+    #expect(book.referenceID(at: \.shelf) == shelf.id)
+    #expect(Book(id: UUID(), title: "Emma", shelf: nil).referenceID(at: \.shelf) == nil)
+    #expect(release.referenceIDs(at: \.tracks) == songs.map(\.id))
+}
