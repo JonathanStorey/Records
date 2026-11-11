@@ -16,7 +16,6 @@ extension EnvironmentValues {
             }
             return context
         }
-        get { self[RecordContextKey.self] }
         set { self[RecordContextKey.self] = newValue }
     }
 }
