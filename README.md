@@ -425,7 +425,7 @@ try context.save()
 which writes every staged change in one transaction. `rollback()` discards them, and
 `hasChanges` tells you whether any are waiting. `changes` is the set of the current zone's
 changes as `RecordDifference.Change` values, such as `.insert(album.id)` or `.delete(oldAlbum.id)`.
-Inserting a record again replaces its change, so each record appears once per zone. To read the
+Inserting a record again replaces its change, so each record appears once per zone.
 `save()` writes the changes of every zone. Reads and fetches show saved records only, so a
 change shows once it is saved.
 
