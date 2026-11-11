@@ -30,24 +30,11 @@ import Testing
     var gig = Gig(id: UUID(), title: "Proms", venue: nil, home: Coordinate(latitude: 40.7, longitude: -74))
     gig.$venue = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5009, longitude: -0.1773), altitude: 30,
-        horizontalAccuracy: 5, verticalAccuracy: 3, course: 90, speed: 2, timestamp: Date(timeIntervalSince1970: 1000)
-    )
-    try expectMatch(gig)
-    try expectMatch(Gig(id: UUID(), title: "Nowhere", venue: nil, home: nil))
-}
-
-/// A location keeps its coordinate, altitude, accuracies, course, speed and timestamp, but not how
-/// accurate its course and speed are once it passes through a `CKRecord`, which leaves those two out.
-@Test func courseAndSpeedAccuracyAreNotKept() throws {
-    var gig = Gig(id: UUID(), title: "Proms", venue: nil, home: nil)
-    gig.$venue = CLLocation(
-        coordinate: CLLocationCoordinate2D(latitude: 51.5009, longitude: -0.1773), altitude: 30,
         horizontalAccuracy: 5, verticalAccuracy: 3, course: 90, courseAccuracy: 1,
         speed: 2, speedAccuracy: 0.5, timestamp: Date(timeIntervalSince1970: 1000)
     )
-    let saved = try #require(try Gig(record: CKRecordEncoder().encode(gig, in: .records)).$venue)
-    #expect(saved.course == 90 && saved.speed == 2 && saved.horizontalAccuracy == 5)
-    #expect(saved.courseAccuracy == -1 && saved.speedAccuracy == -1)
+    try expectMatch(gig)
+    try expectMatch(Gig(id: UUID(), title: "Nowhere", venue: nil, home: nil))
 }
 
 @Test func assetsMatch() throws {
@@ -69,7 +56,8 @@ import Testing
     )
     novel.$shop = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5, longitude: -0.12), altitude: 12,
-        horizontalAccuracy: 4, verticalAccuracy: 2, course: 180, speed: 1.5, timestamp: Date(timeIntervalSince1970: 2000)
+        horizontalAccuracy: 4, verticalAccuracy: 2, course: 180, courseAccuracy: 3,
+        speed: 1.5, speedAccuracy: 0.25, timestamp: Date(timeIntervalSince1970: 2000)
     )
     try expectMatch(novel)
 }

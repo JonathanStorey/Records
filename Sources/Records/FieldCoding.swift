@@ -1,4 +1,5 @@
 import CloudKit
+import CoreLocation
 import Foundation
 
 /// How one field type is stored in a `CKRecord` and in its SQLite column. Used by the code
@@ -18,7 +19,7 @@ public struct FieldCoding<Value> {
     private let write: (Value) -> (any CKRecordValueProtocol)?
     private let read: (Any) -> Value?
 
-    private init(kind: FieldKind, write: @escaping (Value) -> (any CKRecordValueProtocol)?, read: @escaping (Any) -> Value?) {
+    fileprivate init(kind: FieldKind, write: @escaping (Value) -> (any CKRecordValueProtocol)?, read: @escaping (Any) -> Value?) {
         self.kind = kind
         self.write = write
         self.read = read
@@ -106,6 +107,27 @@ public struct FieldCoding<Value> {
     public func encode(_ value: Value?, into row: inout RecordRow, forKey key: String) {
         row.values[key] = kind.sqlValue(self.value(value))
     }
+}
+
+extension LocationField {
+    /// How a `@Location` is stored: as a keyed archive of its `CLLocation`, so every detail is
+    /// kept, including how accurate its course and speed are. A location stored as a `CLLocation`
+    /// reads too.
+    public static let coding = FieldCoding<Stored>(
+        kind: .bytes,
+        write: { location in
+            do {
+                return try NSKeyedArchiver.archivedData(withRootObject: location, requiringSecureCoding: true)
+            } catch {
+                assertionFailure("Records couldn't archive a location: \(error)")
+                return nil
+            }
+        },
+        read: { stored in
+            if let location = stored as? CLLocation { return location }
+            return (stored as? Data).flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: CLLocation.self, from: $0) }
+        }
+    )
 }
 
 private extension JSONEncoder {

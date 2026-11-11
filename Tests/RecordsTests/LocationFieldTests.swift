@@ -14,13 +14,21 @@ struct Gig: Equatable {
 
 private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 30)
 
-@Test func aCoordinateIsStoredAsACLLocation() throws {
+@Test func aCoordinateIsStoredAsAnArchivedCLLocation() throws {
     let gig = Gig(id: UUID(), title: "Proms", venue: hall, home: nil)
     let record = CKRecordEncoder().encode(gig, in: .records)
-    let stored = try #require(record.encryptedValues["venue"] as? CLLocation)
+    let archive = try #require(record.encryptedValues["venue"] as? Data)
+    let stored = try #require(try NSKeyedUnarchiver.unarchivedObject(ofClass: CLLocation.self, from: archive))
     #expect(stored.coordinate.latitude == hall.latitude)
     #expect(stored.coordinate.longitude == hall.longitude)
     #expect(stored.altitude == 30)
+}
+
+@Test func aLocationStoredAsACLLocationStillReads() throws {
+    let record = CKRecordEncoder().encode(Gig(id: UUID(), title: "Proms", venue: nil, home: nil), in: .records)
+    record.encryptedValues["venue"] = hall.location
+    #expect(try Gig(record: record).venue == hall)
+    #expect(try Gig(from: CKRecordDecoder().decode(record, of: Gig.self)).venue == hall)
 }
 
 @Test func aCoordinateRoundTrips() throws {
@@ -36,10 +44,10 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
     let gig = Gig(id: UUID(), title: "Proms", venue: hall, home: hall)
     let record = CKRecordEncoder().encode(gig, in: .records)
     #expect(record["venue"] == nil)
-    #expect(record.encryptedValues["venue"] is CLLocation)
+    #expect(record.encryptedValues["venue"] is Data)
     // `@Encrypted` on a location is allowed and changes nothing.
     #expect(record["home"] == nil)
-    #expect(record.encryptedValues["home"] is CLLocation)
+    #expect(record.encryptedValues["home"] is Data)
 }
 
 @Test func theFullLocationKeepsEveryDetail() throws {
