@@ -67,7 +67,7 @@ public final class RecordContext {
     /// The difference staged for the record with `id` in the current `zone`, or `nil` when none
     /// is staged. It is `@Observable` and stays the same object while the record is staged, so a
     /// view or property wrapper holding it sees each new change.
-    public func difference(id: UUID) -> RecordDifference? {
+    func difference(id: UUID) -> RecordDifference? {
         let name = id.uuidString
         return stagedOrder.first { $0.zone == zone && $0.name == name }.flatMap { staged[$0] }
     }
