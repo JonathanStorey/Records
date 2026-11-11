@@ -423,8 +423,8 @@ try context.save()
 
 `insert` and `delete` stage changes in the context. Nothing reaches the database until `save()`,
 which writes every staged change in one transaction. `rollback()` discards them, and
-`hasChanges` tells you whether any are waiting. `changes` lists the current zone's staged
-records as `RecordDifference.Change` values, such as `.insert(album.id)` or `.delete(oldAlbum.id)`.
+`hasChanges` tells you whether any are waiting. `changes` is the set of the current zone's
+changes as `RecordDifference.Change` values, such as `.insert(album.id)` or `.delete(oldAlbum.id)`.
 Inserting a record again replaces its change, so each record appears once per zone. To read the
 record itself, use `context.record(id:)`, which shows the draft laid over the latest saved copy.
 `save()` writes the changes of every zone.

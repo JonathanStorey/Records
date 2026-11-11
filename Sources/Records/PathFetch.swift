@@ -240,7 +240,7 @@ extension RecordContext {
             graph.records[key] = schema.record(from: row, name: name, zone: zone)
             roots.append(key)
         }
-        for key in stagedKeys(R.self) {
+        for key in changedKeys(R.recordType) {
             let node = NodeKey(recordType: R.recordType, name: key.name)
             if let record = overlay.saved[node] {
                 graph.records[node] = record
@@ -300,8 +300,8 @@ extension RecordContext {
     private func overlay() throws -> Overlay {
         var overlay = Overlay()
         let encoder = CKRecordEncoder()
-        for key in stagedOrder where key.zone == zone {
-            guard let change = staged[key] else { continue }
+        for key in changedKeys() {
+            guard let change = changed(key) else { continue }
             let node = NodeKey(recordType: key.recordType, name: key.name)
             overlay.staged.insert(node)
             if let record = try draftRecord(change, key: key) {

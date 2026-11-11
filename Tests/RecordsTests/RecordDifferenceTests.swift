@@ -141,12 +141,10 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     here.insert(kept)
     here.delete(gone)
-    let changes: [RecordDifference.Change] = here.changes
+    let changes: Set<RecordDifference.Change> = here.changes
     #expect(changes == [.insert(kept.id), .delete(gone.id)])
-    #expect(changes.map(\.id) == [kept.id, gone.id])
-    let differences = here.differences
-    #expect((differences[0].original as? Novel)?.title == "Kept")
-    #expect(differences[1].value == nil)
+    #expect((here.difference(id: kept.id)?.original as? Novel)?.title == "Kept")
+    #expect(here.difference(id: gone.id)?.value == nil)
 }
 
 /// Staging a record again updates its difference in place, so anything observing it sees the
@@ -161,7 +159,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     var draft = saved
     draft.year = 1972
     here.insert(draft)
-    let difference = try #require(here.differences.first)
+    let difference = try #require(here.difference(id: saved.id))
 
     let observed = Flag()
     withObservationTracking {
@@ -174,7 +172,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     #expect(observed.isSet)
     #expect(here.changes.count == 1)
-    #expect(here.differences.first === difference)
+    #expect(here.difference(id: saved.id) === difference)
     #expect((difference.draft as? Novel)?.year == 1973)
     #expect(difference.change == .insert(saved.id))
     #expect((difference.original as? Novel)?.year == 1971)
@@ -436,7 +434,8 @@ private final class Flag: @unchecked Sendable {
     #expect(here.difference(for: saved) === difference)
 }
 
-/// The context doesn't keep an unstaged difference alive once nothing else holds it.
+/// The context drops an unstaged difference once nothing else holds it, the next time it hands
+/// one out or saves.
 @MainActor
 @Test func anUnusedDifferenceIsReleased() throws {
     let (here, _) = try twoContexts()
@@ -447,5 +446,6 @@ private final class Flag: @unchecked Sendable {
         released = difference
         #expect(released != nil)
     }
+    _ = here.difference(for: novel("Other", year: 2000))
     #expect(released == nil)
 }
