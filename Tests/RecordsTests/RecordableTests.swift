@@ -395,3 +395,104 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     #expect(storage.value.musician?.name == "Nova")
     #expect(context.zone == "Work")
 }
+
+// MARK: - Optional
+
+/// An optional wrapper reads `nil` once its record is deleted, before and after the save.
+@MainActor
+@Test func anOptionalRecordableReadsNilOnceDeleted() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(optional: saved)
+    storage.connect(to: context)
+    #expect(storage.value?.title == "Blue")
+
+    context.delete(saved)
+    #expect(storage.value == nil)
+    try context.save()
+    #expect(storage.value == nil)
+    #expect(try context.record(id: saved.id, for: Novel.self) == nil)
+}
+
+/// Setting an optional wrapper to `nil` deletes its record.
+@MainActor
+@Test func settingNilDeletesTheRecord() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(optional: saved)
+    storage.connect(to: context)
+    storage.value = nil
+    #expect(context.changes == [.delete(saved.id)])
+    try context.save()
+    #expect(try context.record(id: saved.id, for: Novel.self) == nil)
+}
+
+/// Setting a record after `nil` inserts it again, and rolling back a delete restores it.
+@MainActor
+@Test func aDeleteCanBeUndone() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(optional: saved)
+    storage.connect(to: context)
+    storage.value = nil
+    storage.value = saved
+    #expect(context.changes == [.insert(saved.id)])
+    #expect(storage.value?.title == "Blue")
+
+    storage.value = nil
+    context.rollback()
+    #expect(storage.value?.title == "Blue")
+    #expect(!context.hasChanges)
+}
+
+/// An optional wrapper edits fields as the plain one does, and a new record reads as given.
+@MainActor
+@Test func anOptionalRecordableEditsFields() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let storage = RecordableStorage(optional: fresh)
+    storage.connect(to: context)
+    #expect(storage.value?.title == "New")
+
+    storage.value?.year = 2025
+    #expect(context.changes == [.insert(fresh.id)])
+    try context.save()
+    #expect(try context.record(id: fresh.id, for: Novel.self)?.year == 2025)
+}
+
+/// Setting a new record's wrapper to `nil` drops it with its insert, since nothing is saved.
+@MainActor
+@Test func settingANewRecordToNilDropsIt() throws {
+    let context = try context()
+    let fresh = novel("New", year: 2024)
+    let storage = RecordableStorage(optional: fresh)
+    storage.connect(to: context)
+    storage.value?.year = 2025
+    storage.value = nil
+    #expect(storage.value == nil)
+    #expect(!context.hasChanges)
+}
+
+/// A wrapper that isn't optional keeps showing its record after a saved delete.
+@MainActor
+@Test func aPlainRecordableShowsItsRecordAfterADelete() throws {
+    let context = try context()
+    let saved = novel("Blue", year: 1971)
+    context.insert(saved)
+    try context.save()
+
+    let storage = RecordableStorage(saved)
+    storage.connect(to: context)
+    context.delete(saved)
+    try context.save()
+    #expect(storage.value.title == "Blue")
+}

@@ -487,6 +487,23 @@ would, and nothing is written until you call `context.save()`. `rollback()` retu
 showing the same record shares its edits, so two views stay in step as you type. A record that
 isn't saved yet shows as given and is inserted on its first edit.
 
+Declare it optional to see deletes. It reads `nil` once the record is deleted, whether or not
+the delete is saved yet, and setting it to `nil` deletes the record:
+
+```swift
+@Recordable var album: Album?
+
+var body: some View {
+    if let album = Binding($album) {
+        TextField("Title", text: album.title)
+        Button("Delete") { self.album = nil }
+    }
+}
+```
+
+Setting a record again inserts it again. A new record set to `nil` before it is saved is simply
+dropped. A `@Recordable` that isn't optional keeps showing its record after a delete.
+
 References hold IDs. Name the ones to load with `expand:`, which works like
 `relationshipKeyPathsForPrefetching`:
 

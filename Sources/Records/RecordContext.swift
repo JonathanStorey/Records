@@ -172,7 +172,8 @@ public final class RecordContext {
             let written = difference.isDelete ? nil : (try? Self.loadSaved(like: difference.record, key: key, in: database)) ?? nil
             difference.original = written
             difference.saved = nil
-            if let written { difference.draft = written }
+            // A saved delete leaves no draft, which is how a deleted record reads.
+            if difference.isDelete { difference.draft = nil } else if let written { difference.draft = written }
             difference.change = nil
         }
     }
@@ -819,7 +820,7 @@ public final class RecordDifference {
     /// A record saved since `original`, or `nil` when nothing newer is known, so the draft reads
     /// as it is without merging.
     var saved: (any Record)?
-    /// The record as edited.
+    /// The record as edited, or `nil` once its delete is saved.
     var draft: (any Record)?
 
     init(
@@ -852,7 +853,7 @@ extension RecordDifference {
         if case .delete = change { true } else { false }
     }
 
-    /// The draft, which every difference has.
+    /// The draft, which every difference with a change has.
     var record: any Record {
         guard let draft else { preconditionFailure("A difference has no draft") }
         return draft
