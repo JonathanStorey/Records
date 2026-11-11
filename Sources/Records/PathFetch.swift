@@ -45,14 +45,26 @@ struct Traversal {
         }
     }
 
-    /// The references `keyPaths` name on `R`, one hop deep, for prefetching.
-    init<R: Record>(prefetching keyPaths: [PartialKeyPath<R>]) {
+    /// The references `keyPaths` name, each on its own record type, for prefetching from `R`.
+    /// The hops are as many as the named references chain from `R`, so `[\Review.album,
+    /// \Album.artist]` takes two. A chain that loops takes at most one hop per reference.
+    init<R: Record>(prefetching keyPaths: [AnyKeyPath], from _: R.Type) {
+        var targets: [CKRecord.RecordType: [any Record.Type]] = [:]
         for keyPath in keyPaths {
-            if let reference = R.recordReference(for: keyPath) {
-                references.insert(Reference(recordType: R.recordType, property: reference.property))
+            guard let root = type(of: keyPath).rootType as? any Record.Type,
+                  let reference = root.recordReference(for: keyPath)
+            else { continue }
+            if references.insert(Reference(recordType: root.recordType, property: reference.property)).inserted {
+                targets[root.recordType, default: []].append(reference.target)
             }
         }
-        hops = 1
+        var frontier: Set<CKRecord.RecordType> = [R.recordType]
+        while hops < references.count {
+            let next = Set(frontier.flatMap { targets[$0] ?? [] }.map(\.recordType))
+            guard !next.isEmpty else { break }
+            hops += 1
+            frontier = next
+        }
     }
 
     func contains(_ recordType: CKRecord.RecordType, _ property: String) -> Bool {
@@ -261,10 +273,11 @@ extension RecordContext {
         }
     }
 
-    /// `records` with the references `keyPaths` name holding their records. The targets are read
-    /// together, one query per type, with staged changes laid over them.
-    func prefetch<R: Record>(_ keyPaths: [PartialKeyPath<R>], into records: [R]) throws -> [R] {
-        let traversal = Traversal(prefetching: keyPaths)
+    /// `records` with the references `keyPaths` name holding their records, as deep as they
+    /// chain. The targets are read together, one query per type per level, with staged changes
+    /// laid over them.
+    func prefetch<R: Record>(_ keyPaths: [AnyKeyPath], into records: [R]) throws -> [R] {
+        let traversal = Traversal(prefetching: keyPaths, from: R.self)
         guard !traversal.isEmpty, !records.isEmpty else { return records }
         let overlay = try overlay()
         let encoder = CKRecordEncoder()

@@ -40,7 +40,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
 @Test func prefetchingLoadsTheNamedReferences() throws {
     let (context, _, _) = try savedShelf()
     var descriptor = RecordDescriptor<LP>(sortBy: [SortDescriptor(\.year)])
-    descriptor.relationshipKeyPathsForPrefetching = [\.musician, \.cuts]
+    descriptor.relationshipKeyPathsForPrefetching = [\LP.musician, \LP.cuts]
     let fetched = try context.fetch(descriptor)
 
     #expect(fetched.map { $0.musician?.name } == ["Nova", "Echo", nil])
@@ -51,7 +51,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
 @Test func prefetchingLoadsOnlyTheReferencesNamed() throws {
     let (context, _, _) = try savedShelf()
     var descriptor = RecordDescriptor<LP>(sortBy: [SortDescriptor(\.year)])
-    descriptor.relationshipKeyPathsForPrefetching = [\.musician]
+    descriptor.relationshipKeyPathsForPrefetching = [\LP.musician]
     let fetched = try context.fetch(descriptor)
 
     #expect(fetched.map { $0.musician?.name } == ["Nova", "Echo", nil])
@@ -66,7 +66,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
     try context.save()
 
     var descriptor = RecordDescriptor<Review>()
-    descriptor.relationshipKeyPathsForPrefetching = [\.lp]
+    descriptor.relationshipKeyPathsForPrefetching = [\Review.lp]
     let review = try #require(try context.fetch(descriptor).first)
     #expect(review.lp?.title == "A")
     #expect(review.lp?.musician == nil)
@@ -82,9 +82,40 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
     context.insert(renamed)
 
     var descriptor = RecordDescriptor<LP>(sortBy: [SortDescriptor(\.year)], fetchLimit: 1)
-    descriptor.relationshipKeyPathsForPrefetching = [\.musician]
+    descriptor.relationshipKeyPathsForPrefetching = [\LP.musician]
     #expect(try context.fetch(descriptor).map { $0.musician?.name } == ["Nova (Live)"])
 
     context.rollback()
     #expect(try context.fetch(descriptor).map { $0.musician?.name } == ["Nova"])
+}
+
+/// References named on the loaded records' types load too, as deep as they chain.
+@MainActor
+@Test func prefetchingFollowsReferencesNamedOnLoadedTypes() throws {
+    let (context, _, lps) = try savedShelf()
+    context.insert(Review(id: UUID(), stars: 5, lp: lps[0]))
+    context.insert(Review(id: UUID(), stars: 3, lp: lps[1]))
+    try context.save()
+
+    var descriptor = RecordDescriptor<Review>(sortBy: [SortDescriptor(\.stars, order: .reverse)])
+    descriptor.relationshipKeyPathsForPrefetching = [\Review.lp, \LP.musician, \LP.cuts]
+    let reviews = try context.fetch(descriptor)
+
+    #expect(reviews.map { $0.lp?.title } == ["A", "B"])
+    #expect(reviews.map { $0.lp?.musician?.name } == ["Nova", "Echo"])
+    #expect(reviews.map { $0.lp?.cuts.map(\.title) } == [["Bloom", "Drift"], ["Ash"]])
+}
+
+/// A reference named on a type the chain never reaches loads nothing extra.
+@MainActor
+@Test func prefetchingIgnoresReferencesOffTheChain() throws {
+    let (context, _, lps) = try savedShelf()
+    context.insert(Review(id: UUID(), stars: 5, lp: lps[0]))
+    try context.save()
+
+    var descriptor = RecordDescriptor<Review>()
+    descriptor.relationshipKeyPathsForPrefetching = [\LP.musician]
+    let review = try #require(try context.fetch(descriptor).first)
+    #expect(review.lp == nil)
+    #expect(ids(review, "lp") == [lps[0].id])
 }
