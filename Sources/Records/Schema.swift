@@ -7,16 +7,19 @@ public struct RecordSchema: Sendable {
     public let recordType: CKRecord.RecordType
     /// Every stored field except `id`, in declaration order. `@Asset` properties aren't fields.
     public let fields: [FieldSchema]
-    /// The stored key of each `@Asset`, which names its link.
-    public let assets: [String]
     /// Every `@Reference`, including the `@Reference(from:)` sides.
     public let references: [ReferenceSchema]
 
-    public init(recordType: CKRecord.RecordType, fields: [FieldSchema], assets: [String], references: [ReferenceSchema]) {
+    public init(recordType: CKRecord.RecordType, fields: [FieldSchema], references: [ReferenceSchema]) {
         self.recordType = recordType
         self.fields = fields
-        self.assets = assets
         self.references = references
+    }
+
+    /// The `@Reference(from:)` side of `target` that names `property` of this type, such as
+    /// `User.profile`'s `Profile.user`, or `nil` when the relationship is one-way.
+    func inverse(of property: String, in target: any Record.Type) -> ReferenceSchema? {
+        target.schema.references.first { $0.inverseOf == property && $0.target.recordType == recordType }
     }
 }
 

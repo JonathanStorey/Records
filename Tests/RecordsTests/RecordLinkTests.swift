@@ -2,14 +2,41 @@ import CloudKit
 import Testing
 @testable import Records
 
+// Record types that only name the targets below.
+@Record("Profile")
+struct LinkedProfile {
+    var id: UUID
+}
+
+@Record("Folder")
+struct LinkedFolder {
+    var id: UUID
+}
+
+@Record("Note")
+struct LinkedNote {
+    var id: UUID
+}
+
+@Record("Tag")
+struct LinkedTag {
+    var id: UUID
+}
+
+@Record("Person")
+struct LinkedPerson {
+    var id: UUID
+}
+
 /// A `@Reference` as its declarations describe it. `inverse` is the target's `from:` side.
 private func reference(
-    _ property: String, to target: String, many: Bool = false, inverse: (name: String, many: Bool)? = nil
+    _ property: String, to target: any Record.Type, many: Bool = false, inverse: (name: String, many: Bool)? = nil
 ) -> ReferenceState {
-    ReferenceState(
-        property: property, targetType: target, isToMany: many, isSorted: false,
-        inverse: inverse.map { Inverse(property: $0.name, isToMany: $0.many, deleteSelf: false) },
-        ids: []
+    let schema = { (property: String, isToMany: Bool) in
+        ReferenceSchema(property: property, target: target, isToMany: isToMany, isSorted: false, holdsIDs: false)
+    }
+    return ReferenceState(
+        schema: schema(property, many), inverse: inverse.map { schema($0.name, $0.many) }, ids: []
     )
 }
 
@@ -24,12 +51,12 @@ private func link(
 
 @Test func signatureIsComputedFromTheDeclarations() {
     let cases: [(ReferenceState, String, String)] = [
-        (reference("profile", to: "Profile", inverse: ("user", false)), "User", "User.profile:Profile <-> Profile.user:User"),
-        (reference("folder", to: "Folder", inverse: ("notes", true)), "Note", "Note.folder:Folder <-> Folder.notes:[Note]"),
-        (reference("notes", to: "Note", many: true, inverse: ("folder", false)), "Folder", "Folder.notes:[Note] <-> Note.folder:Folder"),
-        (reference("tags", to: "Tag", many: true, inverse: ("notes", true)), "Note", "Note.tags:[Tag] <-> Tag.notes:[Note]"),
-        (reference("author", to: "Person"), "Note", "Note.author:Person"),
-        (reference("tags", to: "Tag", many: true), "Note", "Note.tags:[Tag]"),
+        (reference("profile", to: LinkedProfile.self, inverse: ("user", false)), "User", "User.profile:Profile <-> Profile.user:User"),
+        (reference("folder", to: LinkedFolder.self, inverse: ("notes", true)), "Note", "Note.folder:Folder <-> Folder.notes:[Note]"),
+        (reference("notes", to: LinkedNote.self, many: true, inverse: ("folder", false)), "Folder", "Folder.notes:[Note] <-> Note.folder:Folder"),
+        (reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)), "Note", "Note.tags:[Tag] <-> Tag.notes:[Note]"),
+        (reference("author", to: LinkedPerson.self), "Note", "Note.author:Person"),
+        (reference("tags", to: LinkedTag.self, many: true), "Note", "Note.tags:[Tag]"),
     ]
     for (reference, sourceType, signature) in cases {
         #expect(RecordLink.signature(of: reference, in: sourceType) == signature)
@@ -37,19 +64,19 @@ private func link(
 }
 
 @Test func kindComesFromBothSides() {
-    #expect(Relationship(reference("profile", to: "Profile", inverse: ("user", false))) == .oneToOne)
-    #expect(Relationship(reference("folder", to: "Folder", inverse: ("notes", true))) == .manyToOne)
-    #expect(Relationship(reference("notes", to: "Note", many: true, inverse: ("folder", false))) == .oneToMany)
-    #expect(Relationship(reference("tags", to: "Tag", many: true, inverse: ("notes", true))) == .manyToMany)
-    #expect(Relationship(reference("author", to: "Person")) == .manyToOne)
-    #expect(Relationship(reference("tags", to: "Tag", many: true)) == .manyToMany)
+    #expect(Relationship(reference("profile", to: LinkedProfile.self, inverse: ("user", false))) == .oneToOne)
+    #expect(Relationship(reference("folder", to: LinkedFolder.self, inverse: ("notes", true))) == .manyToOne)
+    #expect(Relationship(reference("notes", to: LinkedNote.self, many: true, inverse: ("folder", false))) == .oneToMany)
+    #expect(Relationship(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true))) == .manyToMany)
+    #expect(Relationship(reference("author", to: LinkedPerson.self)) == .manyToOne)
+    #expect(Relationship(reference("tags", to: LinkedTag.self, many: true)) == .manyToMany)
 }
 
 // MARK: - Stored data
 
 @Test func linkStoresOnlyItsSourceAndTarget() {
     let noteID = UUID(), folderID = UUID()
-    let stored = link(reference("folder", to: "Folder", inverse: ("notes", true)), id: noteID, to: folderID)
+    let stored = link(reference("folder", to: LinkedFolder.self, inverse: ("notes", true)), id: noteID, to: folderID)
     #expect(stored.source == "Note.folder")
     #expect(stored.sourceType == "Note")
     #expect(stored.sourceProperty == "folder")
@@ -61,58 +88,58 @@ private func link(
 
 @Test func renamingAnInverseChangesNothingStored() {
     let noteID = UUID(), tagID = UUID()
-    let before = link(reference("tags", to: "Tag", many: true, inverse: ("notes", true)), id: noteID, to: tagID, order: "a0")
-    let after = link(reference("tags", to: "Tag", many: true, inverse: ("pages", true)), id: noteID, to: tagID, order: "a0")
+    let before = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)), id: noteID, to: tagID, order: "a0")
+    let after = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("pages", true)), id: noteID, to: tagID, order: "a0")
     #expect(before == after)
 }
 
 // MARK: - Identity
 
 @Test func idIsAValidVersion8UUID() {
-    let bytes = link(reference("author", to: "Person")).id.uuid
+    let bytes = link(reference("author", to: LinkedPerson.self)).id.uuid
     #expect(bytes.6 >> 4 == 0x8)
     #expect(bytes.8 >> 6 == 0b10)
 }
 
 @Test func toOneLinkKeepsItsIDWhenTargetChanges() {
-    let noteID = UUID(), folder = reference("folder", to: "Folder")
+    let noteID = UUID(), folder = reference("folder", to: LinkedFolder.self)
     #expect(link(folder, id: noteID).id == link(folder, id: noteID).id)
 }
 
 @Test func oneToManyLinkKeepsItsIDWhenSourceChanges() {
-    let noteID = UUID(), notes = reference("notes", to: "Note", many: true, inverse: ("folder", false))
+    let noteID = UUID(), notes = reference("notes", to: LinkedNote.self, many: true, inverse: ("folder", false))
     #expect(link(notes, from: "Folder", to: noteID).id == link(notes, from: "Folder", to: noteID).id)
 }
 
 @Test func manyToManyLinkIsOnePerPair() {
-    let noteID = UUID(), tagID = UUID(), tags = reference("tags", to: "Tag", many: true)
+    let noteID = UUID(), tagID = UUID(), tags = reference("tags", to: LinkedTag.self, many: true)
     #expect(link(tags, id: noteID, to: tagID, order: "a0").id == link(tags, id: noteID, to: tagID, order: "b0").id)
     #expect(link(tags, id: noteID, to: tagID).id != link(tags, id: noteID, to: UUID()).id)
 }
 
 @Test func differentPropertiesToSameTargetDoNotCollide() {
     let noteID = UUID(), personID = UUID()
-    let author = link(reference("author", to: "Person"), id: noteID, to: personID)
-    let editor = link(reference("editor", to: "Person"), id: noteID, to: personID)
+    let author = link(reference("author", to: LinkedPerson.self), id: noteID, to: personID)
+    let editor = link(reference("editor", to: LinkedPerson.self), id: noteID, to: personID)
     #expect(author.id != editor.id)
 }
 
 @Test func addingAnInverseKeepsLinkIDs() {
     let noteID = UUID(), tagID = UUID(), personID = UUID()
     #expect(
-        link(reference("tags", to: "Tag", many: true), id: noteID, to: tagID).id
-            == link(reference("tags", to: "Tag", many: true, inverse: ("notes", true)), id: noteID, to: tagID).id
+        link(reference("tags", to: LinkedTag.self, many: true), id: noteID, to: tagID).id
+            == link(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)), id: noteID, to: tagID).id
     )
     #expect(
-        link(reference("author", to: "Person"), id: noteID, to: personID).id
-            == link(reference("author", to: "Person", inverse: ("notes", true)), id: noteID, to: personID).id
+        link(reference("author", to: LinkedPerson.self), id: noteID, to: personID).id
+            == link(reference("author", to: LinkedPerson.self, inverse: ("notes", true)), id: noteID, to: personID).id
     )
 }
 
 // MARK: - Encoding
 
 @Test func linkEncodesAndDecodesLikeAnyRecord() throws {
-    let stored = link(reference("tags", to: "Tag", many: true, inverse: ("notes", true)), order: "a0")
+    let stored = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)), order: "a0")
     let record = CKRecordEncoder().encode(stored, in: "Notes")
 
     #expect(record.recordType == "RecordLink")
@@ -125,7 +152,7 @@ private func link(
 }
 
 @Test func toOneLinkLeavesOrderUnset() {
-    let record = CKRecordEncoder().encode(link(reference("author", to: "Person")), in: "Notes")
+    let record = CKRecordEncoder().encode(link(reference("author", to: LinkedPerson.self)), in: "Notes")
     #expect(!record.allKeys().contains("order"))
 }
 

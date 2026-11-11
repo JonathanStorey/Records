@@ -7,8 +7,9 @@ import SwiftSyntaxMacros
 /// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
 /// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
 /// each stored property except `id` under its own name. A struct with `@Reference` properties
-/// also gets `referenceStates` and `loadReference(_:to:from:links:depth:)`, one with `@Reference(from:)` gets `inverse(of:in:)`, and one with
-/// `@Reference(from:deleteSelf: true)` gets `deleteSelfReferences`.
+/// also gets `referenceStates` and `loadReference(_:to:from:links:depth:)`. The schema describes
+/// every reference, including the `@Reference(from:)` sides, so the encoder finds each inverse
+/// there.
 ///
 /// An `@Asset` field is stored on its own link, so a struct with one gets `assetStates` and
 /// `loadAsset(_:id:file:)`. An `@Encrypted` field is read from and written to the record's
@@ -117,54 +118,31 @@ public struct RecordMacro: ExtensionMacro {
                 "    }",
             ]
         }
-        let deleteSelf = references.filter(\.deleteSelf).map { "\"\($0.key)\"" }
-        if !deleteSelf.isEmpty {
-            lines += [
-                "    \(access)static var deleteSelfReferences: Set<String> {",
-                "        [\(deleteSelf.joined(separator: ", "))]",
-                "    }",
-            ]
-        }
-        let inverses = references.filter(\.isFrom)
-        if !inverses.isEmpty {
-            // The owner's encoder asks for its inverse here. The key path checks that the owner's
-            // property exists and points back at this type.
-            lines += [
-                "    \(access)static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {",
-                "        switch (owner, property) {",
-            ]
-            var named = Set<String>()
-            for reference in inverses {
-                let ownerProperty = reference.ownerProperty ?? ""
-                // The owner's links name one inverse, so two can't share an owner's property.
-                guard named.insert("\(reference.target).\(ownerProperty)").inserted else {
-                    throw MacroExpansionErrorMessage(
-                        "Only one @Reference(from:) can name '\(reference.target).\(ownerProperty)'"
-                    )
-                }
-                let label = reference.isToMany ? "many: " : ""
-                let deleteSelf = reference.deleteSelf ? ", deleteSelf: true" : ""
-                lines += [
-                    "        case (\(reference.target).recordType, \"\(ownerProperty)\"):",
-                    "            return Records.Inverse(\(label)\\\(reference.target).\(ownerProperty), to: Self.self, property: \"\(reference.key)\"\(deleteSelf))",
-                ]
+        // The owner's links name one inverse, so two can't share an owner's property.
+        var named = Set<String>()
+        for reference in references where reference.isFrom {
+            let ownerProperty = reference.ownerProperty ?? ""
+            guard named.insert("\(reference.target).\(ownerProperty)").inserted else {
+                throw MacroExpansionErrorMessage(
+                    "Only one @Reference(from:) can name '\(reference.target).\(ownerProperty)'"
+                )
             }
-            lines += [
-                "        default:",
-                "            return nil",
-                "        }",
-                "    }",
-            ]
         }
         if !references.isEmpty {
             // `@Reference(from:)` properties never write links, so the encoder doesn't see them.
+            let owning = references.filter { !$0.isFrom }
             lines.append("    \(access)var referenceStates: [Records.ReferenceState] {")
-            lines.append("        [")
-            for reference in references where !reference.isFrom {
-                lines.append("            self.\(reference.storage).state(property: \"\(reference.key)\", owner: Self.recordType),")
+            if owning.isEmpty {
+                lines.append("        Records.ReferenceState.all(of: Self.self, ids: [:])")
+            } else {
+                lines.append("        Records.ReferenceState.all(of: Self.self, ids: [")
+                for reference in owning {
+                    let ids = reference.isToMany ? "self.\(reference.storage).ids" : "self.\(reference.storage).id.map { [$0] } ?? []"
+                    lines.append("            \"\(reference.key)\": \(ids),")
+                }
+                lines.append("        ])")
             }
             lines += [
-                "        ]",
                 "    }",
                 "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {",
                 "        switch property {",
@@ -214,8 +192,6 @@ public struct RecordMacro: ExtensionMacro {
             }
             lines.append("            ],")
         }
-        let assets = fields.filter(\.isAsset).map { "\"\($0.fieldKey)\"" }
-        lines.append("            assets: [\(assets.joined(separator: ", "))],")
         if references.isEmpty {
             lines.append("            references: []")
         } else {
@@ -236,29 +212,20 @@ public struct RecordMacro: ExtensionMacro {
         return lines
     }
 
-    /// `fieldKeyPaths`: the column each stored property is saved in, by its key path, so a
-    /// predicate on the property can become SQL. `id` is the record's name. `referenceKeyPaths`
-    /// does the same for each `@Reference`, naming its property.
+    /// `keyPaths`: what each property is saved as, by its key path, so a predicate on it can
+    /// become SQL. `id` is the record's name, a stored property its column, and a `@Reference`
+    /// its property name.
     private static func keyPathLines(
         typeName: String, fields: [StoredProperty], references: [ReferenceMacro.Reference], access: String
     ) -> [String] {
-        let entries = ["\\\(typeName).id: \"_name\""] + fields.filter { !$0.isAsset && !$0.isLocation }.map { field in
-            "\\\(typeName).\(field.key): \"\(field.fieldKey)\""
-        }
-        var lines = [
-            "    \(access)static var fieldKeyPaths: [PartialKeyPath<Self>: String] {",
+        let entries = ["\\\(typeName).id: \"_name\""]
+            + fields.filter { !$0.isAsset && !$0.isLocation }.map { "\\\(typeName).\($0.key): \"\($0.fieldKey)\"" }
+            + references.map { "\\\(typeName).\($0.key): \"\($0.key)\"" }
+        return [
+            "    \(access)static var keyPaths: [PartialKeyPath<Self>: String] {",
             "        [\(entries.joined(separator: ", "))]",
             "    }",
         ]
-        if !references.isEmpty {
-            let entries = references.map { "\\\(typeName).\($0.key): \"\($0.key)\"" }
-            lines += [
-                "    \(access)static var referenceKeyPaths: [PartialKeyPath<Self>: String] {",
-                "        [\(entries.joined(separator: ", "))]",
-                "    }",
-            ]
-        }
-        return lines
     }
 
     /// `encode(to:)` and `init(from:)` for a struct that declares `Codable`, `Encodable`, or

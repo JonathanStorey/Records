@@ -71,21 +71,18 @@ struct PredicateTranslator {
         self.input = input
 
         let kinds = Dictionary(uniqueKeysWithValues: R.schema.fields.map { ($0.key, $0.kind) })
+        let references = Dictionary(R.schema.references.map { ($0.property, $0) }, uniquingKeysWith: { first, _ in first })
         var columns: [AnyKeyPath: Column] = [:]
-        for (keyPath, name) in R.fieldKeyPaths {
+        var links: [AnyKeyPath: Link] = [:]
+        for (keyPath, name) in R.keyPaths {
             let kind: FieldKind? = name == "_name" ? .text : kinds[name]
-            if let kind {
+            if let reference = references[name] {
+                links[keyPath] = Link(reference, of: R.recordType)
+            } else if let kind {
                 columns[keyPath] = Column(name: name, sql: "\(table).\(quoted(name))", kind: kind)
             }
         }
         self.columns = columns
-
-        var links: [AnyKeyPath: Link] = [:]
-        for (keyPath, property) in R.referenceKeyPaths {
-            if let reference = R.schema.references.first(where: { $0.property == property }) {
-                links[keyPath] = Link(reference, of: R.recordType)
-            }
-        }
         self.links = links
     }
 

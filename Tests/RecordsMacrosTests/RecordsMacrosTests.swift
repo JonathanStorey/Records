@@ -67,11 +67,10 @@ final class RecordMacroTests: XCTestCase {
                             Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
                             Records.FieldSchema(name: "tags", key: "tags", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: ([String]).self)),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.title: "title", \\Note.isPinned: "isPinned", \\Note.rating: "rating", \\Note.tags: "tags"]
                 }
                 init(record: CKRecord) throws {
@@ -124,11 +123,10 @@ final class RecordMacroTests: XCTestCase {
                         fields: [
                             Records.FieldSchema(name: "default", key: "default", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Bool).self)),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                public static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                public static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\LegacyFolder.id: "_name", \\LegacyFolder.default: "default"]
                 }
                 public init(record: CKRecord) throws {
@@ -173,11 +171,10 @@ final class RecordMacroTests: XCTestCase {
                         fields: [
                             Records.FieldSchema(name: "value", key: "value", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Value).self)),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Box.id: "_name", \\Box.value: "value"]
                 }
                 init(record: CKRecord) throws {
@@ -431,17 +428,13 @@ final class RecordMacroTests: XCTestCase {
                         fields: [
                             Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
                         ],
-                        assets: [],
                         references: [
                             Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false, isSorted: false, holdsIDs: false),
                         ]
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Article.id: "_name", \\Article.title: "title"]
-                }
-                static var referenceKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Article.author: "author"]
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Article.id: "_name", \\Article.title: "title", \\Article.author: "author"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -452,9 +445,9 @@ final class RecordMacroTests: XCTestCase {
                     record["title"] = Records.FieldCoding.value(self.title)
                 }
                 var referenceStates: [Records.ReferenceState] {
-                    [
-                        self._author.state(property: "author", owner: Self.recordType),
-                    ]
+                    Records.ReferenceState.all(of: Self.self, ids: [
+                        "author": self._author.id.map { [$0] } ?? [],
+                    ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
                     switch property {
@@ -621,18 +614,14 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Note",
                         fields: [],
-                        assets: [],
                         references: [
                             Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true, isSorted: false, holdsIDs: false),
                             Records.ReferenceSchema(property: "pinnedIDs", target: Tag.self, isToMany: true, isSorted: false, holdsIDs: true),
                         ]
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Note.id: "_name"]
-                }
-                static var referenceKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Note.tags: "tags", \\Note.pinnedIDs: "pinnedIDs"]
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Note.id: "_name", \\Note.tags: "tags", \\Note.pinnedIDs: "pinnedIDs"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -642,10 +631,10 @@ final class RecordMacroTests: XCTestCase {
                 func encodeFields(into record: CKRecord) {
                 }
                 var referenceStates: [Records.ReferenceState] {
-                    [
-                        self._tags.state(property: "tags", owner: Self.recordType),
-                        self._pinnedIDs.state(property: "pinnedIDs", owner: Self.recordType),
-                    ]
+                    Records.ReferenceState.all(of: Self.self, ids: [
+                        "tags": self._tags.ids,
+                        "pinnedIDs": self._pinnedIDs.ids,
+                    ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
                     switch property {
@@ -703,17 +692,13 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Article",
                         fields: [],
-                        assets: [],
                         references: [
                             Records.ReferenceSchema(property: "authorID", target: Person.self, isToMany: false, isSorted: false, holdsIDs: true),
                         ]
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Article.id: "_name"]
-                }
-                static var referenceKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Article.authorID: "authorID"]
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Article.id: "_name", \\Article.authorID: "authorID"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -722,9 +707,9 @@ final class RecordMacroTests: XCTestCase {
                 func encodeFields(into record: CKRecord) {
                 }
                 var referenceStates: [Records.ReferenceState] {
-                    [
-                        self._authorID.state(property: "authorID", owner: Self.recordType),
-                    ]
+                    Records.ReferenceState.all(of: Self.self, ids: [
+                        "authorID": self._authorID.id.map { [$0] } ?? [],
+                    ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
                     switch property {
@@ -965,17 +950,13 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "User",
                         fields: [],
-                        assets: [],
                         references: [
                             Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false, isSorted: false, holdsIDs: false),
                         ]
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\User.id: "_name"]
-                }
-                static var referenceKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\User.profile: "profile"]
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\User.id: "_name", \\User.profile: "profile"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -984,9 +965,9 @@ final class RecordMacroTests: XCTestCase {
                 func encodeFields(into record: CKRecord) {
                 }
                 var referenceStates: [Records.ReferenceState] {
-                    [
-                        self._profile.state(property: "profile", owner: Self.recordType),
-                    ]
+                    Records.ReferenceState.all(of: Self.self, ids: [
+                        "profile": self._profile.id.map { [$0] } ?? [],
+                    ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
                     switch property {
@@ -1051,18 +1032,14 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Profile",
                         fields: [],
-                        assets: [],
                         references: [
                             Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, isSorted: false, holdsIDs: true, inverseOf: "profile", deleteSelf: true),
                             Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, isSorted: false, holdsIDs: true, inverseOf: "settingsID", deleteSelf: false),
                         ]
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Profile.id: "_name"]
-                }
-                static var referenceKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Profile.userID: "userID", \\Profile.accountID: "accountID"]
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Profile.id: "_name", \\Profile.userID: "userID", \\Profile.accountID: "accountID"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1071,22 +1048,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeFields(into record: CKRecord) {
                 }
-                static var deleteSelfReferences: Set<String> {
-                    ["userID"]
-                }
-                static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {
-                    switch (owner, property) {
-                    case (User.recordType, "profile"):
-                        return Records.Inverse(\\User.profile, to: Self.self, property: "userID", deleteSelf: true)
-                    case (Account.recordType, "settingsID"):
-                        return Records.Inverse(\\Account.settingsID, to: Self.self, property: "accountID")
-                    default:
-                        return nil
-                    }
-                }
                 var referenceStates: [Records.ReferenceState] {
-                    [
-                    ]
+                    Records.ReferenceState.all(of: Self.self, ids: [:])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
                     switch property {
@@ -1225,18 +1188,14 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Shelf",
                         fields: [],
-                        assets: [],
                         references: [
                             Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, isSorted: false, holdsIDs: true, inverseOf: "shelf", deleteSelf: false),
                             Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, isSorted: false, holdsIDs: true, inverseOf: "shelf", deleteSelf: false),
                         ]
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Shelf.id: "_name"]
-                }
-                static var referenceKeyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Shelf.bookIDs: "bookIDs", \\Shelf.crateIDs: "crateIDs"]
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Shelf.id: "_name", \\Shelf.bookIDs: "bookIDs", \\Shelf.crateIDs: "crateIDs"]
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
@@ -1245,19 +1204,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeFields(into record: CKRecord) {
                 }
-                static func inverse(of property: String, in owner: CKRecord.RecordType) -> Records.Inverse? {
-                    switch (owner, property) {
-                    case (Book.recordType, "shelf"):
-                        return Records.Inverse(many: \\Book.shelf, to: Self.self, property: "bookIDs")
-                    case (Crate.recordType, "shelf"):
-                        return Records.Inverse(many: \\Crate.shelf, to: Self.self, property: "crateIDs")
-                    default:
-                        return nil
-                    }
-                }
                 var referenceStates: [Records.ReferenceState] {
-                    [
-                    ]
+                    Records.ReferenceState.all(of: Self.self, ids: [:])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
                     switch property {
@@ -1447,11 +1395,10 @@ final class RecordMacroTests: XCTestCase {
                             Records.FieldSchema(name: "last", key: "last", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
                             Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.first: "first", \\Note.last: "last", \\Note.rating: "rating"]
                 }
                 init(record: CKRecord) throws {
@@ -1510,11 +1457,10 @@ final class RecordMacroTests: XCTestCase {
                             Records.FieldSchema(name: "note", key: "note", isOptional: true, isEncrypted: true, kind: Records.FieldKind(for: (String).self)),
                             Records.FieldSchema(name: "pin", key: "pin", isOptional: false, isEncrypted: true, kind: Records.FieldKind(for: (Int).self)),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Account.id: "_name", \\Account.name: "name", \\Account.note: "note", \\Account.pin: "pin"]
                 }
                 init(record: CKRecord) throws {
@@ -1678,11 +1624,10 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Poster",
                         fields: [],
-                        assets: ["image", "thumb"],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Poster.id: "_name"]
                 }
                 init(record: CKRecord) throws {
@@ -1861,11 +1806,10 @@ final class RecordMacroTests: XCTestCase {
                             Records.FieldSchema(name: "venue", key: "venue", isOptional: true, isEncrypted: true, kind: .archived),
                             Records.FieldSchema(name: "home", key: "home", isOptional: true, isEncrypted: true, kind: .archived),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Gig.id: "_name"]
                 }
                 init(record: CKRecord) throws {
@@ -1949,11 +1893,10 @@ final class RecordMacroTests: XCTestCase {
                     Records.RecordSchema(
                         recordType: "Memo",
                         fields: [],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Memo.id: "_name"]
                 }
                 init(record: CKRecord) throws {
@@ -2046,11 +1989,10 @@ final class RecordMacroTests: XCTestCase {
                         fields: [
                             Records.FieldSchema(name: "year", key: "released", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Album.id: "_name", \\Album.year: "released"]
                 }
                 init(record: CKRecord) throws {
@@ -2513,11 +2455,10 @@ final class RecordMacroTests: XCTestCase {
                             Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldKind(for: (String).self)),
                             Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldKind(for: (Int).self)),
                         ],
-                        assets: [],
                         references: []
                     )
                 }
-                static var fieldKeyPaths: [PartialKeyPath<Self>: String] {
+                static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.title: "title", \\Note.rating: "rating"]
                 }
                 init(record: CKRecord) throws {

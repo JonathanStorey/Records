@@ -3,7 +3,7 @@ import CryptoKit
 
 /// The shape of a relationship, from both sides' cardinality. Derived from the schema, never
 /// stored.
-public enum Relationship: String, Sendable, CaseIterable {
+enum Relationship: String, Sendable, CaseIterable {
     case oneToOne
     case oneToMany
     case manyToOne
@@ -11,7 +11,7 @@ public enum Relationship: String, Sendable, CaseIterable {
 
     /// The shape of the relationship a `@Reference` declares. Without an inverse, a to-one
     /// reference reads as many-to-one and a to-many reference as many-to-many.
-    public init(_ reference: ReferenceState) {
+    init(_ reference: ReferenceState) {
         self = switch (reference.isToMany, reference.inverse?.isToMany) {
         case (false, false?): .oneToOne
         case (false, _): .manyToOne
