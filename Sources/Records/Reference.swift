@@ -300,14 +300,18 @@ extension Record {
 protocol LoadedReference {
     /// The target records the reference holds, in order. Empty when it holds only IDs.
     var loadedRecords: [any Record] { get }
+    /// The target IDs the reference holds, in order.
+    var targetIDs: [UUID] { get }
 }
 
 extension ToOne: LoadedReference {
     var loadedRecords: [any Record] { value.map { [$0] } ?? [] }
+    var targetIDs: [UUID] { id.map { [$0] } ?? [] }
 }
 
 extension ToMany: LoadedReference {
     var loadedRecords: [any Record] { values }
+    var targetIDs: [UUID] { ids }
 }
 
 extension Record {
@@ -321,5 +325,12 @@ extension Record {
             else { return [] }
             return reference.loadedRecords
         }
+    }
+
+    /// The target IDs of the `@Reference` named `property`, including a `from:` side, in order.
+    func referencedIDs(_ property: String) -> [UUID] {
+        let label = "_" + property
+        let reference = Mirror(reflecting: self).children.first { $0.label == label }?.value as? LoadedReference
+        return reference?.targetIDs ?? []
     }
 }

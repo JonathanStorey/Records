@@ -52,11 +52,16 @@ public final class RecordContext {
     /// Whether any change is staged and not yet saved, in any zone.
     public var hasChanges: Bool { !staged.isEmpty }
 
-    /// The changes staged in the current `zone`, in the order they were first staged. A record
-    /// appears at most once: staging it again updates its difference in place, so a view
-    /// reading it sees the new change. `save()` writes the changes of every zone, not only these.
-    public var changes: [RecordDifference] {
-        stagedOrder.filter { $0.zone == zone }.compactMap { staged[$0] }
+    /// The changes staged in the current `zone`, in the order they were first staged, such as
+    /// `.insert(album.id)`. A record appears at most once: staging it again replaces its change.
+    /// `save()` writes the changes of every zone, not only these.
+    public var changes: [RecordDifference.Change] {
+        differences.compactMap(\.change)
+    }
+
+    /// The staged differences in the current `zone`, in the order they were first staged.
+    var differences: [RecordDifference] {
+        stagedOrder.filter { $0.zone == zone }.compactMap { staged[$0] }.filter { $0.change != nil }
     }
 
     // MARK: - Staging
@@ -114,14 +119,15 @@ public final class RecordContext {
     private func stage<R: Record>(_ record: R, isDelete: Bool) {
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-        let change: RecordDifference.Change = isDelete ? .delete(record) : .insert(record)
+        let change: RecordDifference.Change = isDelete ? .delete(record.id) : .insert(record.id)
         if let existing = staged[key] {
+            existing.draft = record
             existing.change = change
             return
         }
         // A record that can't be read counts as unsaved, so save writes every field.
         let original = (try? Self.load(R.self, key: key, in: database)) ?? nil
-        staged[key] = RecordDifference(change: change, original: original)
+        staged[key] = RecordDifference(id: record.id, original: original, draft: record, change: change)
         stagedOrder.append(key)
     }
 
@@ -216,7 +222,7 @@ public final class RecordContext {
                 guard visited.insert(key).inserted,
                       try Self.currentRow(of: key, in: database) == nil
                 else { continue }
-                try Self.write(RecordDifference(change: .insert(target), original: nil), key: key, now: now, in: database)
+                try Self.write(RecordDifference(id: target.id, original: nil, draft: target, change: .insert(target.id)), key: key, now: now, in: database)
                 queue.append((zone, target))
             }
         }
@@ -498,42 +504,13 @@ public final class RecordContext {
     /// writes nothing, and a record with no draft never comes here.
     func draftRecord(_ change: RecordDifference, key: RecordKey) throws -> (any Record)? {
         guard !change.isDelete else { return nil }
-        return try Self.merged(change.record, change: change, key: key, in: database)
+        guard change.original != nil else { return change.draft }
+        return change.value(over: try Self.loadSaved(like: change.record, key: key, in: database))
     }
 
-    /// `draft` laid over the latest saved record of `key`. Only what the draft changed from its
-    /// original replaces what is saved, so changes made elsewhere since to anything else show.
-    /// Without an original, or once the saved record is gone, the draft reads whole.
-    private static func merged<R: Record>(
-        _ draft: R, change: RecordDifference, key: RecordKey, in database: Database
-    ) throws -> R {
-        guard let originalValues = change.originalValues,
-              var row = try currentRow(of: key, in: database), row["_deleted"] != .integer(1)
-        else { return draft }
-        for (field, value) in change.values where originalValues[field] != value {
-            row[field] = value
-        }
-
-        var links = try savedLinks(touching: key, in: database)
-        let prefix = key.recordType + "."
-        let owned = links.filter { _, row in
-            guard case .text(let source) = row["source"] else { return false }
-            return row["sourceName"] == .text(key.name) && source.hasPrefix(prefix)
-        }
-        let orders = orders(of: owned)
-        let draftLinks = change.links(orders)
-        let original = Dictionary(change.originalLinks(orders) ?? [], uniquingKeysWith: { first, _ in first })
-        let kept = Set(draftLinks.map(\.0))
-        for name in original.keys where !kept.contains(name) {
-            links[name] = nil
-        }
-        for (name, values) in draftLinks where !matches(original[name], values) {
-            links[name] = (links[name] ?? [:]).merging(values) { $1 }
-        }
-
-        let record = R.schema.record(from: row, name: key.name, zone: key.zone)
-        let linkRecords = links.map { name, row in RecordLink.schema.record(from: row, name: name, zone: key.zone) }
-        return try CKRecordDecoder().decode(R.self, from: record, links: linkRecords, depth: 0)
+    /// The saved record of `key`, of the same type as `record`.
+    private nonisolated static func loadSaved<R: Record>(like _: R, key: RecordKey, in database: Database) throws -> (any Record)? {
+        try load(R.self, key: key, in: database)
     }
 
     /// Stops with a message when `R` isn't registered, which is a programmer error.
@@ -690,14 +667,14 @@ public final class RecordContext {
     }
 
     /// Whether `row` exists and holds every value in `values`.
-    private nonisolated static func matches(_ row: [String: SQLValue]?, _ values: [String: SQLValue]) -> Bool {
+    nonisolated static func matches(_ row: [String: SQLValue]?, _ values: [String: SQLValue]) -> Bool {
         guard let row else { return false }
         return values.allSatisfy { row[$0.key] == $0.value }
     }
 
     /// The saved order key of each link target in `links`, by `source|targetName`, so a target
     /// that keeps its place keeps its key.
-    private nonisolated static func orders(of links: [String: [String: SQLValue]]) -> [String: String] {
+    nonisolated static func orders(of links: [String: [String: SQLValue]]) -> [String: String] {
         Dictionary(
             links.values.compactMap { row -> (String, String)? in
                 guard case .text(let source) = row["source"], case .text(let target) = row["targetName"],
@@ -741,54 +718,72 @@ struct RecordKey: Hashable, Sendable {
     var values: [SQLValue] { [.text(zone.name), .text(zone.ownerName), .text(name)] }
 }
 
-/// A record staged in a `RecordContext`, waiting for `save()`: what is to happen to it, and the
-/// saved record it started from.
+/// A record staged in a `RecordContext`, waiting for `save()`, or one being edited.
 ///
-/// The context keeps one per staged record and lists them in `context.changes`. Staging the
-/// record again updates the same difference, so views reading it stay current.
+/// The context keeps one per staged record. Staging the record again updates the same
+/// difference, so anything observing it stays current. Only its `Change` is public.
 @MainActor
 @Observable
 public final class RecordDifference {
-    /// What is to happen to a record when the context saves.
-    public enum Change {
-        /// The record is saved: added if new, or replacing the saved copy.
-        case insert(any Record)
+    /// What is to happen to a staged record when its context saves.
+    public enum Change: Hashable, Sendable, Identifiable {
+        /// The record is saved: added if new, or updated where it was edited.
+        case insert(UUID)
         /// The record is deleted with the links it owns.
-        case delete(any Record)
+        case delete(UUID)
 
         /// The record's ID.
-        public var id: UUID { record.id }
-
-        /// The record the change carries.
-        public var record: any Record {
+        public var id: UUID {
             switch self {
-            case .insert(let record), .delete(let record): record
+            case .insert(let id), .delete(let id): id
             }
         }
     }
 
-    /// What is to happen.
-    public internal(set) var change: Change
-    /// The saved record when this record was first staged, or `nil` when none was saved. `save()`
-    /// writes only the fields and links that differ from it, so a change made elsewhere since
-    /// to anything the draft didn't touch survives.
-    public let original: (any Record)?
+    /// The record's ID.
+    let id: UUID
+    /// What is to happen, or `nil` while the record is only shown and not yet staged.
+    var change: Change?
 
-    init(change: Change, original: (any Record)?) {
-        self.change = change
+    /// The saved record when editing began, or `nil` when none was saved. It never changes, so
+    /// `save()` writes only what the draft changed from it.
+    let original: (any Record)?
+    /// The latest saved record.
+    var saved: (any Record)?
+    /// The record as edited.
+    var draft: (any Record)?
+
+    init(id: UUID, original: (any Record)?, draft: (any Record)? = nil, change: RecordDifference.Change? = nil) {
+        self.id = id
         self.original = original
+        self.saved = original
+        self.draft = draft
+        self.change = change
     }
 
-    /// The record's ID.
-    public var id: UUID { change.id }
+    /// The record as it reads: `saved` with what `draft` changed from `original` laid over it,
+    /// so changes made elsewhere to anything else show. `nil` for a delete. Without an original
+    /// or a saved record, the draft reads whole.
+    var value: (any Record)? { value(over: saved) }
+
+    /// The record as it reads over `saved` instead of the saved record it holds.
+    func value(over saved: (any Record)?) -> (any Record)? {
+        guard !isDelete, let draft else { return nil }
+        guard let original, let saved else { return draft }
+        return Self.merged(draft, over: saved, original: original)
+    }
 }
 
-// What `save()` and reads need, worked out from the change and the original when asked.
+// What `save()` and reads need, worked out from the draft and the original when asked.
 extension RecordDifference {
-    var record: any Record { change.record }
-
     var isDelete: Bool {
         if case .delete = change { true } else { false }
+    }
+
+    /// The draft, which every staged difference has.
+    var record: any Record {
+        guard let draft else { preconditionFailure("A staged difference has no draft") }
+        return draft
     }
 
     var schema: RecordSchema { type(of: record).schema }
@@ -799,7 +794,7 @@ extension RecordDifference {
     /// `original`'s column values, by field key.
     var originalValues: [String: SQLValue]? { original.map { Self.columns(of: $0) } }
 
-    /// The record's links by name, given the saved order key of each target by
+    /// The draft's links by name, given the saved order key of each target by
     /// `source|targetName`.
     func links(_ orders: [String: String]) -> [(String, [String: SQLValue])] {
         Self.linkRows(of: record, orders: orders)
@@ -808,6 +803,42 @@ extension RecordDifference {
     /// `original`'s links, the same way, or `nil` when there is no original.
     func originalLinks(_ orders: [String: String]) -> [(String, [String: SQLValue])]? {
         original.map { Self.linkRows(of: $0, orders: orders) }
+    }
+
+    /// `draft` laid over `saved`: each field and owned link the draft changed from `original`
+    /// replaces the saved one. The `from:` sides, which the record doesn't own, come from
+    /// `saved`. A record of another type, or one that can't be read back, reads as the draft.
+    private static func merged<R: Record>(_ draft: R, over saved: any Record, original: any Record) -> any Record {
+        guard let saved = saved as? R, let original = original as? R else { return draft }
+        var row = columns(of: saved)
+        let originalValues = columns(of: original)
+        for (field, value) in columns(of: draft) where originalValues[field] != value {
+            row[field] = value
+        }
+
+        var links = Dictionary(linkRows(of: saved, orders: [:]), uniquingKeysWith: { first, _ in first })
+        let orders = RecordContext.orders(of: links)
+        let originalLinks = Dictionary(linkRows(of: original, orders: orders), uniquingKeysWith: { first, _ in first })
+        let draftLinks = linkRows(of: draft, orders: orders)
+        let kept = Set(draftLinks.map(\.0))
+        for name in originalLinks.keys where !kept.contains(name) {
+            links[name] = nil
+        }
+        for (name, values) in draftLinks where !RecordContext.matches(originalLinks[name], values) {
+            links[name] = (links[name] ?? [:]).merging(values) { $1 }
+        }
+
+        let zone = Zone.records
+        let record = R.schema.record(from: row, name: draft.id.uuidString, zone: zone)
+        let linkRecords = links.map { name, row in RecordLink.schema.record(from: row, name: name, zone: zone) }
+        guard var merged = try? CKRecordDecoder().decode(R.self, from: record, links: linkRecords, depth: 0) else {
+            return draft
+        }
+        for reference in R.schema.references where reference.isFrom {
+            let ids = saved.referencedIDs(reference.property)
+            try? merged.loadReference(reference.property, to: ids.map { ReferenceTarget(id: $0) }, from: [], links: [], depth: 0)
+        }
+        return merged
     }
 
     private static func columns<R: Record>(of record: R) -> [String: SQLValue] {

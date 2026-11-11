@@ -141,15 +141,12 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     here.insert(kept)
     here.delete(gone)
-    let changes: [RecordDifference] = here.changes
+    let changes: [RecordDifference.Change] = here.changes
+    #expect(changes == [.insert(kept.id), .delete(gone.id)])
     #expect(changes.map(\.id) == [kept.id, gone.id])
-    guard case .insert(let inserted) = changes[0].change, case .delete(let deleted) = changes[1].change else {
-        Issue.record("expected an insert and a delete")
-        return
-    }
-    #expect(inserted.id == kept.id)
-    #expect(deleted.id == gone.id)
-    #expect((changes[0].original as? Novel)?.title == "Kept")
+    let differences = here.differences
+    #expect((differences[0].original as? Novel)?.title == "Kept")
+    #expect(differences[1].value == nil)
 }
 
 /// Staging a record again updates its difference in place, so anything observing it sees the
@@ -164,11 +161,11 @@ private func novel(_ title: String, year: Int) -> Novel {
     var draft = saved
     draft.year = 1972
     here.insert(draft)
-    let difference = try #require(here.changes.first)
+    let difference = try #require(here.differences.first)
 
     let observed = Flag()
     withObservationTracking {
-        _ = difference.change
+        _ = difference.draft
     } onChange: {
         observed.set()
     }
@@ -177,8 +174,9 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     #expect(observed.isSet)
     #expect(here.changes.count == 1)
-    #expect(here.changes.first === difference)
-    #expect((difference.change.record as? Novel)?.year == 1973)
+    #expect(here.differences.first === difference)
+    #expect((difference.draft as? Novel)?.year == 1973)
+    #expect(difference.change == .insert(saved.id))
     #expect((difference.original as? Novel)?.year == 1971)
 }
 
@@ -282,4 +280,42 @@ private final class Flag: @unchecked Sendable {
     private var value = false
     func set() { lock.withLock { value = true } }
     var isSet: Bool { lock.withLock { value } }
+}
+
+/// `value` lays the draft's edits over the latest saved record in memory, so an edit made
+/// elsewhere to another field shows, and the `from:` sides come from the saved record.
+@MainActor
+@Test func valueLaysTheDraftOverTheSavedRecord() throws {
+    let original = novel("Blue", year: 1971)
+    var draft = original
+    draft.year = 1972
+    let difference = RecordDifference(id: original.id, original: original, draft: draft, change: .insert(draft.id))
+    #expect((difference.value as? Novel)?.year == 1972)
+
+    var saved = original
+    saved.title = "Blue (Remastered)"
+    difference.saved = saved
+    let value = try #require(difference.value as? Novel)
+    #expect(value.title == "Blue (Remastered)")
+    #expect(value.year == 1972)
+
+    let writer = Writer(id: UUID(), name: "Ada", bookIDs: [])
+    let savedWriter = Writer(id: writer.id, name: "Ada", bookIDs: [original.id])
+    var draftWriter = writer
+    draftWriter.name = "Ada L."
+    let writerDifference = RecordDifference(id: writer.id, original: writer, draft: draftWriter, change: .insert(writer.id))
+    writerDifference.saved = savedWriter
+    let writerValue = try #require(writerDifference.value as? Writer)
+    #expect(writerValue.name == "Ada L.")
+    #expect(writerValue.bookIDs == [original.id])
+}
+
+/// A difference that is only shown, not staged, isn't listed in `changes`, and a new record
+/// reads as its draft.
+@MainActor
+@Test func aDifferenceWithoutAChangeReadsAsItsDraft() throws {
+    let draft = novel("New", year: 2024)
+    let difference = RecordDifference(id: draft.id, original: nil, draft: draft)
+    #expect(difference.change == nil)
+    #expect((difference.value as? Novel)?.title == "New")
 }
