@@ -46,8 +46,8 @@ public final class RecordContext {
     /// Staged changes by record, in the order they were first staged.
     var staged: [RecordKey: RecordDifference] = [:]
     var stagedOrder: [RecordKey] = []
-    /// Differences handed out but not staged, held weakly so one is dropped once nothing uses it.
-    private var shown: [RecordKey: WeakDifference] = [:]
+    /// Differences handed out but not staged. One is dropped once the context is all that holds it.
+    private var shown: [RecordKey: RecordDifference] = [:]
 
     init(container: RecordContainer) {
         types = container.types
@@ -88,10 +88,10 @@ public final class RecordContext {
         let zone = zone ?? self.zone
         let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
         if let difference = existingDifference(for: key) { return difference }
-        shown = shown.filter { $0.value.difference != nil }
+        dropUnused()
         let original = (try? Self.load(R.self, key: key, in: database)) ?? nil
         let difference = RecordDifference(id: record.id, zone: zone, original: original, draft: original ?? record)
-        shown[key] = WeakDifference(difference)
+        shown[key] = difference
         return difference
     }
 
@@ -104,7 +104,14 @@ public final class RecordContext {
 
     /// The difference already handed out or staged for `key`.
     private func existingDifference(for key: RecordKey) -> RecordDifference? {
-        staged[key] ?? shown[key]?.difference
+        staged[key] ?? shown[key]
+    }
+
+    /// Drops the unstaged differences nothing else holds any more.
+    private func dropUnused() {
+        for key in Array(shown.keys) where isKnownUniquelyReferenced(&shown[key]!) {
+            shown[key] = nil
+        }
     }
 
     /// Puts `difference` among the staged ones, if it isn't already.
@@ -115,13 +122,12 @@ public final class RecordContext {
         stagedOrder.append(key)
     }
 
-    /// Moves every staged difference back to shown, holding it weakly.
+    /// Moves every staged difference back to shown, then drops the ones nothing uses.
     private func unstageAll() {
-        for (key, difference) in staged {
-            shown[key] = WeakDifference(difference)
-        }
+        shown.merge(staged) { current, _ in current }
         staged.removeAll()
         stagedOrder.removeAll()
+        dropUnused()
     }
 
     // MARK: - Staging
@@ -929,8 +935,3 @@ extension RecordDifference {
     }
 }
 
-/// A difference held weakly, so the context drops it once nothing else uses it.
-private struct WeakDifference {
-    weak var difference: RecordDifference?
-    init(_ difference: RecordDifference) { self.difference = difference }
-}

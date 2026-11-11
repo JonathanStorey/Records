@@ -436,7 +436,8 @@ private final class Flag: @unchecked Sendable {
     #expect(here.difference(for: saved) === difference)
 }
 
-/// The context doesn't keep an unstaged difference alive once nothing else holds it.
+/// The context drops an unstaged difference once nothing else holds it, the next time it hands
+/// one out or saves.
 @MainActor
 @Test func anUnusedDifferenceIsReleased() throws {
     let (here, _) = try twoContexts()
@@ -447,5 +448,6 @@ private final class Flag: @unchecked Sendable {
         released = difference
         #expect(released != nil)
     }
+    _ = here.difference(for: novel("Other", year: 2000))
     #expect(released == nil)
 }
