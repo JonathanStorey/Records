@@ -29,8 +29,9 @@ public enum RecordContextError: Error, Equatable, CustomStringConvertible {
 /// Saving writes only the fields and links that differ from the saved copy, so a record saved
 /// again unchanged writes nothing and stays in sync.
 ///
-/// Views observe two properties: `version`, which goes up when saved records change, and
-/// `changes`. Nothing else in the context redraws a view.
+/// Views observe three properties: `lastSaved`, which moves when the saved records change,
+/// and `changes` and `hasChanges`, which move when pending edits begin or end. Nothing else
+/// in the context redraws a view.
 @MainActor
 @Observable
 public final class RecordContext {
@@ -58,9 +59,13 @@ public final class RecordContext {
     /// that edit and keeps its base.
     @ObservationIgnored private var directEdits: [RecordKey: UUID] = [:]
 
-    /// Goes up each time the saved records may have changed: on `save()`, `rollback()` and
-    /// `rollback(id:)`. Reading a record in a view's body reads it too, so the view redraws then.
-    public private(set) var version = 0
+    /// When the saved records this context reads last changed, or `nil` before the first
+    /// change. `save()` sets it. Every read of a record reads it, so a view showing records
+    /// redraws when it moves.
+    public private(set) var lastSaved: Date?
+
+    /// Whether any change is waiting for `save()`, in any zone.
+    public private(set) var hasChanges = false
 
     /// The current `zone`'s pending changes, one per edit, in the order the edits began, such
     /// as `[.update(album.id), .delete(oldAlbum.id)]`. A record edited by two views appears
@@ -76,20 +81,21 @@ public final class RecordContext {
         zone = container.defaultZone
     }
 
-    /// Whether any change is waiting for `save()`, in any zone.
-    public var hasChanges: Bool { !differences.isEmpty }
-
-    /// Sets `changes` from the pending edits, only when they differ, so a view reading it
-    /// redraws only when it changes.
+    /// Sets `changes` and `hasChanges` from the pending edits, each only when it differs, so a
+    /// view reading them redraws only when they change.
     private func updateChanges() {
         editOrder.removeAll { differences[$0] == nil }
         let current = editOrder.compactMap { differences[$0] }.filter { $0.zone == zone }.map(\.change)
         if current != changes { changes = current }
+        if hasChanges == differences.isEmpty { hasChanges = !differences.isEmpty }
     }
 
-    /// Marks the saved records as changed, so every view that read one redraws.
-    private func bump() {
-        version += 1
+    /// Reads what a record's pending edits depend on, so a view reading one redraws when the
+    /// saved records change or a pending edit begins or ends.
+    private func observeDrafts() {
+        _ = lastSaved
+        _ = changes
+        _ = hasChanges
     }
 
     // MARK: - Editing
@@ -152,7 +158,7 @@ public final class RecordContext {
     /// The record with `id` in `zone` as `save()` would write it: the saved record with every
     /// pending edit to it laid over, oldest first, or `nil` when it is missing or deleted.
     func draft<R: Record>(id: UUID, for type: R.Type, in zone: Zone) -> R? {
-        _ = version
+        observeDrafts()
         return draft(id: id, for: type, in: zone, savedFirst: false)
     }
 
@@ -190,23 +196,23 @@ public final class RecordContext {
             try insertNewTargets(of: changes, now: now, in: database)
             try finishDeleting(deleted, now: now, in: database)
         }
-        rollback()
+        differences = [:]
+        directEdits = [:]
+        updateChanges()
+        lastSaved = Date()
     }
 
-    /// Discards every pending edit, and redraws the views showing records.
+    /// Discards every pending edit.
     public func rollback() {
         differences = [:]
         directEdits = [:]
         updateChanges()
-        bump()
     }
 
-    /// Discards every pending edit to the record with `id` in the current `zone`, and redraws
-    /// the views showing records.
+    /// Discards every pending edit to the record with `id` in the current `zone`.
     public func rollback(id: UUID) {
         differences = differences.filter { $0.value.zone != zone || $0.value.recordID != id }
         updateChanges()
-        bump()
     }
 
     /// Removes the links that point at each deleted record, and deletes the records it owned
@@ -344,7 +350,7 @@ public final class RecordContext {
     ///
     /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
     public func record<R: Record>(id: UUID, for type: R.Type = R.self) throws -> R? {
-        _ = version
+        _ = lastSaved
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
         return try Self.load(R.self, key: key, in: database)
@@ -353,7 +359,7 @@ public final class RecordContext {
     /// The saved record with `id` in the current `zone`, whatever its type, or `nil` when there
     /// is none. Finding the type takes one indexed query across every table.
     public func record(id: UUID) throws -> (any Record)? {
-        _ = version
+        _ = lastSaved
         let name = id.uuidString
         let lookup = recordTypeLookup
         let values = Array(repeating: RecordKey(recordType: "", name: name, zone: zone).values, count: lookup.tables).flatMap { $0 }
@@ -370,7 +376,7 @@ public final class RecordContext {
     /// The references named in `relationshipKeyPathsForPrefetching` come back holding their
     /// records, loaded together for every result.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
-        _ = version
+        _ = lastSaved
         checkRegistered(R.self)
         let records = try fetchRecords(descriptor)
         guard !descriptor.relationshipKeyPathsForPrefetching.isEmpty else { return records }
@@ -407,7 +413,7 @@ public final class RecordContext {
 
     /// How many records `fetch(descriptor)` would return.
     public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
-        _ = version
+        _ = lastSaved
         checkRegistered(R.self)
         let plan = self.plan(for: descriptor)
         guard plan.page != nil else { return try fetchRecords(descriptor).count }

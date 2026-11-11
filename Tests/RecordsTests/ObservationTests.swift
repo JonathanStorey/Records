@@ -3,8 +3,8 @@ import Observation
 import Testing
 @testable import Records
 
-// Views redraw from two observed properties of the context: `version`, which every read of a
-// record reads, and `changes`.
+// Views redraw from three observed properties of the context: `lastSaved`, which every read of
+// a record reads, and `changes` and `hasChanges`, which a read of a draft reads too.
 
 /// A flag an observation's change handler can set from any thread.
 private final class Flag: @unchecked Sendable {
@@ -35,21 +35,70 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     return (context, novel)
 }
 
-/// A read of a record redraws on save, rollback, and `rollback(id:)`, and not on an edit.
+/// A draft redraws when an edit begins, on save, on rollback, and on `rollback(id:)`, and not
+/// while an edit is typed into.
 @MainActor
-@Test func readsRedrawOnSaveAndRollback() throws {
+@Test func draftsRedrawWhenEditsBeginOrEnd() throws {
     let (context, novel) = try savedNovel()
     let read = { _ = context.draft(id: novel.id, for: Novel.self, in: .records) }
+    let id = UUID()
     var edited = novel
-    edited.year = 1972
 
-    #expect(!observes(read) { context.edit(id: UUID(), of: novel, in: .records, with: edited) })
+    edited.year = 1972
+    #expect(observes(read) { context.edit(id: id, of: novel, in: .records, with: edited) })
+    edited.year = 1973
+    #expect(!observes(read) { context.edit(id: id, of: novel, in: .records, with: edited) })
     #expect(try observes(read) { try context.save() })
+
+    context.edit(id: UUID(), of: novel, in: .records, with: edited)
     #expect(observes(read) { context.rollback() })
+
+    // One record's edits discarded while another's stay.
+    let other = Novel(
+        id: UUID(), title: "Court and Spark", subtitle: nil, tags: [], year: 1974, note: nil,
+        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+    )
+    context.insert(other)
+    context.edit(id: UUID(), of: novel, in: .records, with: edited)
     #expect(observes(read) { context.rollback(id: novel.id) })
+    #expect(context.hasChanges)
 }
 
-/// Fetches and `record(id:)` read `version` too, so a list redraws when a save changes it.
+/// A rollback of edits in another zone redraws, though `changes` shows only the current zone.
+@MainActor
+@Test func rollingBackAnotherZoneRedraws() throws {
+    let (context, novel) = try savedNovel()
+    context.zone = "Work"
+    context.edit(id: UUID(), of: novel, in: .records, with: novel)
+    #expect(context.changes.isEmpty)
+    #expect(observes({ _ = context.draft(id: novel.id, for: Novel.self, in: .records) }) { context.rollback() })
+}
+
+/// `save()` sets `lastSaved`, and a save with nothing pending leaves it.
+@MainActor
+@Test func saveSetsLastSaved() throws {
+    let (context, novel) = try savedNovel()
+    let saved = try #require(context.lastSaved)
+    #expect(try !observes({ _ = context.lastSaved }) { try context.save() })
+    #expect(context.lastSaved == saved)
+
+    context.insert(novel)
+    try context.save()
+    #expect(try #require(context.lastSaved) >= saved)
+}
+
+/// `hasChanges` changes only when the first edit begins or the last one ends.
+@MainActor
+@Test func hasChangesRedrawsOnlyWhenItFlips() throws {
+    let (context, novel) = try savedNovel()
+    let read = { _ = context.hasChanges }
+    #expect(observes(read) { context.edit(id: UUID(), of: novel, in: .records, with: novel) })
+    #expect(!observes(read) { context.edit(id: UUID(), of: novel, in: .records, with: novel) })
+    #expect(observes(read) { context.rollback() })
+    #expect(!context.hasChanges)
+}
+
+/// Fetches and `record(id:)` read `lastSaved`, so a list redraws when a save changes it.
 @MainActor
 @Test func fetchesRedrawOnSave() throws {
     let (context, novel) = try savedNovel()
@@ -110,7 +159,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     context.zone = "Work"
     context.insert(novel)
     context.zone = .records
-    #expect(!observes({ _ = context.changes; _ = context.version }) {
+    #expect(!observes({ _ = context.changes; _ = context.hasChanges; _ = context.lastSaved }) {
         _ = context.expanded(novel, [\Novel.writers], in: "Work")
     })
     #expect(context.zone == .records)
