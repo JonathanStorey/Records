@@ -494,6 +494,21 @@ Swift has to check part of the predicate, fetch loads the records the paths reac
 those, with staged changes laid over them. The records it returns still hold IDs. Everything
 else, such as `contains` on a string or a computed property, is checked in Swift on the rows read. Either way the results are the same.
 
+Fetched references hold IDs. To get records instead, name the references to load with the
+results, as with SwiftData:
+
+```swift
+var descriptor = RecordDescriptor<Album>(sortBy: [SortDescriptor(\.year)])
+descriptor.relationshipKeyPathsForPrefetching = [\Album.artist, \Album.tracks]
+let albums = try context.fetch(descriptor)   // albums[0].artist?.name is loaded
+```
+
+Each key path names a reference on its own type, so naming references on the loaded types goes
+deeper. `[\Review.album, \Album.artist]` loads each review's album and each album's artist, and
+`[\Album.tracks, \Track.composer]` works through a to-many reference the same way. References
+not named hold IDs. The targets are read together, one query per type per level, with staged
+changes laid over them.
+
 When the whole predicate runs in the database and every sort is by a number or a date, the
 database also sorts and applies `fetchLimit` and `fetchOffset`, so only the records returned are
 read. `fetchCount` then counts without reading any. Staged changes to the type, a string sort, or

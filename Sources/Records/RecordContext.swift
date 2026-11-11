@@ -201,8 +201,18 @@ public final class RecordContext {
     /// The records of `R` in the current `zone` that match `descriptor`, sorted and limited as it
     /// says. Staged changes count: a staged insert is the latest saved record with the draft's
     /// edits laid over it, and a staged delete leaves its record out. References hold their targets' IDs.
+    ///
+    /// The references named in `relationshipKeyPathsForPrefetching` come back holding their
+    /// records, loaded together for every result.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         checkRegistered(R.self)
+        let records = try fetchRecords(descriptor)
+        guard !descriptor.relationshipKeyPathsForPrefetching.isEmpty else { return records }
+        return try prefetch(descriptor.relationshipKeyPathsForPrefetching, into: records)
+    }
+
+    /// `fetch(descriptor)` without prefetching.
+    private func fetchRecords<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         let plan = self.plan(for: descriptor)
         if let page = plan.page {
             // The database sorts and limits exactly as Swift would.
@@ -244,7 +254,7 @@ public final class RecordContext {
     public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
         checkRegistered(R.self)
         let plan = self.plan(for: descriptor)
-        guard plan.page != nil else { return try fetch(descriptor).count }
+        guard plan.page != nil else { return try fetchRecords(descriptor).count }
         // The database counts the matches without reading them.
         let (matching, values) = Self.matching(zone: zone, filter: plan.filter)
         let rows = try database.rows(
