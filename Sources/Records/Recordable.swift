@@ -164,12 +164,13 @@ final class RecordableStorage<Value> {
         }
         set {
             let newRecord = newValue as? any Record
-            guard let context, let difference else {
+            guard context != nil, let difference else {
                 if let newRecord { record = newRecord }
                 return
             }
+            // The difference is the context's own while this holds it, so setting its change
+            // is all it takes to stage it.
             guard let newRecord else {
-                // The difference is already the context's, so setting its change stages it.
                 if difference.original == nil {
                     // Never saved, so there is nothing to delete: drop the record and any insert.
                     difference.draft = nil
@@ -180,7 +181,7 @@ final class RecordableStorage<Value> {
                 return
             }
             difference.draft = newRecord
-            context.didEdit(difference)
+            difference.change = .insert(difference.id)
         }
     }
 }

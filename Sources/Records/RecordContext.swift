@@ -101,12 +101,6 @@ public final class RecordContext {
         return difference
     }
 
-    /// Called after `difference`'s draft was edited: makes its change an insert of its draft.
-    func didEdit(_ difference: RecordDifference) {
-        difference.change = .insert(difference.id)
-        differences[difference.key] = difference
-    }
-
     /// Drops the differences without a change that nothing else holds any more.
     private func dropUnused() {
         for key in Array(differences.keys)
