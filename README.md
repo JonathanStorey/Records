@@ -488,11 +488,12 @@ Reading `album` shows the saved record with every pending edit to it. Each chang
 in the context, and nothing is written until you call `context.save()`. `rollback()` returns
 every `@Recordable` to its saved record.
 
-The context is `@Observable`, and views watch two of its properties. `version` goes up on
-`save()`, `rollback()` and `rollback(id:)`, and every read of a record reads it, so each view
-showing a record, or a list built with `fetch`, redraws then. An edit redraws only the view that
-made it. `changes` moves only when an edit begins, turns into a delete or ends, so a Save button
-that reads `hasChanges` doesn't redraw while you type.
+The context is `@Observable`, and views watch three of its properties. `lastSaved` is when the
+saved records last changed: `save()` sets it, and every read of a record reads it, so each view
+showing a record, or a list built with `fetch`, redraws then. Use it for a "Saved 2 minutes ago"
+label too. `changes` and `hasChanges` move only when an edit begins, turns into a delete, or
+ends, so a Save button that reads `hasChanges` redraws on the first edit and on save, not while
+you type. A `@Recordable` reads all three.
 
 Each `@Recordable` is one edit, named by its own `id`: `_album.id` names the edit, and
 `album.id` the record. Two views editing one record each save only the fields they changed, so
