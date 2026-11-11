@@ -158,6 +158,15 @@ private func same(_ lhs: Any?, _ rhs: Any?) -> Bool {
     case (.none, .none):
         return true
     case let (lhs as CLLocation, rhs as CLLocation):
+        let details: [(String, Any, Any)] = [
+            ("lat", lhs.coordinate.latitude, rhs.coordinate.latitude), ("lon", lhs.coordinate.longitude, rhs.coordinate.longitude),
+            ("alt", lhs.altitude, rhs.altitude), ("hacc", lhs.horizontalAccuracy, rhs.horizontalAccuracy),
+            ("vacc", lhs.verticalAccuracy, rhs.verticalAccuracy), ("course", lhs.course, rhs.course),
+            ("courseAcc", lhs.courseAccuracy, rhs.courseAccuracy), ("speed", lhs.speed, rhs.speed),
+            ("speedAcc", lhs.speedAccuracy, rhs.speedAccuracy), ("time", lhs.timestamp.timeIntervalSince1970, rhs.timestamp.timeIntervalSince1970),
+            ("ellAlt", lhs.ellipsoidalAltitude, rhs.ellipsoidalAltitude),
+        ]
+        print("RecordMatch location", details.map { "\($0.0)=\($0.1)/\($0.2)" }.joined(separator: " "))
         return lhs.coordinate.latitude == rhs.coordinate.latitude
             && lhs.coordinate.longitude == rhs.coordinate.longitude
             && lhs.altitude == rhs.altitude
