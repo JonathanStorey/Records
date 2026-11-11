@@ -319,3 +319,26 @@ private final class Flag: @unchecked Sendable {
     #expect(difference.change == nil)
     #expect((difference.value as? Novel)?.title == "New")
 }
+
+/// `difference(id:)` finds the staged difference in the current zone, the same object each time.
+@MainActor
+@Test func differenceFindsTheStagedRecord() throws {
+    let (here, _) = try twoContexts()
+    let staged = novel("Blue", year: 1971)
+    #expect(here.difference(id: staged.id) == nil)
+
+    here.insert(staged)
+    let difference = try #require(here.difference(id: staged.id))
+    #expect(difference.change == .insert(staged.id))
+    #expect(here.difference(id: staged.id) === difference)
+
+    here.delete(staged)
+    #expect(here.difference(id: staged.id) === difference)
+    #expect(difference.change == .delete(staged.id))
+
+    here.zone = "Work"
+    #expect(here.difference(id: staged.id) == nil)
+    here.zone = .records
+    try here.save()
+    #expect(here.difference(id: staged.id) == nil)
+}
