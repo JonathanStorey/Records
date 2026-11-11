@@ -164,3 +164,94 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     })
     #expect(context.zone == .records)
 }
+
+// MARK: - Changes from another context
+
+@MainActor
+private func twoContexts() throws -> (RecordContext, RecordContext, Novel) {
+    let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
+    let here = container.mainContext
+    let novel = Novel(
+        id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
+        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+    )
+    here.insert(novel)
+    try here.save()
+    return (here, RecordContext(container: container), novel)
+}
+
+/// A save in one context moves the other's `lastSaved`, so its views redraw.
+@MainActor
+@Test func aSaveRedrawsTheOtherContexts() throws {
+    let (here, elsewhere, novel) = try twoContexts()
+    var remote = novel
+    remote.title = "Blue (Remastered)"
+    elsewhere.insert(remote)
+    #expect(try observes({ _ = here.draft(id: novel.id, for: Novel.self, in: .records) }) { try elsewhere.save() })
+    #expect(here.draft(id: novel.id, for: Novel.self, in: .records)?.title == "Blue (Remastered)")
+}
+
+/// Rebasing moves an edit onto the record as saved now, so a field changed again elsewhere
+/// after the edit began isn't overwritten by the value the edit started from.
+@MainActor
+@Test func rebasingKeepsLaterChangesMadeElsewhere() throws {
+    let (here, elsewhere, novel) = try twoContexts()
+    func remoteTitle(_ title: String) throws {
+        var remote = try #require(try elsewhere.record(id: novel.id, for: Novel.self))
+        remote.title = title
+        elsewhere.insert(remote)
+        try elsewhere.save()
+    }
+
+    try remoteTitle("Blue (Remastered)")
+    // An editor's edit starts from the draft, which shows the first remote title.
+    let id = UUID()
+    var edited = try #require(here.draft(id: novel.id, for: Novel.self, in: .records))
+    edited.year = 1972
+    here.edit(id: id, of: novel, in: .records, with: edited)
+    try remoteTitle("Blue (Final)")
+    #expect((here.differences[id]?.base as? Novel)?.title == "Blue (Final)")
+
+    try here.save()
+    let read = try #require(try here.record(id: novel.id, for: Novel.self))
+    #expect(read.title == "Blue (Final)")
+    #expect(read.year == 1972)
+}
+
+/// An edit to a record deleted elsewhere becomes an insert, and a delete of it is dropped.
+@MainActor
+@Test func rebasingOntoADeleteRevivesEditsAndDropsDeletes() throws {
+    let (here, elsewhere, novel) = try twoContexts()
+    var edited = novel
+    edited.year = 1972
+    let editID = UUID()
+    let deleteID = UUID()
+    here.edit(id: editID, of: novel, in: .records, with: edited)
+    here.edit(id: deleteID, of: novel, in: .records, with: nil)
+    #expect(here.changes == [.update(novel.id), .delete(novel.id)])
+
+    elsewhere.delete(novel)
+    try elsewhere.save()
+    #expect(here.changes == [.insert(novel.id)])
+    #expect(here.differences[deleteID] == nil)
+
+    try here.save()
+    #expect(try here.record(id: novel.id, for: Novel.self)?.year == 1972)
+}
+
+/// A context the app no longer holds is released, and the next save goes on without it.
+@MainActor
+@Test func aReleasedContextIsLeftOut() throws {
+    let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
+    weak var released: RecordContext?
+    do {
+        let context = RecordContext(container: container)
+        released = context
+    }
+    #expect(released == nil)
+    container.mainContext.insert(Novel(
+        id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
+        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+    ))
+    try container.mainContext.save()
+}

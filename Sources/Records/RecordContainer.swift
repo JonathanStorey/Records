@@ -70,6 +70,9 @@ public final class RecordContainer: Sendable {
     public let defaultZone: Zone
     /// Created the first time `mainContext` is read, and only read and written on the main actor.
     nonisolated(unsafe) private var mainContextStorage: RecordContext?
+    /// Every context made from this container, held weakly so a context goes when nothing else
+    /// uses it. Only read and written on the main actor.
+    nonisolated(unsafe) private var contexts: [WeakContext] = []
 
     /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
     /// database in that group's shared folder, so the app's extensions and widgets can open it
@@ -112,6 +115,21 @@ public final class RecordContainer: Sendable {
         let context = RecordContext(container: self)
         mainContextStorage = context
         return context
+    }
+
+    /// Keeps `context` in the list that `didSave(from:)` refreshes.
+    @MainActor func add(_ context: RecordContext) {
+        contexts.removeAll { $0.context == nil }
+        contexts.append(WeakContext(context: context))
+    }
+
+    /// Rebases every other context after `context` saved, so their pending edits sit on the
+    /// records as now saved and their views redraw.
+    @MainActor func didSave(from context: RecordContext) {
+        contexts.removeAll { $0.context == nil }
+        for other in contexts.compactMap(\.context) where other !== context {
+            other.rebase()
+        }
     }
 
     /// The record types this container stores, sorted.
@@ -158,4 +176,9 @@ public final class RecordContainer: Sendable {
             }
         }
     }
+}
+
+/// A context the container refers to without keeping it.
+private struct WeakContext {
+    weak var context: RecordContext?
 }

@@ -49,6 +49,9 @@ public final class RecordContext {
     }
     /// The container's `defaultZone`, which `@Recordable` edits in when it isn't given a zone.
     @ObservationIgnored let defaultZone: Zone
+    /// The container, which refreshes its other contexts after this one saves. Weak, so the
+    /// container and its main context don't keep each other alive.
+    @ObservationIgnored private weak var container: RecordContainer?
 
     /// The pending edits, by each edit's `id`. A record can have several: one per `@Recordable`
     /// that edited it, and one per direct `insert` or `delete`.
@@ -60,8 +63,8 @@ public final class RecordContext {
     @ObservationIgnored private var directEdits: [RecordKey: UUID] = [:]
 
     /// When the saved records this context reads last changed, or `nil` before the first
-    /// change. `save()` sets it. Every read of a record reads it, so a view showing records
-    /// redraws when it moves.
+    /// change. `save()` sets it, and so does a save in another context of the same container.
+    /// Every read of a record reads it, so a view showing records redraws when it moves.
     public private(set) var lastSaved: Date?
 
     /// Whether any change is waiting for `save()`, in any zone.
@@ -79,6 +82,8 @@ public final class RecordContext {
         database = container.database
         defaultZone = container.defaultZone
         zone = container.defaultZone
+        self.container = container
+        container.add(self)
     }
 
     /// Sets `changes` and `hasChanges` from the pending edits, each only when it differs, so a
@@ -200,6 +205,33 @@ public final class RecordContext {
         directEdits = [:]
         updateChanges()
         lastSaved = Date()
+        container?.didSave(from: self)
+    }
+
+    /// Moves every pending edit onto its record as saved now, then redraws the views showing
+    /// records. Call it after the saved records change from outside this context: the container
+    /// does after another context saves, and sync does after it writes the server's changes.
+    ///
+    /// Each edit keeps the fields and links it changed and takes everything else from the
+    /// record as saved now. An edit to a record deleted elsewhere becomes an insert, so editing
+    /// brings the record back. A delete of a record already deleted is dropped.
+    ///
+    /// The edits `insert` and `delete` make keep their base. Their caller may insert again a
+    /// copy made before the change, and the first base is what keeps that copy from undoing it.
+    func rebase() {
+        let direct = Set(directEdits.values)
+        for (id, var difference) in differences where !direct.contains(id) {
+            difference.rebase(onto: saved(like: difference.record, in: difference.zone))
+            differences[id] = difference.base == nil && difference.edit == nil ? nil : difference
+        }
+        updateChanges()
+        lastSaved = Date()
+    }
+
+    /// The saved record `record` names in `zone`, or `nil` when it is missing or deleted.
+    private func saved<R: Record>(like record: R, in zone: Zone) -> R? {
+        let key = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
+        return (try? Self.load(R.self, key: key, in: database)) ?? nil
     }
 
     /// Discards every pending edit.
