@@ -82,6 +82,30 @@ public struct FieldCoding<Value> {
         }
         return value
     }
+
+    // MARK: Rows
+
+    /// The value of the column `key`.
+    public func decode(_ key: String, from row: RecordRow) throws -> Value {
+        guard let value = try decodeIfPresent(key, from: row) else {
+            throw CKRecordDecodingError.missingField(key)
+        }
+        return value
+    }
+
+    /// The value of the column `key`, or `nil` when it is `NULL`.
+    public func decodeIfPresent(_ key: String, from row: RecordRow) throws -> Value? {
+        guard let stored = row.values[key], stored != .null else { return nil }
+        guard let value = kind.recordValue(stored).flatMap({ read($0) }) else {
+            throw CKRecordDecodingError.typeMismatch(field: key)
+        }
+        return value
+    }
+
+    /// Writes `value` to the column `key`. `nil` writes `NULL`.
+    public func encode(_ value: Value?, into row: inout RecordRow, forKey key: String) {
+        row.values[key] = kind.sqlValue(self.value(value))
+    }
 }
 
 private extension JSONEncoder {

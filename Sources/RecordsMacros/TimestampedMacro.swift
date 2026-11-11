@@ -15,6 +15,14 @@ public struct TimestampedMacro: AccessorMacro, PeerMacro {
     enum Kind: String {
         case created, modified
 
+        /// The `RecordRow` property that holds the date.
+        var rowProperty: String {
+            switch self {
+            case .created: "createdAt"
+            case .modified: "modifiedAt"
+            }
+        }
+
         /// The `CKRecord` property that holds the date.
         var recordProperty: String {
             switch self {

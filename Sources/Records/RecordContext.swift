@@ -611,10 +611,12 @@ extension RecordDifference {
             links[name] = (links[name] ?? [:]).merging(values) { $1 }
         }
 
-        let zone = Zone.records
-        let record = R.schema.record(from: row, name: draft.id.uuidString, zone: zone)
-        let linkRecords = links.map { name, row in RecordLink.schema.record(from: row, name: name, zone: zone) }
-        guard var merged = try? CKRecordDecoder().decode(R.self, from: record, links: linkRecords, depth: 0) else {
+        row["_name"] = .text(draft.id.uuidString)
+        let linkRecords = links.map { name, row in RecordLink.schema.record(from: row, name: name, zone: .records) }
+        guard var merged = try? R(from: RecordRow(row)) else { return draft }
+        do {
+            try CKRecordDecoder().load(&merged, links: linkRecords, depth: 0)
+        } catch {
             return draft
         }
         let fromSides = Set(R.schema.references.filter(\.isFrom).map(\.property))
@@ -627,14 +629,13 @@ extension RecordDifference {
         return merged
     }
 
-    private static func columns<R: Record>(of record: R) -> [String: SQLValue] {
-        Dictionary(uniqueKeysWithValues: zip(R.schema.fields.map(\.key), record.columnValues()))
+    private static func columns(of record: some Record) -> [String: SQLValue] {
+        record.columnValues()
     }
 
     private static func linkRows<R: Record>(of record: R, orders: [String: String]) -> [(String, [String: SQLValue])] {
-        let linkKeys = RecordLink.schema.fields.map(\.key)
-        return record.links(orders: orders).map { link in
-            (link.id.uuidString, Dictionary(uniqueKeysWithValues: zip(linkKeys, link.columnValues())))
+        record.links(orders: orders).map { link in
+            (link.id.uuidString, link.columnValues())
         }
     }
 }

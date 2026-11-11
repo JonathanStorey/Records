@@ -84,6 +84,19 @@ final class RecordMacroTests: XCTestCase {
                     record["rating"] = Records.FieldCoding((Int).self).value(self.rating)
                     record["tags"] = Records.FieldCoding(([String]).self).value(self.tags)
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.title = try Records.FieldCoding((String).self).decode("title", from: row)
+                    self.isPinned = try Records.FieldCoding((Bool).self).decode("isPinned", from: row)
+                    self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)
+                    self.tags = try Records.FieldCoding(([String]).self).decodeIfPresent("tags", from: row) ?? []
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((String).self).encode(self.title, into: &row, forKey: "title")
+                    Records.FieldCoding((Bool).self).encode(self.isPinned, into: &row, forKey: "isPinned")
+                    Records.FieldCoding((Int).self).encode(self.rating, into: &row, forKey: "rating")
+                    Records.FieldCoding(([String]).self).encode(self.tags, into: &row, forKey: "tags")
+                }
             }
             """,
             macroSpecs: macroSpecs
@@ -129,6 +142,13 @@ final class RecordMacroTests: XCTestCase {
                 }
                 public func encodeFields(into record: CKRecord) {
                     record["default"] = Records.FieldCoding((Bool).self).value(self.`default`)
+                }
+                public init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.`default` = try Records.FieldCoding((Bool).self).decode("default", from: row)
+                }
+                public func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((Bool).self).encode(self.`default`, into: &row, forKey: "default")
                 }
             }
             """,
@@ -177,6 +197,13 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeFields(into record: CKRecord) {
                     record["value"] = Records.FieldCoding((Value).self).value(self.value)
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.value = try Records.FieldCoding((Value).self).decodeIfPresent("value", from: row)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((Value).self).encode(self.value, into: &row, forKey: "value")
                 }
             }
             """,
@@ -430,6 +457,14 @@ final class RecordMacroTests: XCTestCase {
                 func encodeFields(into record: CKRecord) {
                     record["title"] = Records.FieldCoding((String).self).value(self.title)
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.title = try Records.FieldCoding((String).self).decode("title", from: row)
+                    self._author = Records.ToOne(id: nil)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((String).self).encode(self.title, into: &row, forKey: "title")
+                }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
                         "author": (self._author.ids, self._author.loadedRecords),
@@ -610,6 +645,13 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeFields(into record: CKRecord) {
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._tags = Records.ToMany(ids: [])
+                    self._pinnedIDs = Records.ToMany(ids: [])
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
                         "tags": (self._tags.ids, self._tags.loadedRecords),
@@ -683,6 +725,12 @@ final class RecordMacroTests: XCTestCase {
                     self._authorID = Records.ToOne(id: nil)
                 }
                 func encodeFields(into record: CKRecord) {
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._authorID = Records.ToOne(id: nil)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
@@ -928,6 +976,12 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeFields(into record: CKRecord) {
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._profile = Records.ToOne(id: nil)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
                         "profile": (self._profile.ids, self._profile.loadedRecords),
@@ -1009,6 +1063,13 @@ final class RecordMacroTests: XCTestCase {
                     self._accountID = Records.ToOne(id: nil)
                 }
                 func encodeFields(into record: CKRecord) {
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._userID = Records.ToOne(id: nil)
+                    self._accountID = Records.ToOne(id: nil)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
@@ -1163,6 +1224,13 @@ final class RecordMacroTests: XCTestCase {
                     self._crateIDs = Records.ToMany(ids: [])
                 }
                 func encodeFields(into record: CKRecord) {
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._bookIDs = Records.ToMany(ids: [])
+                    self._crateIDs = Records.ToMany(ids: [])
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
@@ -1370,6 +1438,17 @@ final class RecordMacroTests: XCTestCase {
                     record["last"] = Records.FieldCoding((String).self).value(self.last)
                     record["rating"] = Records.FieldCoding((Int).self).value(self.rating)
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.first = try Records.FieldCoding((String).self).decode("first", from: row)
+                    self.last = try Records.FieldCoding((String).self).decode("last", from: row)
+                    self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((String).self).encode(self.first, into: &row, forKey: "first")
+                    Records.FieldCoding((String).self).encode(self.last, into: &row, forKey: "last")
+                    Records.FieldCoding((Int).self).encode(self.rating, into: &row, forKey: "rating")
+                }
             }
             """,
             macroSpecs: macroSpecs
@@ -1427,6 +1506,17 @@ final class RecordMacroTests: XCTestCase {
                     record["name"] = Records.FieldCoding((String).self).value(self.name)
                     record.encryptedValues["note"] = Records.FieldCoding((String).self).value(self.note)
                     record.encryptedValues["pin"] = Records.FieldCoding((Int).self).value(self.pin)
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.name = try Records.FieldCoding((String).self).decode("name", from: row)
+                    self.note = try Records.FieldCoding((String).self).decodeIfPresent("note", from: row)
+                    self.pin = try Records.FieldCoding((Int).self).decode("pin", from: row)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((String).self).encode(self.name, into: &row, forKey: "name")
+                    Records.FieldCoding((String).self).encode(self.note, into: &row, forKey: "note")
+                    Records.FieldCoding((Int).self).encode(self.pin, into: &row, forKey: "pin")
                 }
             }
             """,
@@ -1582,6 +1672,13 @@ final class RecordMacroTests: XCTestCase {
                     self._thumbnail = Records.AssetField(id: nil, file: nil)
                 }
                 func encodeFields(into record: CKRecord) {
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._image = Records.AssetField(id: nil, file: nil)
+                    self._thumbnail = Records.AssetField(id: nil, file: nil)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var assetStates: [Records.AssetState] {
                     [
@@ -1765,6 +1862,15 @@ final class RecordMacroTests: XCTestCase {
                     record.encryptedValues["venue"] = self._venue.location
                     record.encryptedValues["home"] = self._home.location
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._venue = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("venue", from: row))
+                    self._home = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("home", from: row))
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((Records.LocationField.Stored).self).encode(self._venue.location, into: &row, forKey: "venue")
+                    Records.FieldCoding((Records.LocationField.Stored).self).encode(self._home.location, into: &row, forKey: "home")
+                }
             }
             """,
             macroSpecs: macroSpecs
@@ -1847,6 +1953,13 @@ final class RecordMacroTests: XCTestCase {
                     self._modifiedAt.load(record.modificationDate)
                 }
                 func encodeFields(into record: CKRecord) {
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._createdAt.load(row.createdAt)
+                    self._modifiedAt.load(row.modifiedAt)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
                 }
             }
             """,
@@ -1941,6 +2054,13 @@ final class RecordMacroTests: XCTestCase {
                 }
                 func encodeFields(into record: CKRecord) {
                     record["released"] = Records.FieldCoding((Int).self).value(self.year)
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.year = try Records.FieldCoding((Int).self).decode("released", from: row)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((Int).self).encode(self.year, into: &row, forKey: "released")
                 }
             }
             """,
@@ -2399,6 +2519,15 @@ final class RecordMacroTests: XCTestCase {
                 func encodeFields(into record: CKRecord) {
                     record["title"] = Records.FieldCoding((String).self).value(self.title)
                     record["rating"] = Records.FieldCoding((Int).self).value(self.rating)
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self.title = try Records.FieldCoding((String).self).decode("title", from: row)
+                    self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((String).self).encode(self.title, into: &row, forKey: "title")
+                    Records.FieldCoding((Int).self).encode(self.rating, into: &row, forKey: "rating")
                 }
                 private enum _RecordCodingKeys: String, CodingKey {
                     case `id`
