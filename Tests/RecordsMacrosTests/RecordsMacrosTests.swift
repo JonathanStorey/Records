@@ -629,7 +629,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference holds records, e.g. 'var author: Person?'; read the ID with 'referenceID(at:)'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference holds records, e.g. 'var author: Person?', and '$author.id' reads its ID", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
