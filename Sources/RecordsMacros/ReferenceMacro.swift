@@ -7,8 +7,9 @@ import SwiftSyntaxMacros
 /// `@Reference(from: \Album.tracks) var albumID: UUID?`.
 ///
 /// Turns the property into a computed one backed by a `Records.ToOne` or `Records.ToMany` named
-/// with a leading underscore. The storage keeps the current targets and, on the owning side, the
-/// loaded records. An init accessor keeps the property in the memberwise initializer.
+/// `$` and the property's name, such as `$author`. It keeps the current targets and, on the owning
+/// side, the loaded records, so `$author.id` reads the ID when the record isn't loaded. An init
+/// accessor keeps the property in the memberwise initializer.
 ///
 /// Only the peer role reports problems, so each one is reported once. The accessor role adds
 /// nothing to a property it cannot handle.
@@ -73,7 +74,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         }
         let reference = try reference(variable, attribute: node, owner: owner(in: context))
         let storageType = "Records.\(reference.isToMany ? "ToMany" : "ToOne")<\(reference.target)>"
-        return ["var \(raw: reference.storage): \(raw: storageType)"]
+        return ["\(raw: RecordMacro.accessLevel(of: variable))var \(raw: reference.storage): \(raw: storageType)"]
     }
 
     /// A valid to-one `@Reference` property.
@@ -97,8 +98,8 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         /// that orders the records each time the property is read.
         var sort: String? = nil
 
-        /// The generated storage property, such as `_author`.
-        var storage: String { "_" + key }
+        /// The generated storage property, such as `$author`.
+        var storage: String { "$" + key }
     }
 
     /// Checks the property's shape and reads its target type.
@@ -220,10 +221,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         if deleteSelf, isToMany {
             throw MacroExpansionErrorMessage("'deleteSelf:' needs a to-one @Reference(from:) property")
         }
-        // The owning side holds records. `referenceID(at:)` reads the ID without loading one.
+        // The owning side holds records. `$name.id` reads the ID without loading one.
         if holdsIDs, !isFrom {
             throw MacroExpansionErrorMessage(
-                "@Reference holds records, e.g. 'var author: Person?'; read the ID with 'referenceID(at:)'"
+                "@Reference holds records, e.g. 'var author: Person?'; read the ID with '$\(key).id'"
             )
         }
 

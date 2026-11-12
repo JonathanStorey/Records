@@ -65,7 +65,7 @@ private func label(_ name: String) -> Label {
     let (aID, bID) = (UUID(), UUID())
     let a = Employee(id: aID, name: "A", manager: Employee(id: bID, name: "B", manager: nil))
     var b = Employee(id: bID, name: "B", manager: nil)
-    b._manager.id = aID
+    b.$manager.id = aID
     let links = encoder.links(for: a, in: .records) + encoder.links(for: b, in: .records)
     let records = [a, b].map { encoder.encode($0, in: .records) }
 
@@ -74,5 +74,5 @@ private func label(_ name: String) -> Label {
     #expect(decoded.manager?.manager?.name == "A")
     #expect(decoded.manager?.manager?.manager?.name == "B")
     #expect(decoded.manager?.manager?.manager?.manager == nil)
-    #expect(decoded.manager?.manager?.manager?.referenceID(at: \.manager) == aID)
+    #expect(decoded.manager?.manager?.manager?.$manager.id == aID)
 }

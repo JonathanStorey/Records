@@ -36,11 +36,11 @@ private func savedArticle(
     let ada = Person(id: UUID(), name: "Ada")
     var article = Article(id: UUID(), title: "Notes", author: ada, editor: nil)
     #expect(article.author == ada)
-    #expect(article._author.id == ada.id)
+    #expect(article.$author.id == ada.id)
 
     article.author = nil
     #expect(article.author == nil)
-    #expect(article._author.id == nil)
+    #expect(article.$author.id == nil)
 }
 
 @Test func recordCanReferToItsOwnType() throws {
@@ -68,7 +68,7 @@ private func savedArticle(
 
     let withoutTarget = try decoder.decode(Employee.self, from: record, links: links)
     #expect(withoutTarget.manager == nil)
-    #expect(withoutTarget._manager.id == boss.id)
+    #expect(withoutTarget.$manager.id == boss.id)
     #expect(withoutTarget == employee)
 }
 
@@ -130,12 +130,12 @@ private func savedArticle(
 
     let bare = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 0)
     #expect(bare.manager == nil)
-    #expect(bare.referenceID(at: \.manager) == boss.id)
+    #expect(bare.$manager.id == boss.id)
 
     let one = try decoder.decode(Employee.self, from: records[0], links: links, targets: records)
     #expect(one.manager?.name == "Grace")
     #expect(one.manager?.manager == nil)
-    #expect(one.manager?.referenceID(at: \.manager) == top.id)
+    #expect(one.manager?.$manager.id == top.id)
 
     let two = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 2)
     #expect(two.manager?.manager?.name == "Linus")
@@ -154,7 +154,7 @@ private func savedArticle(
     let links = encoder.links(for: article, in: .records)
     let decoded = try decoder.decode(Article.self, from: encoder.encode(article, in: .records), links: links)
     #expect(decoded.author == nil)
-    #expect(decoded._author.id == ada.id)
+    #expect(decoded.$author.id == ada.id)
     #expect(encoder.changes(for: decoded, from: links).isEmpty)
 }
 
@@ -165,17 +165,17 @@ private func savedArticle(
         Article.self, from: encoder.encode(article, in: .records),
         links: encoder.links(for: other, in: .records)
     )
-    #expect(decoded._author.id == nil)
-    #expect(decoded._editor.id == nil)
+    #expect(decoded.$author.id == nil)
+    #expect(decoded.$editor.id == nil)
 }
 
-@Test func referenceIDsReadByKeyPath() {
+@Test func dollarNameReadsTheIDs() {
     let shelf = Shelf(id: UUID(), name: "Fiction", bookIDs: [])
     let book = Book(id: UUID(), title: "Dune", shelf: shelf)
     let songs = ["Intro", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
     let release = Release(id: UUID(), tracks: songs)
 
-    #expect(book.referenceID(at: \.shelf) == shelf.id)
-    #expect(Book(id: UUID(), title: "Emma", shelf: nil).referenceID(at: \.shelf) == nil)
-    #expect(release.referenceIDs(at: \.tracks) == songs.map(\.id))
+    #expect(book.$shelf.id == shelf.id)
+    #expect(Book(id: UUID(), title: "Emma", shelf: nil).$shelf.id == nil)
+    #expect(release.$tracks.ids == songs.map(\.id))
 }

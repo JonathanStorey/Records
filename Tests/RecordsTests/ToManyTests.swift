@@ -43,7 +43,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     let items = labels("a", "b", "c")
     var page = Page(id: UUID(), title: "Notes", labels: items)
     #expect(page.labels == items)
-    #expect(page._labels.ids == items.map(\.id))
+    #expect(page.$labels.ids == items.map(\.id))
 
     page.labels.removeFirst()
     #expect(page.labels == Array(items.dropFirst()))
@@ -64,7 +64,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
     let added = Label(id: UUID(), name: "c")
     decoded.labels.append(added)
-    #expect(decoded._labels.ids == items.map(\.id) + [added.id])
+    #expect(decoded.$labels.ids == items.map(\.id) + [added.id])
     #expect(encoder.changes(for: decoded, from: links).saves.count == 1)
 }
 

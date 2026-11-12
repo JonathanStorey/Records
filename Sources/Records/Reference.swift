@@ -49,14 +49,14 @@ public struct ReferenceState {
 
 // MARK: - To one
 
-/// Storage behind a to-one `@Reference` property. `@Reference` generates it, named with a
-/// leading underscore, so code never needs to touch it.
+/// A to-one `@Reference` itself, which `$author` gives for `@Reference var author: Person?`.
 ///
-/// It keeps the target's ID and, for `@Reference var author: Person?`, the loaded record. Two
-/// values are equal when they point at the same target, whether or not it is loaded.
+/// It keeps the target's ID and the loaded record. `$author.id` reads the ID even when the record
+/// isn't loaded. Two values are equal when they point at the same target, whether or not it is
+/// loaded.
 public struct ToOne<Target: Record> {
-    /// The target the reference points at now.
-    public var id: UUID?
+    /// The target the reference points at now, loaded or not. To change it, set the record.
+    public internal(set) var id: UUID?
     /// The target's ID as a list, empty when there is none, matching `ToMany`.
     public var ids: [UUID] { id.map { [$0] } ?? [] }
     /// The loaded target as a list, empty when it isn't loaded, matching `ToMany`.
@@ -120,12 +120,11 @@ extension ToOne: @unchecked Sendable where Target: Sendable {}
 
 // MARK: - To many
 
-/// Storage behind a to-many `@Reference` property. `@Reference` generates it, named with a
-/// leading underscore, so code never needs to touch it.
+/// A to-many `@Reference` itself, which `$tags` gives for `@Reference var tags: [Tag]`.
 ///
-/// It keeps the target IDs in order and, for `@Reference var tags: [Tag]`, the loaded records.
-/// Each target appears once: a repeated ID keeps its first position. Two values are equal when
-/// they point at the same targets in the same order.
+/// It keeps the target IDs in order and the loaded records. `$tags.ids` reads every ID even when
+/// the records aren't loaded. Each target appears once: a repeated ID keeps its first position.
+/// Two values are equal when they point at the same targets in the same order.
 public struct ToMany<Target: Record> {
     private var storedIDs: [UUID] = []
     /// The loaded targets by ID. A class, so a record can refer to its own type.
@@ -149,8 +148,9 @@ public struct ToMany<Target: Record> {
     /// The loaded targets as `values` holds them. Empty where loading stopped.
     public var loadedRecords: [any Record] { values }
 
-    /// The targets the reference points at now, in order.
-    public var ids: [UUID] {
+    /// The targets the reference points at now, in order, loaded or not. To change them, set the
+    /// records, or remove one with `remove(id:)`.
+    public internal(set) var ids: [UUID] {
         get { storedIDs }
         set {
             var seen = Set<UUID>()
@@ -161,7 +161,7 @@ public struct ToMany<Target: Record> {
     /// The loaded targets, in order. A target that isn't loaded is left out.
     ///
     /// Setting it keeps any target that wasn't loaded, at its old position, because code that
-    /// never saw a target cannot have meant to remove it. To remove one, set `ids`.
+    /// never saw a target cannot have meant to remove it. To remove one, use `remove(id:)`.
     public var values: [Target] {
         get { storedIDs.compactMap { box?.values[$0] } }
         set {
@@ -172,6 +172,11 @@ public struct ToMany<Target: Record> {
             self.ids = ids
             box = Box(Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
         }
+    }
+
+    /// Removes the target with `id`, whether or not it is loaded.
+    public mutating func remove(id: UUID) {
+        storedIDs.removeAll { $0 == id }
     }
 
     /// Sets the reference as read from storage. `targets` must already be in order. When `depth`
@@ -210,24 +215,6 @@ extension ToMany: Hashable {
 
 // The box is immutable, so sharing it is safe whenever the target is.
 extension ToMany: @unchecked Sendable where Target: Sendable {}
-
-extension Record {
-    /// The ID a to-one `@Reference` points at, whether or not its record is loaded:
-    /// `track.referenceID(at: \.album)`.
-    public func referenceID<Target: Record>(at keyPath: KeyPath<Self, Target?>) -> UUID? {
-        referenceIDs(named: Self.keyPaths[keyPath]).first
-    }
-
-    /// The IDs a to-many `@Reference` points at, in the order they were added, whether or not its
-    /// records are loaded: `track.referenceIDs(at: \.tags)`.
-    public func referenceIDs<Target: Record>(at keyPath: KeyPath<Self, [Target]>) -> [UUID] {
-        referenceIDs(named: Self.keyPaths[keyPath])
-    }
-
-    private func referenceIDs(named property: String?) -> [UUID] {
-        referenceStates.first { $0.property == property }?.ids ?? []
-    }
-}
 
 // MARK: - Loaded targets
 

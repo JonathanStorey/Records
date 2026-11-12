@@ -391,19 +391,19 @@ final class RecordMacroTests: XCTestCase {
                 var id: UUID
                 var title: String
                 var author: Person? {
-                    @storageRestrictions(initializes: _author)
+                    @storageRestrictions(initializes: $author)
                     init(initialValue) {
-                        _author = Records.ToOne(initialValue)
+                        $author = Records.ToOne(initialValue)
                     }
                     get {
-                        _author.value
+                        $author.value
                     }
                     set {
-                        _author.value = newValue
+                        $author.value = newValue
                     }
                 }
 
-                var _author: Records.ToOne<Person>
+                var $author: Records.ToOne<Person>
             }
 
             extension Article: Records.Record {
@@ -425,20 +425,20 @@ final class RecordMacroTests: XCTestCase {
                 init(from row: Records.RecordRow) throws {
                     self.id = try row.id
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
-                    self._author = Records.ToOne(id: nil)
+                    self.$author = Records.ToOne(id: nil)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                     Records.FieldCoding((String).self).encode(self.title, into: &row, forKey: "title")
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "author": (self._author.ids, self._author.loadedRecords),
+                        "author": (self.$author.ids, self.$author.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "author":
-                        try self._author.load(targets, from: graph, depth: depth)
+                        try self.$author.load(targets, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -558,19 +558,19 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var id: UUID
                 var tags: [Tag] {
-                    @storageRestrictions(initializes: _tags)
+                    @storageRestrictions(initializes: $tags)
                     init(initialValue) {
-                        _tags = Records.ToMany(initialValue)
+                        $tags = Records.ToMany(initialValue)
                     }
                     get {
-                        _tags.values
+                        $tags.values
                     }
                     set {
-                        _tags.values = newValue
+                        $tags.values = newValue
                     }
                 }
 
-                var _tags: Records.ToMany<Tag>
+                var $tags: Records.ToMany<Tag>
             }
 
             extension Note: Records.Record {
@@ -589,19 +589,19 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(from row: Records.RecordRow) throws {
                     self.id = try row.id
-                    self._tags = Records.ToMany(ids: [])
+                    self.$tags = Records.ToMany(ids: [])
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "tags": (self._tags.ids, self._tags.loadedRecords),
+                        "tags": (self.$tags.ids, self.$tags.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "tags":
-                        try self._tags.load(targets, from: graph, depth: depth)
+                        try self.$tags.load(targets, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -673,33 +673,33 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Person {
                 var manager: Person? {
-                    @storageRestrictions(initializes: _manager)
+                    @storageRestrictions(initializes: $manager)
                     init(initialValue) {
-                        _manager = Records.ToOne(initialValue)
+                        $manager = Records.ToOne(initialValue)
                     }
                     get {
-                        _manager.value
+                        $manager.value
                     }
                     set {
-                        _manager.value = newValue
+                        $manager.value = newValue
                     }
                 }
 
-                var _manager: Records.ToOne<Person>
+                var $manager: Records.ToOne<Person>
                 var mentor: Self? {
-                    @storageRestrictions(initializes: _mentor)
+                    @storageRestrictions(initializes: $mentor)
                     init(initialValue) {
-                        _mentor = Records.ToOne(initialValue)
+                        $mentor = Records.ToOne(initialValue)
                     }
                     get {
-                        _mentor.value
+                        $mentor.value
                     }
                     set {
-                        _mentor.value = newValue
+                        $mentor.value = newValue
                     }
                 }
 
-                var _mentor: Records.ToOne<Person>
+                var $mentor: Records.ToOne<Person>
             }
             """,
             macroSpecs: macroSpecs
@@ -723,19 +723,19 @@ final class RecordMacroTests: XCTestCase {
             struct User {
                 var id: UUID
                 var profile: Profile? {
-                    @storageRestrictions(initializes: _profile)
+                    @storageRestrictions(initializes: $profile)
                     init(initialValue) {
-                        _profile = Records.ToOne(initialValue)
+                        $profile = Records.ToOne(initialValue)
                     }
                     get {
-                        _profile.value
+                        $profile.value
                     }
                     set {
-                        _profile.value = newValue
+                        $profile.value = newValue
                     }
                 }
 
-                var _profile: Records.ToOne<Profile>
+                var $profile: Records.ToOne<Profile>
             }
 
             extension User: Records.Record {
@@ -754,19 +754,19 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(from row: Records.RecordRow) throws {
                     self.id = try row.id
-                    self._profile = Records.ToOne(id: nil)
+                    self.$profile = Records.ToOne(id: nil)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "profile": (self._profile.ids, self._profile.loadedRecords),
+                        "profile": (self.$profile.ids, self.$profile.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "profile":
-                        try self._profile.load(targets, from: graph, depth: depth)
+                        try self.$profile.load(targets, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -795,27 +795,27 @@ final class RecordMacroTests: XCTestCase {
             struct Profile {
                 var id: UUID
                 var userID: UUID? {
-                    @storageRestrictions(initializes: _userID)
+                    @storageRestrictions(initializes: $userID)
                     init(initialValue) {
-                        _userID = Records.ToOne(id: initialValue)
+                        $userID = Records.ToOne(id: initialValue)
                     }
                     get {
-                        _userID.id
+                        $userID.id
                     }
                 }
 
-                var _userID: Records.ToOne<User>
+                var $userID: Records.ToOne<User>
                 var accountID: UUID? {
-                    @storageRestrictions(initializes: _accountID)
+                    @storageRestrictions(initializes: $accountID)
                     init(initialValue) {
-                        _accountID = Records.ToOne(id: initialValue)
+                        $accountID = Records.ToOne(id: initialValue)
                     }
                     get {
-                        _accountID.id
+                        $accountID.id
                     }
                 }
 
-                var _accountID: Records.ToOne<Account>
+                var $accountID: Records.ToOne<Account>
             }
 
             extension Profile: Records.Record {
@@ -835,8 +835,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(from row: Records.RecordRow) throws {
                     self.id = try row.id
-                    self._userID = Records.ToOne(id: nil)
-                    self._accountID = Records.ToOne(id: nil)
+                    self.$userID = Records.ToOne(id: nil)
+                    self.$accountID = Records.ToOne(id: nil)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
@@ -846,9 +846,9 @@ final class RecordMacroTests: XCTestCase {
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "userID":
-                        try self._userID.load(targets, from: graph, depth: 0)
+                        try self.$userID.load(targets, from: graph, depth: 0)
                     case "accountID":
-                        try self._accountID.load(targets, from: graph, depth: 0)
+                        try self.$accountID.load(targets, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -949,27 +949,27 @@ final class RecordMacroTests: XCTestCase {
             struct Shelf {
                 var id: UUID
                 var bookIDs: [UUID] {
-                    @storageRestrictions(initializes: _bookIDs)
+                    @storageRestrictions(initializes: $bookIDs)
                     init(initialValue) {
-                        _bookIDs = Records.ToMany(ids: initialValue)
+                        $bookIDs = Records.ToMany(ids: initialValue)
                     }
                     get {
-                        _bookIDs.ids
+                        $bookIDs.ids
                     }
                 }
 
-                var _bookIDs: Records.ToMany<Book>
+                var $bookIDs: Records.ToMany<Book>
                 var crateIDs: [UUID] {
-                    @storageRestrictions(initializes: _crateIDs)
+                    @storageRestrictions(initializes: $crateIDs)
                     init(initialValue) {
-                        _crateIDs = Records.ToMany(ids: initialValue)
+                        $crateIDs = Records.ToMany(ids: initialValue)
                     }
                     get {
-                        _crateIDs.ids
+                        $crateIDs.ids
                     }
                 }
 
-                var _crateIDs: Records.ToMany<Crate>
+                var $crateIDs: Records.ToMany<Crate>
             }
 
             extension Shelf: Records.Record {
@@ -989,8 +989,8 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(from row: Records.RecordRow) throws {
                     self.id = try row.id
-                    self._bookIDs = Records.ToMany(ids: [])
-                    self._crateIDs = Records.ToMany(ids: [])
+                    self.$bookIDs = Records.ToMany(ids: [])
+                    self.$crateIDs = Records.ToMany(ids: [])
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
@@ -1000,9 +1000,9 @@ final class RecordMacroTests: XCTestCase {
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "bookIDs":
-                        try self._bookIDs.load(targets, from: graph, depth: 0)
+                        try self.$bookIDs.load(targets, from: graph, depth: 0)
                     case "crateIDs":
-                        try self._crateIDs.load(targets, from: graph, depth: 0)
+                        try self.$crateIDs.load(targets, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -1054,27 +1054,27 @@ final class RecordMacroTests: XCTestCase {
             struct Shelf {
                 var id: UUID
                 var bookIDs: [UUID] {
-                    @storageRestrictions(initializes: _bookIDs)
+                    @storageRestrictions(initializes: $bookIDs)
                     init(initialValue) {
-                        _bookIDs = Records.ToMany(ids: initialValue)
+                        $bookIDs = Records.ToMany(ids: initialValue)
                     }
                     get {
-                        _bookIDs.ids
+                        $bookIDs.ids
                     }
                 }
 
-                var _bookIDs: Records.ToMany<Book>
+                var $bookIDs: Records.ToMany<Book>
                 var otherIDs: [UUID] {
-                    @storageRestrictions(initializes: _otherIDs)
+                    @storageRestrictions(initializes: $otherIDs)
                     init(initialValue) {
-                        _otherIDs = Records.ToMany(ids: initialValue)
+                        $otherIDs = Records.ToMany(ids: initialValue)
                     }
                     get {
-                        _otherIDs.ids
+                        $otherIDs.ids
                     }
                 }
 
-                var _otherIDs: Records.ToMany<Book>
+                var $otherIDs: Records.ToMany<Book>
             }
             """,
             diagnostics: [
@@ -1305,19 +1305,19 @@ final class RecordMacroTests: XCTestCase {
             struct Account {
                 var id: UUID
                 var owner: Account? {
-                    @storageRestrictions(initializes: _owner)
+                    @storageRestrictions(initializes: $owner)
                     init(initialValue) {
-                        _owner = Records.ToOne(initialValue)
+                        $owner = Records.ToOne(initialValue)
                     }
                     get {
-                        _owner.value
+                        $owner.value
                     }
                     set {
-                        _owner.value = newValue
+                        $owner.value = newValue
                     }
                 }
 
-                var _owner: Records.ToOne<Account>
+                var $owner: Records.ToOne<Account>
             }
             """,
             diagnostics: [
@@ -1852,19 +1852,19 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Crate {
                 var discs: [Disc] {
-                    @storageRestrictions(initializes: _discs)
+                    @storageRestrictions(initializes: $discs)
                     init(initialValue) {
-                        _discs = Records.ToMany(initialValue, sorted: true)
+                        $discs = Records.ToMany(initialValue, sorted: true)
                     }
                     get {
-                        _discs.values.sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
+                        $discs.values.sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
                     }
                     set {
-                        _discs.values = newValue
+                        $discs.values = newValue
                     }
                 }
 
-                var _discs: Records.ToMany<Disc>
+                var $discs: Records.ToMany<Disc>
             }
             """,
             macroSpecs: macroSpecs
@@ -1885,19 +1885,19 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Crate {
                 var discs: [Disc] {
-                    @storageRestrictions(initializes: _discs)
+                    @storageRestrictions(initializes: $discs)
                     init(initialValue) {
-                        _discs = Records.ToMany(initialValue, sorted: true)
+                        $discs = Records.ToMany(initialValue, sorted: true)
                     }
                     get {
-                        _discs.values.sorted(using: [SortDescriptor(\\Disc.year)])
+                        $discs.values.sorted(using: [SortDescriptor(\\Disc.year)])
                     }
                     set {
-                        _discs.values = newValue
+                        $discs.values = newValue
                     }
                 }
 
-                var _discs: Records.ToMany<Disc>
+                var $discs: Records.ToMany<Disc>
             }
             """,
             macroSpecs: macroSpecs
