@@ -102,7 +102,7 @@ private func expectMatches<R: Record>(
     try context.save()
 
     // An unsaved edit drops the link, and the filter sees it only after the save.
-    account.settings = nil
+    account._settings.value = nil
     context.insert(account)
     let id = account.id
     let linked = RecordDescriptor<Settings>(predicate: #Predicate { $0.accountID == id })

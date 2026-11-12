@@ -144,7 +144,7 @@ private func save(_ records: [some Record], in context: RecordContext) throws {
     // The `from:` side reads the same links from the other end.
     let writer = Writer(id: UUID(), name: "Herbert", bookIDs: [])
     var dune = novel("Dune", year: 1965)
-    dune.writers = [writer]
+    dune._writers.values = [writer]
     try save([dune], in: context)
     let writers = try context.fetch(RecordDescriptor<Writer>())
     #expect(writers.map(\.bookIDs) == [[dune.id]])

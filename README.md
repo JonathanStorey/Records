@@ -201,7 +201,7 @@ with the same parameters as SwiftData's `@Query`:
 ```
 
 A sorted reference sorts each time it's read, and its links carry no order keys, so reordering it
-never writes anything. `referenceIDs(at: \.tags)` lists the IDs unsorted, because sorting needs the records.
+never writes anything. `$tags.ids` lists the IDs unsorted, because sorting needs the records.
 
 ## Every relationship, by example
 
@@ -300,8 +300,8 @@ list its tracks. `Track.featuring: [Artist]` works the same way.
 
 An owner always holds records, because its code chose them. To set a reference from an ID alone,
 such as one from a picker or a URL, fetch the record first. A record read without its references
-loaded still has their IDs: `album.referenceID(at: \.genre)` and
-`listener.referenceIDs(at: \.following)`.
+loaded still has their IDs: `album.$genre.id` and
+`listener.$following.ids`.
 
 ### Pointing at the same type
 
@@ -445,9 +445,30 @@ A reference that holds records can hold new ones. When saved, any target that ex
 that already exists is never written from a record that refers to it, so an old copy can't
 overwrite newer values. Insert it directly to save changes to it.
 
-To add or remove one target without touching the owner's record, edit the link directly. The key
-path names the owner's reference, and the owner is named by its ID, so this works whether or not
-its references are loaded:
+A reference can't be assigned once its record is made, so every change to it is one the context
+saves. Change it through its `$` handle, which updates the record you hold at once and records the
+change in the context:
+
+```swift
+var album = try context.record(id: albumID, for: Album.self)!
+album.$tracks.insert(track, in: context)          // album.tracks ends with track
+album.$tracks.remove(old.id, in: context)         // by ID, loaded or not
+album.$artist.set(nova, in: context)
+album.$artist.clear(in: context)
+try context.save()
+```
+
+In SwiftUI, list the IDs so the offsets `onDelete` gives match the collection you remove from:
+
+```swift
+ForEach(album.$tracks, id: \.self) { id in ... }
+    .onDelete { album.$tracks.remove(atOffsets: $0, in: context) }
+```
+
+To change a target's own fields, insert the target itself: `album.tracks[0]` is a copy, and
+inserting the album never writes it.
+
+The same changes work without the record, by the owner's reference key path and ID:
 
 ```swift
 context.insert(track, into: \Album.tracks, of: album.id)       // added after the other tracks
@@ -690,14 +711,14 @@ holds their IDs, so its links stay the same. To tell "empty" from "not loaded", 
 reference's IDs, which are there either way:
 
 ```swift
-track.tags               // []: the records weren't loaded at this level
-track.referenceIDs(at: \.tags)   // [energetic.id, live.id]: every ID, loaded or not
-track.tags.count == track.referenceIDs(at: \.tags).count   // false here, so the tags weren't loaded
-album.referenceID(at: \.cover)   // nil only when the album truly has no cover
+track.tags                                   // []: the records weren't loaded at this level
+track.$tags.ids                              // [energetic.id, live.id]: every ID, loaded or not
+track.tags.count == track.$tags.count        // false here, so the tags weren't loaded
+album.$cover.id                              // nil only when the album truly has no cover
 ```
 
-`referenceIDs(at:)` takes a to-many reference and `referenceID(at:)` a to-one reference. ID-form
-references don't need either, because they are always complete.
+`$name` is a `ReferenceIDs` for a to-many reference and a `ReferenceID` for a to-one reference.
+`from:` sides don't need either, because they hold IDs and are always complete.
 
 To load further, pass `depth:`. Each level multiplies what's loaded, so ask for depth only where a
 screen shows it.
@@ -708,7 +729,7 @@ album.tracks[0].tags.map(\.name)   // ["energetic", "live"]: level two holds rec
 
 let bare = try decoder.decode(Album.self, from: record, links: links, depth: 0)
 bare.tracks                        // []: depth 0 loads no records
-bare.referenceIDs(at: \.tracks)   // but every ID is there
+bare.$tracks.ids   // but every ID is there
 ```
 
 Depth also makes cycles safe. A mentor who mentors their mentor loads back and forth until the

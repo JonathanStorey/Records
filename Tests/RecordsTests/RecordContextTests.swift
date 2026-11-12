@@ -199,7 +199,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     let created = try currentRow("Page", page.id, in: context)["_createdAt"]
 
     page.title = "Final"
-    page.labels = [b]
+    page._labels.values = [b]
     context.insert(page)
     try context.save()
 
@@ -228,7 +228,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     try context.database.run("UPDATE \"RecordLink\" SET \"_systemFields\" = x'00'", [])
 
     page.title = "Edited"
-    page.labels = [b]
+    page._labels.values = [b]
     context.insert(page)
     try context.save()
     page.title = "Edited again"
@@ -264,10 +264,10 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     context.insert(page)
     try context.save()
     try context.database.run("UPDATE \"RecordLink\" SET \"_systemFields\" = x'00'", [])
-    page.labels = []
+    page._labels.values = []
     context.insert(page)
     try context.save()
-    page.labels = [a]
+    page._labels.values = [a]
     context.insert(page)
     try context.save()
 
@@ -487,7 +487,7 @@ private func makeVenue() -> Venue {
         before.first { $0["targetName"] == .text(label.id.uuidString) }?["order"]
     }
 
-    page.labels = [labels[1], labels[2], labels[0]]
+    page._labels.values = [labels[1], labels[2], labels[0]]
     context.insert(page)
     try context.save()
     let after = try linkRows(of: page.id, in: context)

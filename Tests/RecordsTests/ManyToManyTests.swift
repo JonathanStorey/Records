@@ -91,7 +91,7 @@ private struct Fixture {
         Post.self, from: encoder.encode(fixture.first, in: .records),
         links: fixture.links, targets: [fixture.record(fixture.swift), fixture.record(fixture.ios)]
     )
-    post.topics = [fixture.swift]
+    post._topics.values = [fixture.swift]
 
     let removed = encoder.changes(for: post, from: saved).deletes
     #expect(removed.count == 1)

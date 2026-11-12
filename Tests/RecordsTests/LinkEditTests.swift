@@ -19,7 +19,7 @@ private func savedPage(_ labels: [Label], in context: RecordContext) throws -> P
 
 @MainActor
 private func labelIDs(of page: Page, in context: RecordContext) throws -> [UUID] {
-    try #require(try context.record(id: page.id, for: Page.self)).referenceIDs(at: \.labels)
+    try #require(try context.record(id: page.id, for: Page.self)).$labels.ids
 }
 
 private func labels(_ names: String...) -> [Label] {
@@ -131,7 +131,7 @@ private func labels(_ names: String...) -> [Label] {
     context.insert(shelves[1], into: \Book.shelf, of: book.id)
     try context.save()
 
-    #expect(try context.record(id: book.id, for: Book.self)?.referenceID(at: \.shelf) == shelves[1].id)
+    #expect(try context.record(id: book.id, for: Book.self)?.$shelf.id == shelves[1].id)
     #expect(try context.record(id: shelves[0].id, for: Shelf.self)?.bookIDs == [])
     #expect(try context.record(id: shelves[1].id, for: Shelf.self)?.bookIDs == [book.id])
 }
@@ -149,7 +149,7 @@ private func labels(_ names: String...) -> [Label] {
 
     context.remove(shelf.id, from: \Book.shelf, of: book.id)
     try context.save()
-    #expect(try context.record(id: book.id, for: Book.self)?.referenceID(at: \.shelf) == nil)
+    #expect(try context.record(id: book.id, for: Book.self)?.$shelf.id == nil)
     #expect(try context.record(id: shelf.id, for: Shelf.self) != nil)
 }
 
@@ -165,7 +165,61 @@ private func labels(_ names: String...) -> [Label] {
     context.insert(song, into: \Release.tracks, of: second.id)
     try context.save()
 
-    #expect(try context.record(id: first.id, for: Release.self)?.referenceIDs(at: \.tracks) == [])
-    #expect(try context.record(id: second.id, for: Release.self)?.referenceIDs(at: \.tracks) == [song.id])
+    #expect(try context.record(id: first.id, for: Release.self)?.$tracks.ids == [])
+    #expect(try context.record(id: second.id, for: Release.self)?.$tracks.ids == [song.id])
     #expect(try context.record(id: song.id, for: Song.self)?.albumID == second.id)
+}
+
+// MARK: - Through the handles
+
+@MainActor
+@Test func theHandleUpdatesTheRecordAndTheContext() throws {
+    let context = try context()
+    let items = labels("a", "b", "c")
+    var page = try savedPage([items[0]], in: context)
+
+    page.$labels.insert([items[1], items[2]], in: context)
+    #expect(page.labels == items)
+    #expect(page.$labels.ids == items.map(\.id))
+    #expect(page.$labels.count == 3)
+
+    page.$labels.remove(atOffsets: IndexSet(integer: 0), in: context)
+    #expect(page.$labels.ids == [items[1].id, items[2].id])
+
+    try context.save()
+    #expect(try labelIDs(of: page, in: context) == page.$labels.ids)
+}
+
+@MainActor
+@Test func theHandleRemovesATargetThatIsntLoaded() throws {
+    let context = try context()
+    let items = labels("a", "b")
+    _ = try savedPage(items, in: context)
+    let page = try #require(try context.fetch(RecordDescriptor<Page>()).first)
+    var bare = try #require(try context.record(id: page.id, for: Page.self))
+
+    bare.$labels.remove(items[0].id, in: context)
+    #expect(bare.$labels.ids == [items[1].id])
+    try context.save()
+    #expect(try labelIDs(of: page, in: context) == [items[1].id])
+}
+
+@MainActor
+@Test func theToOneHandleSetsAndClears() throws {
+    let context = try context()
+    let shelves = (0..<2).map { Shelf(id: UUID(), name: "\($0)", bookIDs: []) }
+    var book = Book(id: UUID(), title: "Dune", shelf: shelves[0])
+    context.insert(book)
+    try context.save()
+
+    book.$shelf.set(shelves[1], in: context)
+    #expect(book.shelf == shelves[1])
+    #expect(book.$shelf.id == shelves[1].id)
+    try context.save()
+    #expect(try context.record(id: book.id, for: Book.self)?.$shelf.id == shelves[1].id)
+
+    book.$shelf.clear(in: context)
+    #expect(book.$shelf.id == nil)
+    try context.save()
+    #expect(try context.record(id: book.id, for: Book.self)?.$shelf.id == nil)
 }

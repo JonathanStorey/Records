@@ -56,7 +56,7 @@ public struct ReferenceState {
 /// values are equal when they point at the same target, whether or not it is loaded.
 public struct ToOne<Target: Record> {
     /// The target the reference points at now.
-    public var id: UUID?
+    public internal(set) var id: UUID?
     /// The target's ID as a list, empty when there is none, matching `ToMany`.
     public var ids: [UUID] { id.map { [$0] } ?? [] }
     /// The loaded target as a list, empty when it isn't loaded, matching `ToMany`.
@@ -76,7 +76,7 @@ public struct ToOne<Target: Record> {
     }
 
     /// The loaded target, or `nil` when the reference is empty or its target isn't loaded.
-    public var value: Target? {
+    public internal(set) var value: Target? {
         get {
             guard let box, box.value.id == id else { return nil }
             return box.value
@@ -150,7 +150,7 @@ public struct ToMany<Target: Record> {
     public var loadedRecords: [any Record] { values }
 
     /// The targets the reference points at now, in order.
-    public var ids: [UUID] {
+    public internal(set) var ids: [UUID] {
         get { storedIDs }
         set {
             var seen = Set<UUID>()
@@ -162,7 +162,7 @@ public struct ToMany<Target: Record> {
     ///
     /// Setting it keeps any target that wasn't loaded, at its old position, because code that
     /// never saw a target cannot have meant to remove it. To remove one, set `ids`.
-    public var values: [Target] {
+    public internal(set) var values: [Target] {
         get { storedIDs.compactMap { box?.values[$0] } }
         set {
             var ids = newValue.map(\.id)
@@ -211,21 +211,137 @@ extension ToMany: Hashable {
 // The box is immutable, so sharing it is safe whenever the target is.
 extension ToMany: @unchecked Sendable where Target: Sendable {}
 
-extension Record {
-    /// The ID a to-one `@Reference` points at, whether or not its record is loaded:
-    /// `track.referenceID(at: \.album)`.
-    public func referenceID<Target: Record>(at keyPath: KeyPath<Self, Target?>) -> UUID? {
-        referenceIDs(named: Self.keyPaths[keyPath]).first
+// MARK: - Handles
+
+/// A to-many `@Reference` as its target IDs, which `$tracks` gives for
+/// `@Reference var tracks: [Track]`.
+///
+/// It lists every target in order, whether or not its record is loaded, so `count` is always the
+/// true count. `album.tracks` holds the loaded records and can't be changed. Change the targets
+/// here, through a context:
+///
+/// ```swift
+/// album.$tracks.insert(track, in: context)
+/// album.$tracks.remove(track.id, in: context)
+/// .onDelete { album.$tracks.remove(atOffsets: $0, in: context) }
+/// ```
+///
+/// Each change updates `album` at once and waits in the context, as one link, until it saves.
+/// The album's own record is never written, so the change can't conflict with edits to its fields.
+public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
+    /// The record type that holds the reference.
+    public let ownerType: any Record.Type
+    /// The ID of the record that holds the reference.
+    public let ownerID: UUID
+    /// The reference's property, such as `tracks`.
+    public let property: String
+    /// The reference's storage. Used by the code `@Reference` generates.
+    public internal(set) var storage: ToMany<Target>
+
+    /// Used by the code `@Reference` generates.
+    public init(owner: any Record.Type, id: UUID, property: String, storage: ToMany<Target>) {
+        ownerType = owner
+        ownerID = id
+        self.property = property
+        self.storage = storage
     }
 
-    /// The IDs a to-many `@Reference` points at, in the order they were added, whether or not its
-    /// records are loaded: `track.referenceIDs(at: \.tags)`.
-    public func referenceIDs<Target: Record>(at keyPath: KeyPath<Self, [Target]>) -> [UUID] {
-        referenceIDs(named: Self.keyPaths[keyPath])
+    /// Every target's ID, in order, loaded or not.
+    public var ids: [UUID] { storage.ids }
+
+    public var startIndex: Int { 0 }
+    public var endIndex: Int { storage.ids.count }
+    public subscript(position: Int) -> UUID { storage.ids[position] }
+
+    /// Adds `record` after the other targets. A target already held keeps its place.
+    @MainActor
+    public mutating func insert(_ record: Target, in context: RecordContext) {
+        insert([record], in: context)
     }
 
-    private func referenceIDs(named property: String?) -> [UUID] {
-        referenceStates.first { $0.property == property }?.ids ?? []
+    /// Adds `records` after the other targets, in order. Targets already held keep their place.
+    @MainActor
+    public mutating func insert(_ records: [Target], in context: RecordContext) {
+        context.insert(records, into: property, of: ownerType, id: ownerID)
+        let new = records.filter { !storage.ids.contains($0.id) }
+        storage.values = storage.values + new
+    }
+
+    /// Takes the target with `id` out, whether or not its record is loaded. The target itself is
+    /// kept.
+    @MainActor
+    public mutating func remove(_ id: UUID, in context: RecordContext) {
+        remove([id], in: context)
+    }
+
+    /// Takes the targets with `ids` out. See `remove(_:in:)`.
+    @MainActor
+    public mutating func remove(_ ids: [UUID], in context: RecordContext) {
+        context.remove(ids, from: property, of: ownerType, id: ownerID)
+        storage.ids.removeAll { ids.contains($0) }
+    }
+
+    /// Takes the targets at `offsets` out, as SwiftUI's `onDelete` gives them.
+    @MainActor
+    public mutating func remove(atOffsets offsets: IndexSet, in context: RecordContext) {
+        remove(offsets.map { storage.ids[$0] }, in: context)
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.ownerID == rhs.ownerID && lhs.property == rhs.property && lhs.storage == rhs.storage
+    }
+}
+
+/// A to-one `@Reference` as its target ID, which `$artist` gives for
+/// `@Reference var artist: Artist?`.
+///
+/// `id` is the target's ID, whether or not its record is loaded. `album.artist` holds the loaded
+/// record and can't be changed. Change the target here, through a context:
+///
+/// ```swift
+/// album.$artist.set(nova, in: context)
+/// album.$artist.clear(in: context)
+/// ```
+///
+/// Each change updates `album` at once and waits in the context, as one link, until it saves.
+public struct ReferenceID<Target: Record>: Equatable {
+    /// The record type that holds the reference.
+    public let ownerType: any Record.Type
+    /// The ID of the record that holds the reference.
+    public let ownerID: UUID
+    /// The reference's property, such as `artist`.
+    public let property: String
+    /// The reference's storage. Used by the code `@Reference` generates.
+    public internal(set) var storage: ToOne<Target>
+
+    /// Used by the code `@Reference` generates.
+    public init(owner: any Record.Type, id: UUID, property: String, storage: ToOne<Target>) {
+        ownerType = owner
+        ownerID = id
+        self.property = property
+        self.storage = storage
+    }
+
+    /// The target's ID, loaded or not, or `nil` when there is none.
+    public var id: UUID? { storage.id }
+
+    /// Points the reference at `record`, replacing any target it had.
+    @MainActor
+    public mutating func set(_ record: Target, in context: RecordContext) {
+        context.insert([record], into: property, of: ownerType, id: ownerID)
+        storage.value = record
+    }
+
+    /// Clears the reference. The target itself is kept.
+    @MainActor
+    public mutating func clear(in context: RecordContext) {
+        guard let id = storage.id else { return }
+        context.remove([id], from: property, of: ownerType, id: ownerID)
+        storage.value = nil
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.ownerID == rhs.ownerID && lhs.property == rhs.property && lhs.storage == rhs.storage
     }
 }
 

@@ -45,7 +45,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     #expect(page.labels == items)
     #expect(page._labels.ids == items.map(\.id))
 
-    page.labels.removeFirst()
+    page._labels.values.removeFirst()
     #expect(page.labels == Array(items.dropFirst()))
 }
 
@@ -63,7 +63,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     #expect(decoded.labels.isEmpty)
 
     let added = Label(id: UUID(), name: "c")
-    decoded.labels.append(added)
+    decoded._labels.values.append(added)
     #expect(decoded._labels.ids == items.map(\.id) + [added.id])
     #expect(encoder.changes(for: decoded, from: links).saves.count == 1)
 }
@@ -101,7 +101,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func appendingWritesOneLinkAfterTheRest() throws {
     var (page, links) = try savedPage(labels("a", "b"))
-    page.labels.append(Label(id: UUID(), name: "c"))
+    page._labels.values.append(Label(id: UUID(), name: "c"))
 
     let changes = encoder.changes(for: page, from: links)
     let saves = try decodedLinks(changes.saves)
@@ -114,7 +114,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func removingDeletesOneLink() throws {
     var (page, links) = try savedPage(labels("a", "b", "c"))
-    page.labels.remove(at: 1)
+    page._labels.values.remove(at: 1)
 
     let changes = encoder.changes(for: page, from: links)
     #expect(changes.saves.isEmpty)
@@ -124,7 +124,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 @Test func movingRewritesOneLink() throws {
     let items = labels("a", "b", "c")
     var (page, links) = try savedPage(items)
-    page.labels = [items[2], items[0], items[1]]
+    page._labels.values = [items[2], items[0], items[1]]
 
     let changes = encoder.changes(for: page, from: links)
     #expect(changes.saves.map(\.recordID) == [links[2].recordID])

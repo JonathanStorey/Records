@@ -38,7 +38,7 @@ private func savedArticle(
     #expect(article.author == ada)
     #expect(article._author.id == ada.id)
 
-    article.author = nil
+    article._author.value = nil
     #expect(article.author == nil)
     #expect(article._author.id == nil)
 }
@@ -102,7 +102,7 @@ private func savedArticle(
 @Test func changingATargetOverwritesTheSameLink() throws {
     var (article, links) = try savedArticle()
     let newEditor = UUID()
-    article.editor = Person(id: newEditor, name: "Linus")
+    article._editor.value = Person(id: newEditor, name: "Linus")
 
     let changes = encoder.changes(for: article, from: links)
     #expect(changes.saves.map(\.recordID) == [links[1].recordID])
@@ -112,7 +112,7 @@ private func savedArticle(
 
 @Test func clearingAReferenceDropsItsLink() throws {
     var (article, links) = try savedArticle()
-    article.author = nil
+    article._author.value = nil
 
     let changes = encoder.changes(for: article, from: links)
     #expect(changes.saves.isEmpty)
@@ -130,12 +130,12 @@ private func savedArticle(
 
     let bare = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 0)
     #expect(bare.manager == nil)
-    #expect(bare.referenceID(at: \.manager) == boss.id)
+    #expect(bare.$manager.id == boss.id)
 
     let one = try decoder.decode(Employee.self, from: records[0], links: links, targets: records)
     #expect(one.manager?.name == "Grace")
     #expect(one.manager?.manager == nil)
-    #expect(one.manager?.referenceID(at: \.manager) == top.id)
+    #expect(one.manager?.$manager.id == top.id)
 
     let two = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 2)
     #expect(two.manager?.manager?.name == "Linus")
@@ -169,13 +169,13 @@ private func savedArticle(
     #expect(decoded._editor.id == nil)
 }
 
-@Test func referenceIDsReadByKeyPath() {
+@Test func dollarNameReadsTheIDs() {
     let shelf = Shelf(id: UUID(), name: "Fiction", bookIDs: [])
     let book = Book(id: UUID(), title: "Dune", shelf: shelf)
     let songs = ["Intro", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
     let release = Release(id: UUID(), tracks: songs)
 
-    #expect(book.referenceID(at: \.shelf) == shelf.id)
-    #expect(Book(id: UUID(), title: "Emma", shelf: nil).referenceID(at: \.shelf) == nil)
-    #expect(release.referenceIDs(at: \.tracks) == songs.map(\.id))
+    #expect(book.$shelf.id == shelf.id)
+    #expect(Book(id: UUID(), title: "Emma", shelf: nil).$shelf.id == nil)
+    #expect(release.$tracks.ids == songs.map(\.id))
 }

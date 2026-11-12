@@ -37,7 +37,9 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         }
         // A sorted reference sorts its records each time it is read.
         let read = reference.sort.map { "\(storage).values.sorted(using: \($0))" } ?? "\(storage).\(member)"
-        var accessors: [AccessorDeclSyntax] = [
+        // A reference can only be set when the record is made. The owner changes its targets
+        // through `$name`, which records each change in a context.
+        return [
             """
             @storageRestrictions(initializes: \(raw: storage))
             init(initialValue) {
@@ -50,17 +52,6 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             }
             """,
         ]
-        // The `from:` side never writes links, so it can only be set when the record is made.
-        if !reference.isFrom {
-            accessors.append(
-                """
-                set {
-                    \(raw: storage).\(raw: member) = newValue
-                }
-                """
-            )
-        }
-        return accessors
     }
 
     public static func expansion(
@@ -73,7 +64,23 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         }
         let reference = try reference(variable, attribute: node, owner: owner(in: context))
         let storageType = "Records.\(reference.isToMany ? "ToMany" : "ToOne")<\(reference.target)>"
-        return ["var \(raw: reference.storage): \(raw: storageType)"]
+        let storage: DeclSyntax = "var \(raw: reference.storage): \(raw: storageType)"
+        // The `from:` side holds IDs already and never changes, so it has no handle.
+        guard !reference.isFrom else { return [storage] }
+        let handle = "Records.\(reference.isToMany ? "ReferenceIDs" : "ReferenceID")"
+        return [
+            storage,
+            """
+            \(raw: RecordMacro.accessLevel(of: variable))var $\(raw: reference.key): \(raw: handle)<\(raw: reference.target)> {
+                get {
+                    \(raw: handle)(owner: Self.self, id: id, property: "\(raw: reference.key)", storage: \(raw: reference.storage))
+                }
+                set {
+                    \(raw: reference.storage) = newValue.storage
+                }
+            }
+            """,
+        ]
     }
 
     /// A valid to-one `@Reference` property.
@@ -220,10 +227,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         if deleteSelf, isToMany {
             throw MacroExpansionErrorMessage("'deleteSelf:' needs a to-one @Reference(from:) property")
         }
-        // The owning side holds records. `referenceID(at:)` reads the ID without loading one.
+        // The owning side holds records. `$name.id` reads the ID without loading one.
         if holdsIDs, !isFrom {
             throw MacroExpansionErrorMessage(
-                "@Reference holds records, e.g. 'var author: Person?'; read the ID with 'referenceID(at:)'"
+                "@Reference holds records, e.g. 'var author: Person?', and '$author.id' reads its ID"
             )
         }
 

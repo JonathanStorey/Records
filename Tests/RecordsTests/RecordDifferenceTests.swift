@@ -95,11 +95,11 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     // Here adds z. Elsewhere removes y and adds w.
     var draft = saved
-    draft.labels = [labels[0], labels[1], labels[2]]
+    draft._labels.values = [labels[0], labels[1], labels[2]]
     here.insert(draft)
 
     var remote = saved
-    remote.labels = [labels[0], labels[3]]
+    remote._labels.values = [labels[0], labels[3]]
     elsewhere.insert(remote)
     try elsewhere.save()
 
@@ -254,11 +254,11 @@ private func novel(_ title: String, year: Int) -> Novel {
     try here.save()
 
     var draft = saved
-    draft.labels = [labels[0], labels[1], labels[2]]
+    draft._labels.values = [labels[0], labels[1], labels[2]]
     here.insert(draft)
 
     var remote = saved
-    remote.labels = [labels[0], labels[3]]
+    remote._labels.values = [labels[0], labels[3]]
     elsewhere.insert(remote)
     try elsewhere.save()
 

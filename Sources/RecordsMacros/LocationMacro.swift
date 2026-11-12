@@ -50,7 +50,7 @@ public struct LocationMacro: AccessorMacro, PeerMacro {
         return [
             "var \(raw: storage): Records.LocationField",
             """
-            \(raw: accessLevel(of: variable))var $\(raw: key): Records.LocationField.Stored? {
+            \(raw: RecordMacro.accessLevel(of: variable))var $\(raw: key): Records.LocationField.Stored? {
                 get {
                     \(raw: storage).location
                 }
@@ -88,16 +88,5 @@ public struct LocationMacro: AccessorMacro, PeerMacro {
         }
         let key = pattern.identifier.text.filter { $0 != "`" }
         return (key, "_\(key)")
-    }
-
-    /// `public `, `package `, `fileprivate `, or `private ` when the property has it.
-    private static func accessLevel(of variable: VariableDeclSyntax) -> String {
-        let levels: [Keyword] = [.public, .package, .internal, .fileprivate, .private]
-        for modifier in variable.modifiers where modifier.detail == nil {
-            if case .keyword(let keyword) = modifier.name.tokenKind, levels.contains(keyword) {
-                return keyword == .internal ? "" : "\(modifier.name.text) "
-            }
-        }
-        return ""
     }
 }

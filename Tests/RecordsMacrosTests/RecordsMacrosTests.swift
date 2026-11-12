@@ -398,12 +398,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _author.value
                     }
-                    set {
-                        _author.value = newValue
-                    }
                 }
 
                 var _author: Records.ToOne<Person>
+
+                var $author: Records.ReferenceID<Person> {
+                    get {
+                        Records.ReferenceID(owner: Self.self, id: id, property: "author", storage: _author)
+                    }
+                    set {
+                        _author = newValue.storage
+                    }
+                }
             }
 
             extension Article: Records.Record {
@@ -565,12 +571,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _tags.values
                     }
-                    set {
-                        _tags.values = newValue
-                    }
                 }
 
                 var _tags: Records.ToMany<Tag>
+
+                var $tags: Records.ReferenceIDs<Tag> {
+                    get {
+                        Records.ReferenceIDs(owner: Self.self, id: id, property: "tags", storage: _tags)
+                    }
+                    set {
+                        _tags = newValue.storage
+                    }
+                }
             }
 
             extension Note: Records.Record {
@@ -680,12 +692,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _manager.value
                     }
-                    set {
-                        _manager.value = newValue
-                    }
                 }
 
                 var _manager: Records.ToOne<Person>
+
+                var $manager: Records.ReferenceID<Person> {
+                    get {
+                        Records.ReferenceID(owner: Self.self, id: id, property: "manager", storage: _manager)
+                    }
+                    set {
+                        _manager = newValue.storage
+                    }
+                }
                 var mentor: Self? {
                     @storageRestrictions(initializes: _mentor)
                     init(initialValue) {
@@ -694,12 +712,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _mentor.value
                     }
-                    set {
-                        _mentor.value = newValue
-                    }
                 }
 
                 var _mentor: Records.ToOne<Person>
+
+                var $mentor: Records.ReferenceID<Person> {
+                    get {
+                        Records.ReferenceID(owner: Self.self, id: id, property: "mentor", storage: _mentor)
+                    }
+                    set {
+                        _mentor = newValue.storage
+                    }
+                }
             }
             """,
             macroSpecs: macroSpecs
@@ -730,12 +754,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _profile.value
                     }
-                    set {
-                        _profile.value = newValue
-                    }
                 }
 
                 var _profile: Records.ToOne<Profile>
+
+                var $profile: Records.ReferenceID<Profile> {
+                    get {
+                        Records.ReferenceID(owner: Self.self, id: id, property: "profile", storage: _profile)
+                    }
+                    set {
+                        _profile = newValue.storage
+                    }
+                }
             }
 
             extension User: Records.Record {
@@ -1312,12 +1342,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _owner.value
                     }
-                    set {
-                        _owner.value = newValue
-                    }
                 }
 
                 var _owner: Records.ToOne<Account>
+
+                var $owner: Records.ReferenceID<Account> {
+                    get {
+                        Records.ReferenceID(owner: Self.self, id: id, property: "owner", storage: _owner)
+                    }
+                    set {
+                        _owner = newValue.storage
+                    }
+                }
             }
             """,
             diagnostics: [
@@ -1859,12 +1895,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _discs.values.sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
                     }
-                    set {
-                        _discs.values = newValue
-                    }
                 }
 
                 var _discs: Records.ToMany<Disc>
+
+                var $discs: Records.ReferenceIDs<Disc> {
+                    get {
+                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs)
+                    }
+                    set {
+                        _discs = newValue.storage
+                    }
+                }
             }
             """,
             macroSpecs: macroSpecs
@@ -1892,12 +1934,18 @@ final class RecordMacroTests: XCTestCase {
                     get {
                         _discs.values.sorted(using: [SortDescriptor(\\Disc.year)])
                     }
-                    set {
-                        _discs.values = newValue
-                    }
                 }
 
                 var _discs: Records.ToMany<Disc>
+
+                var $discs: Records.ReferenceIDs<Disc> {
+                    get {
+                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs)
+                    }
+                    set {
+                        _discs = newValue.storage
+                    }
+                }
             }
             """,
             macroSpecs: macroSpecs

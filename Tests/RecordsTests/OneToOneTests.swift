@@ -150,7 +150,7 @@ private func makeProfile() -> Profile {
     var user = makeUser(with: first)
     let original = encoder.links(for: user, in: .records)
 
-    user.profile = second
+    user._profile.value = second
     let changes = encoder.changes(for: user, from: original)
     let moved = changes.saves
     #expect(moved.map(\.recordID) == original.map(\.recordID))
@@ -167,7 +167,7 @@ private func makeProfile() -> Profile {
     var user = makeUser(with: profile)
     let original = encoder.links(for: user, in: .records)
 
-    user.profile = nil
+    user._profile.value = nil
     let changes = encoder.changes(for: user, from: original)
     #expect(changes.saves.isEmpty)
     #expect(changes.deletes == original.map(\.recordID))
