@@ -173,7 +173,11 @@ public final class RecordContext {
     /// write fails, nothing is written and the edits stay pending.
     public func save() throws {
         guard hasChanges else { return }
-        let changes = differences.values.sorted(by: RecordDifference.isOlder)
+        // Links edited on their own go last, so a new record saved in the same save can't drop
+        // them for not listing them.
+        let sorted = differences.values.sorted(by: RecordDifference.isOlder)
+        let changes = sorted.filter { $0.key.recordType != RecordLink.recordType }
+            + sorted.filter { $0.key.recordType == RecordLink.recordType }
         let now = Date().timeIntervalSinceReferenceDate
         let database = self.database
         try database.transaction {
@@ -317,6 +321,142 @@ public final class RecordContext {
                 queue.append((zone, target))
             }
         }
+    }
+
+    // MARK: - Editing links
+
+    /// Adds `target` to the reference `keyPath` names on the record with `ownerID`, after its
+    /// other targets, when the context saves. Only that one link is written: the owner's record
+    /// is never read or changed, so this works whether or not its references are loaded.
+    ///
+    /// ```swift
+    /// context.insert(track, into: \Album.tracks, of: album.id)
+    /// ```
+    ///
+    /// `target` is inserted too when it exists nowhere yet. A target that exists is left as it
+    /// is, so a stale copy can't overwrite it. A target already in the reference keeps its place.
+    public func insert<Owner: Record, Target: Record>(
+        _ target: Target, into keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+    ) {
+        insert([target], into: keyPath, of: ownerID)
+    }
+
+    /// Adds `targets` to the reference `keyPath` names on the record with `ownerID`, in order,
+    /// after its other targets. See `insert(_:into:of:)`.
+    public func insert<Owner: Record, Target: Record>(
+        _ targets: [Target], into keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+    ) {
+        let reference = ownedReference(keyPath)
+        for target in targets {
+            link(target, through: reference, of: Owner.self, ownerID: ownerID)
+        }
+    }
+
+    /// Points the to-one reference `keyPath` names on the record with `ownerID` at `target`,
+    /// replacing any target it had. See `insert(_:into:of:)`.
+    ///
+    /// ```swift
+    /// context.insert(nova, into: \Album.artist, of: album.id)
+    /// ```
+    public func insert<Owner: Record, Target: Record>(
+        _ target: Target, into keyPath: KeyPath<Owner, Target?>, of ownerID: UUID
+    ) {
+        link(target, through: ownedReference(keyPath), of: Owner.self, ownerID: ownerID)
+    }
+
+    /// Takes the target with `targetID` out of the reference `keyPath` names on the record with
+    /// `ownerID` when the context saves. Only that one link is deleted. The target itself is
+    /// kept, and so is the owner's record.
+    ///
+    /// ```swift
+    /// context.remove(track.id, from: \Album.tracks, of: album.id)
+    /// ```
+    ///
+    /// A target the reference doesn't hold is ignored.
+    public func remove<Owner: Record, Target: Record>(
+        _ targetID: UUID, from keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+    ) {
+        remove([targetID], from: keyPath, of: ownerID)
+    }
+
+    /// Takes the targets with `targetIDs` out of the reference `keyPath` names on the record with
+    /// `ownerID`. See `remove(_:from:of:)`.
+    public func remove<Owner: Record, Target: Record>(
+        _ targetIDs: [UUID], from keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+    ) {
+        let reference = ownedReference(keyPath)
+        for targetID in targetIDs {
+            unlink(targetID, through: reference, of: Owner.self, ownerID: ownerID)
+        }
+    }
+
+    /// Clears the to-one reference `keyPath` names on the record with `ownerID` when it points at
+    /// the target with `targetID`. See `remove(_:from:of:)`.
+    public func remove<Owner: Record, Target: Record>(
+        _ targetID: UUID, from keyPath: KeyPath<Owner, Target?>, of ownerID: UUID
+    ) {
+        unlink(targetID, through: ownedReference(keyPath), of: Owner.self, ownerID: ownerID)
+    }
+
+    /// The reference `keyPath` names, as the links it writes need it.
+    private func ownedReference<Owner: Record>(_ keyPath: PartialKeyPath<Owner>) -> ReferenceState {
+        checkRegistered(Owner.self)
+        guard let property = Owner.keyPaths[keyPath],
+              let schema = Owner.schema.references.first(where: { $0.property == property && !$0.isFrom })
+        else { preconditionFailure("\(keyPath) is not a @Reference of \(Owner.self)") }
+        return ReferenceState(
+            schema: schema, inverse: Owner.schema.inverse(of: property, in: schema.target), ids: [], records: []
+        )
+    }
+
+    /// Records the edit that links `target` to the record with `ownerID`, and inserts `target`
+    /// when it exists nowhere yet.
+    private func link<Owner: Record, Target: Record>(
+        _ target: Target, through reference: ReferenceState, of owner: Owner.Type, ownerID: UUID
+    ) {
+        if draft(id: target.id, for: Target.self, in: zone, savedFirst: true) == nil {
+            insert(target)
+        }
+        let id = RecordLink.id(reference: reference, sourceType: Owner.recordType, sourceID: ownerID, targetID: target.id)
+        let existing = draft(id: id, for: RecordLink.self, in: zone, savedFirst: false)
+        if existing?.sourceName == ownerID.uuidString, existing?.targetName == target.id.uuidString { return }
+
+        let source = RecordLink.source(type: Owner.recordType, property: reference.property)
+        let order = reference.isToMany && !reference.isSorted
+            ? OrderKey.between(lastOrder(of: source, ownerType: Owner.recordType, ownerID: ownerID), nil)
+            : nil
+        let link = RecordLink(
+            reference: reference, sourceType: Owner.recordType, sourceID: ownerID,
+            target: ReferenceTarget(id: target.id, order: order)
+        )
+        edit(id: directEdit(of: link), of: link, in: zone, with: link)
+    }
+
+    /// Records the edit that deletes the link from the record with `ownerID` to the target with
+    /// `targetID`, when there is one.
+    private func unlink<Owner: Record>(_ targetID: UUID, through reference: ReferenceState, of owner: Owner.Type, ownerID: UUID) {
+        let id = RecordLink.id(reference: reference, sourceType: Owner.recordType, sourceID: ownerID, targetID: targetID)
+        guard let link = draft(id: id, for: RecordLink.self, in: zone, savedFirst: false),
+              link.sourceName == ownerID.uuidString, link.targetName == targetID.uuidString
+        else { return }
+        edit(id: directEdit(of: link), of: link, in: zone, with: nil)
+    }
+
+    /// The last order key among the links of `source` from the record with `ownerID`, saved or
+    /// pending.
+    private func lastOrder(of source: String, ownerType: CKRecord.RecordType, ownerID: UUID) -> String? {
+        let key = RecordKey(recordType: ownerType, name: ownerID.uuidString, zone: zone)
+        let saved = ((try? database.currentLinks(of: key)) ?? [:]).values.compactMap { row -> String? in
+            guard row["source"] == .text(source), case .text(let order) = row["order"] else { return nil }
+            return order
+        }
+        let pending = differences.values.compactMap { difference -> String? in
+            guard difference.zone == zone, let link = difference.edit as? RecordLink,
+                  link.source == source, link.sourceName == ownerID.uuidString
+            else { return nil }
+            return link.order
+        }
+        return (saved + pending).max(by: OrderKey.precedes)
     }
 
     // MARK: - Reading
