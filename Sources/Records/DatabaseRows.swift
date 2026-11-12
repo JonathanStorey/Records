@@ -113,9 +113,9 @@ extension Database {
         let edited = hasOriginal ? change.originalValues.map { original in change.values.filter { original[$0.key] != $0.value } } : nil
         try writeRecord(change.schema, key: key, values: change.values, edited: edited, now: now)
 
-        let orders = RecordContext.orders(of: savedLinks)
-        let links = change.links(orders)
-        guard hasOriginal, let originalLinks = change.originalLinks(orders) else {
+        let added = RecordContext.addedDates(of: savedLinks), date = Date(timeIntervalSinceReferenceDate: now)
+        let links = change.links(added, now: date)
+        guard hasOriginal, let originalLinks = change.originalLinks(added, now: date) else {
             try writeLinks(links, of: key, saved: savedLinks, removing: nil, now: now)
             return
         }

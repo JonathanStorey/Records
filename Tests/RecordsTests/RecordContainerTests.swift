@@ -96,7 +96,7 @@ private func temporaryFile() -> URL {
     let container = try RecordContainer.inMemory(for: Book.self)
     let bookkeeping = Database.bookkeeping.map(\.name)
     #expect(try container.database.columnNames("Book") == bookkeeping + ["title"])
-    #expect(try container.database.columnNames("RecordLink") == bookkeeping + ["source", "sourceName", "targetName", "order", "assetID"])
+    #expect(try container.database.columnNames("RecordLink") == bookkeeping + ["source", "sourceName", "targetName", "added", "assetID"])
 }
 
 @Test func renamedFieldsUseTheirStoredName() throws {
@@ -126,7 +126,6 @@ private func temporaryFile() -> URL {
     let from = Writer.schema.references[0]
     #expect(from.isFrom && from.inverseOf == "writers" && from.target.recordType == "Novel")
     #expect(Profile.schema.references[0].deleteSelf)
-    #expect(Crate.schema.references.allSatisfy { $0.isSorted })
 }
 
 // MARK: - Files

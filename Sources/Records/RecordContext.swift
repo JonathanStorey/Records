@@ -463,14 +463,14 @@ public final class RecordContext {
         return values.allSatisfy { row[$0.key] == $0.value }
     }
 
-    /// The saved order key of each link target in `links`, by `source|targetName`, so a target
-    /// that keeps its place keeps its key.
-    nonisolated static func orders(of links: [String: [String: SQLValue]]) -> [String: String] {
+    /// The saved date each link target in `links` was added, by `source|targetName`, so a target
+    /// keeps the date it was first added.
+    nonisolated static func addedDates(of links: [String: [String: SQLValue]]) -> [String: Date] {
         Dictionary(
-            links.values.compactMap { row -> (String, String)? in
+            links.values.compactMap { row -> (String, Date)? in
                 guard case .text(let source) = row["source"], case .text(let target) = row["targetName"],
-                      case .text(let order) = row["order"] else { return nil }
-                return (RecordLink.orderKey(source: source, targetName: target), order)
+                      case .real(let added) = row["added"] else { return nil }
+                return (RecordLink.targetKey(source: source, targetName: target), Date(timeIntervalSinceReferenceDate: added))
             },
             uniquingKeysWith: { first, _ in first }
         )
@@ -577,15 +577,15 @@ extension RecordDifference {
     /// `base`'s column values, by field key.
     var originalValues: [String: SQLValue]? { base.map { Self.columns(of: $0) } }
 
-    /// The edit's links by name, given the saved order key of each target by
-    /// `source|targetName`.
-    func links(_ orders: [String: String]) -> [(String, [String: SQLValue])] {
-        Self.linkRows(of: record, orders: orders)
+    /// The edit's links by name, given the saved date of each target by `source|targetName`. A
+    /// new target is added `now`.
+    func links(_ added: [String: Date], now: Date) -> [(String, [String: SQLValue])] {
+        Self.linkRows(of: record, added: added, now: now)
     }
 
     /// `base`'s links, the same way, or `nil` when there is no base.
-    func originalLinks(_ orders: [String: String]) -> [(String, [String: SQLValue])]? {
-        base.map { Self.linkRows(of: $0, orders: orders) }
+    func originalLinks(_ added: [String: Date], now: Date) -> [(String, [String: SQLValue])]? {
+        base.map { Self.linkRows(of: $0, added: added, now: now) }
     }
 
     /// `draft` laid over `saved`: each field and owned link the draft changed from `original`
@@ -599,10 +599,11 @@ extension RecordDifference {
             row[field] = value
         }
 
-        var links = Dictionary(linkRows(of: saved, orders: [:]), uniquingKeysWith: { first, _ in first })
-        let orders = RecordContext.orders(of: links)
-        let originalLinks = Dictionary(linkRows(of: original, orders: orders), uniquingKeysWith: { first, _ in first })
-        let draftLinks = linkRows(of: draft, orders: orders)
+        let now = Date.now
+        var links = Dictionary(linkRows(of: saved, added: [:], now: now), uniquingKeysWith: { first, _ in first })
+        let added = RecordContext.addedDates(of: links)
+        let originalLinks = Dictionary(linkRows(of: original, added: added, now: now), uniquingKeysWith: { first, _ in first })
+        let draftLinks = linkRows(of: draft, added: added, now: now)
         let kept = Set(draftLinks.map(\.0))
         for name in originalLinks.keys where !kept.contains(name) {
             links[name] = nil
@@ -627,7 +628,7 @@ extension RecordDifference {
             // A `from:` side holds only IDs, as a `UUID?` or a `[UUID]`.
             let value = saved[keyPath: keyPath]
             let ids = (value as? [UUID]) ?? (value as? UUID).map { [$0] } ?? []
-            try? merged.loadReference(property, to: ids.map { ReferenceTarget(id: $0) }, from: graph, depth: 0)
+            try? merged.loadReference(property, to: ids, from: graph, depth: 0)
         }
         return merged
     }
@@ -636,8 +637,8 @@ extension RecordDifference {
         record.columnValues()
     }
 
-    private static func linkRows<R: Record>(of record: R, orders: [String: String]) -> [(String, [String: SQLValue])] {
-        record.links(orders: orders).map { link in
+    private static func linkRows<R: Record>(of record: R, added: [String: Date], now: Date) -> [(String, [String: SQLValue])] {
+        record.links(added: added, now: now).map { link in
             (link.id.uuidString, link.columnValues())
         }
     }

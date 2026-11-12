@@ -98,12 +98,12 @@ struct RecordContextBenchmarks {
         }
         #expect(time < 5_000)
 
-        page.labels = Array(labels.reversed())
-        let reorder = try measure("save a reversed list of \(Self.count) links") {
+        page.labels = []
+        let removal = try measure("save a record with \(Self.count) links removed") {
             context.insert(page)
             try context.save()
         }
-        #expect(reorder < 5_000)
+        #expect(removal < 5_000)
     }
 
     @Test func fetchEveryRecord() throws {

@@ -416,7 +416,7 @@ final class RecordMacroTests: XCTestCase {
                         Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
                     ],
                     references: [
-                        Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false, isSorted: false),
+                        Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -435,10 +435,10 @@ final class RecordMacroTests: XCTestCase {
                         "author": (self.$author.ids, self.$author.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to ids: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "author":
-                        try self.$author.load(targets, from: graph, depth: depth)
+                        try self.$author.load(ids, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -581,7 +581,7 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Note",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true, isSorted: false),
+                        Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -598,10 +598,10 @@ final class RecordMacroTests: XCTestCase {
                         "tags": (self.$tags.ids, self.$tags.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to ids: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "tags":
-                        try self.$tags.load(targets, from: graph, depth: depth)
+                        try self.$tags.load(ids, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -746,7 +746,7 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "User",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false, isSorted: false),
+                        Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -763,10 +763,10 @@ final class RecordMacroTests: XCTestCase {
                         "profile": (self.$profile.ids, self.$profile.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to ids: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "profile":
-                        try self.$profile.load(targets, from: graph, depth: depth)
+                        try self.$profile.load(ids, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -826,8 +826,8 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Profile",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, isSorted: false, inverseOf: "profile", deleteSelf: true),
-                        Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, isSorted: false, inverseOf: "settingsID", deleteSelf: false),
+                        Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, inverseOf: "profile", deleteSelf: true),
+                        Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, inverseOf: "settingsID", deleteSelf: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -843,12 +843,12 @@ final class RecordMacroTests: XCTestCase {
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to ids: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "userID":
-                        try self.$userID.load(targets, from: graph, depth: 0)
+                        try self.$userID.load(ids, from: graph, depth: 0)
                     case "accountID":
-                        try self.$accountID.load(targets, from: graph, depth: 0)
+                        try self.$accountID.load(ids, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -980,8 +980,8 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Shelf",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, isSorted: false, inverseOf: "shelf", deleteSelf: false),
-                        Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, isSorted: false, inverseOf: "shelf", deleteSelf: false),
+                        Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, inverseOf: "shelf", deleteSelf: false),
+                        Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, inverseOf: "shelf", deleteSelf: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -997,12 +997,12 @@ final class RecordMacroTests: XCTestCase {
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to ids: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "bookIDs":
-                        try self.$bookIDs.load(targets, from: graph, depth: 0)
+                        try self.$bookIDs.load(ids, from: graph, depth: 0)
                     case "crateIDs":
-                        try self.$crateIDs.load(targets, from: graph, depth: 0)
+                        try self.$crateIDs.load(ids, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -1839,143 +1839,6 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    // MARK: - Sorted references
-
-    func testSortByKeyPath() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Crate {
-                @Reference(sort: \\Disc.title, order: .reverse) var discs: [Disc]
-            }
-            """,
-            expandedSource: """
-            struct Crate {
-                var discs: [Disc] {
-                    @storageRestrictions(initializes: $discs)
-                    init(initialValue) {
-                        $discs = Records.ToMany(initialValue, sorted: true)
-                    }
-                    get {
-                        $discs.values.sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
-                    }
-                    set {
-                        $discs.values = newValue
-                    }
-                }
-
-                var $discs: Records.ToMany<Disc>
-            }
-            """,
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testSortByDescriptors() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Crate {
-                @Reference(sort: [SortDescriptor(\\Disc.year)]) var discs: [Disc]
-            }
-            """,
-            expandedSource: """
-            struct Crate {
-                var discs: [Disc] {
-                    @storageRestrictions(initializes: $discs)
-                    init(initialValue) {
-                        $discs = Records.ToMany(initialValue, sorted: true)
-                    }
-                    get {
-                        $discs.values.sorted(using: [SortDescriptor(\\Disc.year)])
-                    }
-                    set {
-                        $discs.values = newValue
-                    }
-                }
-
-                var $discs: Records.ToMany<Disc>
-            }
-            """,
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testSortNeedsRecords() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Crate {
-                @Reference(from: \\Disc.crates, sort: \\Disc.title) var discIDs: [UUID]
-            }
-            """,
-            expandedSource: """
-            struct Crate {
-                var discIDs: [UUID]
-            }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testSortNeedsToMany() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Crate {
-                @Reference(sort: \\Disc.title) var disc: Disc?
-            }
-            """,
-            expandedSource: """
-            struct Crate {
-                var disc: Disc?
-            }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testOrderNeedsAKeyPath() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Crate {
-                @Reference(sort: [SortDescriptor(\\Disc.year)], order: .reverse) var discs: [Disc]
-            }
-            """,
-            expandedSource: """
-            struct Crate {
-                var discs: [Disc]
-            }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'order:' goes with a key path, e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
     func testLocationMustBeVar() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
@@ -2060,29 +1923,6 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(message: "'deleteSelf:' must be 'true' or 'false'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testOrderNeedsSort() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Note {
-                @Reference(order: .reverse) var tags: [Tag]
-            }
-            """,
-            expandedSource: """
-            struct Note {
-                var tags: [Tag]
-            }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'order:' goes with 'sort:', e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )

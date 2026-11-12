@@ -103,14 +103,14 @@ public struct RecordMacro: ExtensionMacro {
             }
             lines += [
                 "    }",
-                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {",
+                "    \(access)mutating func loadReference(_ property: String, to ids: [UUID], from graph: Records.RecordGraph, depth: Int) throws {",
                 "        switch property {",
             ]
             for reference in references {
                 // A `from:` side holds IDs, so it reads no records.
                 lines += [
                     "        case \"\(reference.key)\":",
-                    "            try self.\(reference.storage).load(targets, from: graph, depth: \(reference.isFrom ? "0" : "depth"))",
+                    "            try self.\(reference.storage).load(ids, from: graph, depth: \(reference.isFrom ? "0" : "depth"))",
                 ]
             }
             lines += [
@@ -159,7 +159,7 @@ public struct RecordMacro: ExtensionMacro {
         }
         for reference in references {
             let empty = reference.isToMany
-                ? "Records.ToMany(ids: []\(reference.sort == nil ? "" : ", sorted: true"))"
+                ? "Records.ToMany(ids: [])"
                 : "Records.ToOne(id: nil)"
             lines.append("        self.\(reference.storage) = \(empty)")
         }
@@ -208,7 +208,7 @@ public struct RecordMacro: ExtensionMacro {
         } else {
             lines.append("            references: [")
             for reference in references {
-                var arguments = "property: \"\(reference.key)\", target: \(reference.target).self, isToMany: \(reference.isToMany), isSorted: \(reference.sort != nil)"
+                var arguments = "property: \"\(reference.key)\", target: \(reference.target).self, isToMany: \(reference.isToMany)"
                 if let owner = reference.ownerProperty {
                     arguments += ", inverseOf: \"\(owner)\", deleteSelf: \(reference.deleteSelf)"
                 }
@@ -325,8 +325,7 @@ public struct RecordMacro: ExtensionMacro {
             for reference in references {
                 let key = ".`\(reference.key)`"
                 if reference.isToMany {
-                    let sorted = reference.sort == nil ? "" : ", sorted: true"
-                    lines.append("        self.\(reference.storage) = Records.ToMany(ids: try container.decodeIfPresent([UUID].self, forKey: \(key)) ?? []\(sorted))")
+                    lines.append("        self.\(reference.storage) = Records.ToMany(ids: try container.decodeIfPresent([UUID].self, forKey: \(key)) ?? [])")
                 } else {
                     lines.append("        self.\(reference.storage) = Records.ToOne(id: try container.decodeIfPresent(UUID.self, forKey: \(key)))")
                 }

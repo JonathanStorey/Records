@@ -25,7 +25,7 @@ private func currentRow(_ table: String, _ id: UUID, in context: RecordContext, 
 @MainActor
 private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String: SQLValue]] {
     try context.database.rows(
-        "SELECT * FROM \"RecordLink\" WHERE \"sourceName\" = ? ORDER BY \"order\"", [.text(id.uuidString)]
+        "SELECT * FROM \"RecordLink\" WHERE \"sourceName\" = ? ORDER BY \"added\", \"targetName\"", [.text(id.uuidString)]
     )
 }
 
@@ -157,7 +157,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 // MARK: - Links
 
 @MainActor
-@Test func saveWritesOrderedLinks() throws {
+@Test func saveWritesLinksInTheOrderGiven() throws {
     let context = try makeContext(for: Page.self)
     let items = ["a", "b", "c"].map { Label(id: UUID(), name: $0) }
     let page = Page(id: UUID(), title: "Notes", labels: items)
@@ -167,7 +167,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     let links = try linkRows(of: page.id, in: context)
     #expect(links.map { $0["targetName"] } == items.map { Optional(SQLValue.text($0.id.uuidString)) })
     #expect(links.allSatisfy { $0["source"] == .text("Page.labels") })
-    #expect(links.allSatisfy { $0["order"] != .null })
+    #expect(links.allSatisfy { $0["added"] != .null })
     #expect(links.allSatisfy { $0["_zoneName"] == .text("Records") })
 }
 
@@ -473,28 +473,21 @@ private func makeVenue() -> Venue {
     #expect(try linkRows(of: page.id, in: context).isEmpty)
 }
 
-/// Reordering a to-many reference keeps the keys of targets that stay in order, so only the
-/// moved target's link changes.
+/// Reordering a to-many reference in memory isn't saved, so it writes nothing.
 @MainActor
-@Test func reorderingRewritesOnlyMovedLinks() throws {
+@Test func reorderingWritesNothing() throws {
     let context = try makeContext(for: Page.self)
     let labels = ["a", "b", "c"].map { Label(id: UUID(), name: $0) }
     var page = Page(id: UUID(), title: "Notes", labels: labels)
     context.insert(page)
     try context.save()
     let before = try linkRows(of: page.id, in: context)
-    func order(of label: Label) -> SQLValue? {
-        before.first { $0["targetName"] == .text(label.id.uuidString) }?["order"]
-    }
 
     page.labels = [labels[1], labels[2], labels[0]]
     context.insert(page)
     try context.save()
-    let after = try linkRows(of: page.id, in: context)
-    #expect(after.map { $0["targetName"] } == page.labels.map { Optional(SQLValue.text($0.id.uuidString)) })
-    #expect(after[0]["order"] == order(of: labels[1]))
-    #expect(after[1]["order"] == order(of: labels[2]))
-    #expect(after[2]["order"] != order(of: labels[0]))
+    #expect(try linkRows(of: page.id, in: context) == before)
+    #expect(try context.record(id: page.id, for: Page.self)?.labels == labels)
 }
 
 // MARK: - Changes

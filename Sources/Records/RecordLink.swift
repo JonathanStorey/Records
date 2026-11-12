@@ -23,8 +23,8 @@ enum Relationship: String, Sendable, CaseIterable {
 
 /// One link of a relationship, or one `@Asset`, stored as its own internal `RecordLink` record.
 ///
-/// A link stores only data: which property of which record it belongs to, the target, its order,
-/// and, for an asset, the asset. Everything else about the relationship, such as the target type,
+/// A link stores only data: which property of which record it belongs to, the target, when it was
+/// added, and, for an asset, the asset. Everything else about the relationship, such as the target type,
 /// the inverse, and `deleteSelf`, comes from the types' declarations, so changing an inverse never
 /// rewrites a link.
 ///
@@ -41,8 +41,9 @@ struct RecordLink: Equatable, Sendable {
     var sourceName: String
     /// The target record's name, its `id` as a UUID string. `nil` on an asset's link.
     var targetName: String?
-    /// Fractional index key. Required on ordered to-many links, empty otherwise.
-    var order: String?
+    /// When the target was added, by the clock of the device that added it. A to-many reference
+    /// and every `from:` side list their targets in this order. `nil` on an asset's link.
+    var added: Date?
     /// The asset's ID as a UUID string, on an `@Asset`'s link only. The asset itself is the
     /// link's `asset` field, which the encoder writes and the decoder reads.
     var assetID: String?
@@ -104,14 +105,14 @@ struct RecordLink: Equatable, Sendable {
 // MARK: - References
 
 extension RecordLink {
-    /// The link a `@Reference` writes to `target`.
-    init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, target: ReferenceTarget) {
+    /// The link a `@Reference` writes to `targetID`, added at `added`.
+    init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, targetID: UUID, added: Date) {
         self.init(
-            id: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: target.id),
+            id: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: targetID),
             source: Self.source(type: sourceType, property: reference.property),
             sourceName: sourceID.uuidString,
-            targetName: target.id.uuidString,
-            order: target.order
+            targetName: targetID.uuidString,
+            added: added
         )
     }
 
@@ -138,7 +139,7 @@ extension RecordLink {
             source: source,
             sourceName: sourceID.uuidString,
             targetName: nil,
-            order: nil,
+            added: nil,
             assetID: assetID.uuidString
         )
     }
@@ -147,28 +148,31 @@ extension RecordLink {
 // MARK: - A record's links
 
 extension RecordLink {
-    /// What `Record.links(orders:)` looks a saved order key up by: `source|targetName`.
-    var orderKey: String { Self.orderKey(source: source, targetName: targetName ?? "") }
+    /// What `Record.links(added:)` looks a saved date up by: `source|targetName`.
+    var targetKey: String { Self.targetKey(source: source, targetName: targetName ?? "") }
 
-    static func orderKey(source: String, targetName: String) -> String {
+    static func targetKey(source: String, targetName: String) -> String {
         source + "|" + targetName
     }
 }
 
 extension Record {
-    /// A link for each target of each reference that writes links, in order, and one for each
-    /// `@Asset` that holds data. `orders` holds the saved order key of each target by
-    /// `RecordLink.orderKey`, so a target that keeps its place keeps its key. `@Reference(from:)`
-    /// properties write no links.
-    func links(orders: [String: String] = [:]) -> [RecordLink] {
+    /// A link for each target of each reference that writes links, and one for each `@Asset` that
+    /// holds data. `@Reference(from:)` properties write no links.
+    ///
+    /// `added` holds the saved date of each target by `RecordLink.targetKey`, so a target keeps the
+    /// date it was first added. A new target is added `now`, or a millisecond after the target
+    /// before it when that is later, so targets added together keep the order they were given. A
+    /// millisecond, because the server keeps dates to the millisecond.
+    func links(added: [String: Date] = [:], now: Date = .now) -> [RecordLink] {
         let references = referenceStates.flatMap { reference -> [RecordLink] in
             let source = RecordLink.source(type: Self.recordType, property: reference.property)
-            // A sorted reference is ordered by its records' fields, so its links carry no keys.
-            let keys: [String?] = reference.isToMany && !reference.isSorted
-                ? OrderKey.assign(reference.ids.map { orders[RecordLink.orderKey(source: source, targetName: $0.uuidString)] })
-                : reference.ids.map { _ in nil }
-            return zip(reference.ids, keys).map { id, order in
-                RecordLink(reference: reference, sourceType: Self.recordType, sourceID: self.id, target: ReferenceTarget(id: id, order: order))
+            var previous = Date.distantPast
+            return reference.ids.map { id in
+                let date = added[RecordLink.targetKey(source: source, targetName: id.uuidString)]
+                    ?? max(now, previous.addingTimeInterval(0.001))
+                previous = date
+                return RecordLink(reference: reference, sourceType: Self.recordType, sourceID: self.id, targetID: id, added: date)
             }
         }
         let assets = assetStates.compactMap { asset in

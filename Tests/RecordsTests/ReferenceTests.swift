@@ -86,7 +86,7 @@ private func savedArticle(
     #expect(signatures(of: article) == ["Article.author:Person", "Article.editor:Person"])
     #expect(decoded.map(\.sourceName) == [article.id.uuidString, article.id.uuidString])
     #expect(decoded.map(\.targetName) == [ada.id.uuidString, grace.id.uuidString])
-    #expect(decoded.allSatisfy { $0.order == nil })
+    #expect(decoded.allSatisfy { $0.added != nil })
 }
 
 @Test func emptyReferencesWriteNoLinks() {

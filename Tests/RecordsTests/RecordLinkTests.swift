@@ -33,7 +33,7 @@ private func reference(
     _ property: String, to target: any Record.Type, many: Bool = false, inverse: (name: String, many: Bool)? = nil
 ) -> ReferenceState {
     let schema = { (property: String, isToMany: Bool) in
-        ReferenceSchema(property: property, target: target, isToMany: isToMany, isSorted: false)
+        ReferenceSchema(property: property, target: target, isToMany: isToMany)
     }
     return ReferenceState(
         schema: schema(property, many), inverse: inverse.map { schema($0.name, $0.many) }, ids: [], records: []
@@ -42,9 +42,9 @@ private func reference(
 
 private func link(
     _ reference: ReferenceState, from sourceType: String = "Note", id sourceID: UUID = UUID(),
-    to targetID: UUID = UUID(), order: String? = nil
+    to targetID: UUID = UUID(), added: Date = Date(timeIntervalSinceReferenceDate: 1_000)
 ) -> RecordLink {
-    RecordLink(reference: reference, sourceType: sourceType, sourceID: sourceID, target: ReferenceTarget(id: targetID, order: order))
+    RecordLink(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: targetID, added: added)
 }
 
 // MARK: - Computed from the declarations
@@ -82,14 +82,14 @@ private func link(
     #expect(stored.sourceProperty == "folder")
     #expect(stored.sourceName == noteID.uuidString)
     #expect(stored.targetName == folderID.uuidString)
-    #expect(stored.order == nil)
+    #expect(stored.added == Date(timeIntervalSinceReferenceDate: 1_000))
     #expect(stored.assetID == nil)
 }
 
 @Test func renamingAnInverseChangesNothingStored() {
     let noteID = UUID(), tagID = UUID()
-    let before = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)), id: noteID, to: tagID, order: "a0")
-    let after = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("pages", true)), id: noteID, to: tagID, order: "a0")
+    let before = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)), id: noteID, to: tagID)
+    let after = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("pages", true)), id: noteID, to: tagID)
     #expect(before == after)
 }
 
@@ -113,7 +113,7 @@ private func link(
 
 @Test func manyToManyLinkIsOnePerPair() {
     let noteID = UUID(), tagID = UUID(), tags = reference("tags", to: LinkedTag.self, many: true)
-    #expect(link(tags, id: noteID, to: tagID, order: "a0").id == link(tags, id: noteID, to: tagID, order: "b0").id)
+    #expect(link(tags, id: noteID, to: tagID).id == link(tags, id: noteID, to: tagID, added: .now).id)
     #expect(link(tags, id: noteID, to: tagID).id != link(tags, id: noteID, to: UUID()).id)
 }
 
@@ -139,7 +139,7 @@ private func link(
 // MARK: - Encoding
 
 @Test func linkEncodesAndDecodesLikeAnyRecord() throws {
-    let stored = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)), order: "a0")
+    let stored = link(reference("tags", to: LinkedTag.self, many: true, inverse: ("notes", true)))
     let record = CKRecordEncoder().encode(stored, in: "Notes")
 
     #expect(record.recordType == "RecordLink")

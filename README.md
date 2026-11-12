@@ -175,7 +175,7 @@ Three rules cover every relationship:
    loading every owner as a record would have no limit. To show an owner's fields, fetch it by
    ID, or make the other side the owner.
 3. **A to-one reference is optional and a to-many reference is a non-optional array.** A to-many
-   owner keeps its order. A `from:` array lists its owners in the order their links were created.
+   reference and a `from:` array both list their targets in the order they were added.
 
 A `from:` side names the owner's property with a key path. That makes the relationship two-way,
 and determines its shape:
@@ -188,20 +188,18 @@ and determines its shape:
 | to-many | to-many | many-to-many |
 | either | none | one-way: many-to-one or many-to-many |
 
-### Sorting instead of ordering
+### Order
 
-A to-many owner keeps the order you give it. To sort by the targets' fields instead, pass `sort:`
-with the same parameters as SwiftData's `@Query`:
+A to-many reference lists its records in the order they were added, on any device. Each link
+keeps the date its target was added, by the clock of the device that added it, and records added
+together keep the order they were given. Removing a record and adding it back moves it to the end.
+
+That order is the only one Records keeps. Reordering the array in memory isn't saved, so to show
+records another way, sort them where you show them:
 
 ```swift
-@Reference(sort: \Tag.name) var tags: [Tag]
-@Reference(sort: \Album.year, order: .reverse) var albums: [Album]
-@Reference(sort: SortDescriptor(\Track.title)) var tracks: [Track]
-@Reference(sort: [SortDescriptor(\Track.disc), SortDescriptor(\Track.number)]) var all: [Track]
+ForEach(album.tracks.sorted { $0.title < $1.title }) { track in ... }
 ```
-
-A sorted reference sorts each time it's read, and its links carry no order keys, so reordering it
-never writes anything. `$tags.ids` lists the IDs unsorted, because sorting needs the records.
 
 ## Every relationship, by example
 
@@ -632,9 +630,8 @@ let record = encoder.encode(album, in: zone)                      // the album's
 let links = encoder.links(for: album, in: zone, existing: saved)  // every link it has now
 ```
 
-Pass the links the record already has as `existing`, and each track keeps its order key wherever it
-still sorts in place, so reordering tracks changes only the links of the tracks that moved.
-Pointing a to-one reference somewhere else keeps its link's ID and changes its target. Comparing
+Pass the links the record already has as `existing`, and each track keeps the date it was added,
+so adding a track writes only that track's link. Pointing a to-one reference somewhere else keeps its link's ID and changes its target. Comparing
 the result with `existing` gives the links to write and the ones to delete. A record's links cover
 only its own references, so a record loaded inside another, such as `album.tracks[0]`, is saved
 on its own.

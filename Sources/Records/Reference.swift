@@ -1,18 +1,5 @@
 import CloudKit
 
-/// One target of a reference, with its position among the others.
-public struct ReferenceTarget: Hashable, Sendable {
-    /// The target record's ID.
-    public let id: UUID
-    /// The fractional index key that orders a to-many reference. `nil` for a to-one reference.
-    public let order: String?
-
-    public init(id: UUID, order: String? = nil) {
-        self.id = id
-        self.order = order
-    }
-}
-
 /// One `@Reference` that writes links, with its current targets, as the encoder needs it.
 public struct ReferenceState {
     /// The reference as `@Record` describes it.
@@ -30,8 +17,6 @@ public struct ReferenceState {
     public var targetType: CKRecord.RecordType { schema.target.recordType }
     /// Whether the property holds many targets.
     public var isToMany: Bool { schema.isToMany }
-    /// Whether a to-many property sorts its records, so its links carry no order keys.
-    public var isSorted: Bool { schema.isSorted }
 
     /// Every `@Reference` of `type` that writes links, with its targets' IDs and loaded records
     /// from `targets` by property. Used by the code `@Record` generates.
@@ -87,11 +72,11 @@ public struct ToOne<Target: Record> {
         }
     }
 
-    /// Sets the reference as read from storage. Uses the first of `targets`. When `depth` is at
+    /// Sets the reference as read from storage. Uses the first of `ids`. When `depth` is at
     /// least 1 and `graph` holds the target, reads it with `depth - 1`, so its own references
     /// hold records `depth - 1` levels further.
-    public mutating func load(_ targets: [ReferenceTarget], from graph: RecordGraph, depth: Int = 1) throws {
-        id = targets.first?.id
+    public mutating func load(_ ids: [UUID], from graph: RecordGraph, depth: Int = 1) throws {
+        id = ids.first
         guard depth > 0, let id else { box = nil; return }
         box = try graph.record(Target.self, id: id, depth: depth - 1).map(Box.init)
     }
@@ -122,26 +107,22 @@ extension ToOne: @unchecked Sendable where Target: Sendable {}
 
 /// A to-many `@Reference` itself, which `$tags` gives for `@Reference var tags: [Tag]`.
 ///
-/// It keeps the target IDs in order and the loaded records. `$tags.ids` reads every ID even when
-/// the records aren't loaded. Each target appears once: a repeated ID keeps its first position.
-/// Two values are equal when they point at the same targets in the same order.
+/// It keeps the target IDs and the loaded records, in the order the targets were added.
+/// `$tags.ids` reads every ID even when the records aren't loaded. Each target appears once: a
+/// repeated ID keeps its first position. Two values are equal when they point at the same targets
+/// in the same order.
 public struct ToMany<Target: Record> {
     private var storedIDs: [UUID] = []
     /// The loaded targets by ID. A class, so a record can refer to its own type.
     private var box: Box?
-    /// Whether the property sorts its records, so its links carry no order keys.
-    public let isSorted: Bool
 
-    /// A reference to `ids` that holds only the IDs. A sorted reference writes no order keys.
-    public init(ids: [UUID], sorted: Bool = false) {
-        isSorted = sorted
+    /// A reference to `ids` that holds only the IDs.
+    public init(ids: [UUID]) {
         self.ids = ids
     }
 
-    /// A reference to `values`, holding the records themselves. A sorted reference writes no
-    /// order keys.
-    public init(_ values: [Target], sorted: Bool = false) {
-        isSorted = sorted
+    /// A reference to `values`, holding the records themselves.
+    public init(_ values: [Target]) {
         self.values = values
     }
 
@@ -179,11 +160,11 @@ public struct ToMany<Target: Record> {
         storedIDs.removeAll { $0 == id }
     }
 
-    /// Sets the reference as read from storage. `targets` must already be in order. When `depth`
-    /// is at least 1, reads each target `graph` holds with `depth - 1`, so its own references
-    /// hold records `depth - 1` levels further.
-    public mutating func load(_ targets: [ReferenceTarget], from graph: RecordGraph, depth: Int = 1) throws {
-        ids = targets.map(\.id)
+    /// Sets the reference as read from storage. `ids` must already be in the order they were added.
+    /// When `depth` is at least 1, reads each target `graph` holds with `depth - 1`, so its own
+    /// references hold records `depth - 1` levels further.
+    public mutating func load(_ ids: [UUID], from graph: RecordGraph, depth: Int = 1) throws {
+        self.ids = ids
 
         var values: [UUID: Target] = [:]
         if depth > 0 {
