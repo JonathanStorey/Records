@@ -666,7 +666,7 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 
     #expect((try context.record(id: venue.id) as? Venue) == venue)
     #expect((try context.record(id: label.id) as? Label) == label)
-    #expect(try context.record() == nil)
+    #expect(try context.record(id: UUID()) == nil)
 }
 
 // MARK: - New targets

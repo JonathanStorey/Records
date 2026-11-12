@@ -150,7 +150,7 @@ private let reviewPredicates: [Predicate<Review>] = [
     #expect(fetched == expected)
     for lp in lps {
         #expect(lp.musician == nil)
-        #expect(lp.referenceStates.first { $0.property == "musician" }?.ids == [library.musicians[0].id])
+        #expect(lp.referenceStates.first { $0.property == "musician" }?.ids == [library.musicians[0].uuid])
     }
 }
 

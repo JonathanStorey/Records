@@ -140,6 +140,6 @@ private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]
     #expect(pages.count == 2)
     for page in pages {
         let ids = page.referenceStates.first { $0.property == "labels" }?.ids ?? []
-        #expect(ids == [labels[try #require(Int(page.title))].id])
+        #expect(ids == [labels[try #require(Int(page.title))].uuid])
     }
 }

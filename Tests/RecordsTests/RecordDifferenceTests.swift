@@ -106,7 +106,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     try here.save()
     let page = try #require(try here.record(id: saved.id, for: Page.self))
     let ids = Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
-    #expect(ids == [labels[0].id, labels[2].id, labels[3].id])
+    #expect(ids == [labels[0].uuid, labels[2].uuid, labels[3].uuid])
 }
 
 @MainActor
@@ -187,7 +187,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     try here.save()
     let page = try #require(try here.record(id: saved.id, for: Page.self))
     #expect(page.title == "Renamed")
-    #expect(page.referenceStates.first { $0.property == "labels" }?.ids == labels.map(\.id))
+    #expect(page.referenceStates.first { $0.property == "labels" }?.ids == labels.map(\.uuid))
 }
 
 // MARK: - Reading saved records
@@ -270,7 +270,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(here.hasChanges)
 
     try here.save()
-    #expect(try labelIDs() == [labels[0].id, labels[2].id, labels[3].id])
+    #expect(try labelIDs() == [labels[0].uuid, labels[2].uuid, labels[3].uuid])
 }
 
 /// An edit laid over a record keeps that record's other fields and its `from:` sides.
@@ -278,7 +278,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     let original = novel("Blue", year: 1971)
     var edit = original
     edit.year = 1972
-    let difference = RecordDifference(zone: .records, base: original, edit: edit, modified: .now)
+    let difference = RecordDifference(id: UUID(), zone: .records, base: original, edit: edit, modified: .now)
     #expect((difference.laid(over: nil) as? Novel)?.year == 1972)
 
     var saved = original
@@ -291,7 +291,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     let savedWriter = Writer(name: "Ada", bookIDs: [original.id], id: writer.id)
     var editedWriter = writer
     editedWriter.name = "Ada L."
-    let writerDifference = RecordDifference(zone: .records, base: writer, edit: editedWriter, modified: .now)
+    let writerDifference = RecordDifference(id: UUID(), zone: .records, base: writer, edit: editedWriter, modified: .now)
     let writerValue = try #require(writerDifference.laid(over: savedWriter) as? Writer)
     #expect(writerValue.name == "Ada L.")
     #expect(writerValue.bookIDs == [original.id])
@@ -300,13 +300,13 @@ private func novel(_ title: String, year: Int) -> Novel {
 /// A difference's change follows its base and edit.
 @Test func theChangeFollowsTheBaseAndEdit() {
     let record = novel("Blue", year: 1971)
-    var difference = RecordDifference(zone: .records, base: nil, edit: record, modified: .now)
+    var difference = RecordDifference(id: UUID(), zone: .records, base: nil, edit: record, modified: .now)
     #expect(difference.change == .insert(record.uuid))
     difference.base = record
     #expect(difference.change == .update(record.uuid))
     difference.edit = nil
     #expect(difference.change == .delete(record.uuid))
-    #expect(difference.change.id == record.id)
+    #expect(difference.change.id == record.uuid)
 }
 
 /// Rebasing keeps the fields the edit changed and takes the rest from the new base. A base
@@ -315,7 +315,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     let original = novel("Blue", year: 1971)
     var edit = original
     edit.year = 1972
-    var difference = RecordDifference(zone: .records, base: original, edit: edit, modified: .now)
+    var difference = RecordDifference(id: UUID(), zone: .records, base: original, edit: edit, modified: .now)
 
     var remote = original
     remote.title = "Blue (Remastered)"
@@ -343,8 +343,8 @@ private func novel(_ title: String, year: Int) -> Novel {
     var newer = saved
     newer.year = 1990
     let start = Date(timeIntervalSince1970: 1_000)
-    here.edit(of: saved, in: .records, with: newer, on: start.addingTimeInterval(1))
-    here.edit(of: saved, in: .records, with: older, on: start)
+    here.edit(id: UUID(), of: saved, in: .records, with: newer, on: start.addingTimeInterval(1))
+    here.edit(id: UUID(), of: saved, in: .records, with: older, on: start)
     #expect(here.draft(id: saved.id, for: Novel.self, in: .records)?.year == 1990)
 
     try here.save()
@@ -363,7 +363,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     var draft = saved
     draft.year = 1972
     here.insert(draft)
-    here.edit(of: saved, in: .records, with: draft)
+    here.edit(id: UUID(), of: saved, in: .records, with: draft)
     here.rollback()
     #expect(!here.hasChanges)
     #expect(here.draft(id: saved.id, for: Novel.self, in: .records)?.year == 1971)

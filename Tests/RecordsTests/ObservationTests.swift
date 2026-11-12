@@ -50,7 +50,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     #expect(!observes(read) { context.edit(id: id, of: novel, in: .records, with: edited) })
     #expect(try observes(read) { try context.save() })
 
-    context.edit(of: novel, in: .records, with: edited)
+    context.edit(id: UUID(), of: novel, in: .records, with: edited)
     #expect(observes(read) { context.rollback() })
 
     // One record's edits discarded while another's stay.
@@ -59,7 +59,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     context.insert(other)
-    context.edit(of: novel, in: .records, with: edited)
+    context.edit(id: UUID(), of: novel, in: .records, with: edited)
     #expect(observes(read) { context.rollback(id: novel.id) })
     #expect(context.hasChanges)
 }
@@ -69,7 +69,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
 @Test func rollingBackAnotherZoneRedraws() throws {
     let (context, novel) = try savedNovel()
     context.zone = "Work"
-    context.edit(of: novel, in: .records, with: novel)
+    context.edit(id: UUID(), of: novel, in: .records, with: novel)
     #expect(context.changes.isEmpty)
     #expect(observes({ _ = context.draft(id: novel.id, for: Novel.self, in: .records) }) { context.rollback() })
 }
@@ -92,8 +92,8 @@ private func savedNovel() throws -> (RecordContext, Novel) {
 @Test func hasChangesRedrawsOnlyWhenItFlips() throws {
     let (context, novel) = try savedNovel()
     let read = { _ = context.hasChanges }
-    #expect(observes(read) { context.edit(of: novel, in: .records, with: novel) })
-    #expect(!observes(read) { context.edit(of: novel, in: .records, with: novel) })
+    #expect(observes(read) { context.edit(id: UUID(), of: novel, in: .records, with: novel) })
+    #expect(!observes(read) { context.edit(id: UUID(), of: novel, in: .records, with: novel) })
     #expect(observes(read) { context.rollback() })
     #expect(!context.hasChanges)
 }
@@ -141,7 +141,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     let start = Date(timeIntervalSince1970: 1_000)
     context.edit(id: first, of: novel, in: .records, with: novel, on: start)
     context.insert(fresh)
-    context.edit(of: novel, in: .records, with: novel, on: start)
+    context.edit(id: UUID(), of: novel, in: .records, with: novel, on: start)
     // A later edit to the first doesn't move it.
     context.edit(id: first, of: novel, in: .records, with: novel, on: start.addingTimeInterval(5))
     #expect(context.changes == [.update(novel.uuid), .insert(fresh.uuid), .update(novel.uuid)])

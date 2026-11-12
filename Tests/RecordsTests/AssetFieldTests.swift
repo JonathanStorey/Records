@@ -84,7 +84,7 @@ private let decoder = CKRecordDecoder()
 @Test func anAssetMissingHereReadsTheDownloadedFile() throws {
     let downloaded = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).tmp")
     try png.write(to: downloaded)
-    let field = AssetField(file: downloaded)
+    let field = AssetField(id: UUID(), file: downloaded)
     #expect(field.fileURL == downloaded)
     #expect(field.data == png)
 }

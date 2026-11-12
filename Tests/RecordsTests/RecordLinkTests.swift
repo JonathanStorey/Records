@@ -91,7 +91,7 @@ private func link(
 // MARK: - Identity
 
 @Test func idIsAValidVersion8UUID() {
-    let bytes = link(reference("author", to: LinkedPerson.self)).id.uuid
+    let bytes = link(reference("author", to: LinkedPerson.self)).id.uuid.uuid
     #expect(bytes.6 >> 4 == 0x8)
     #expect(bytes.8 >> 6 == 0b10)
 }
