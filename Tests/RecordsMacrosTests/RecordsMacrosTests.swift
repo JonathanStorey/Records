@@ -435,10 +435,10 @@ final class RecordMacroTests: XCTestCase {
                         "author": (self._author.ids, self._author.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "author":
-                        try self._author.load(targets, from: records, links: links, depth: depth)
+                        try self._author.load(targets, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -611,12 +611,12 @@ final class RecordMacroTests: XCTestCase {
                         "pinnedIDs": (self._pinnedIDs.ids, self._pinnedIDs.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "tags":
-                        try self._tags.load(targets, from: records, links: links, depth: depth)
+                        try self._tags.load(targets, from: graph, depth: depth)
                     case "pinnedIDs":
-                        try self._pinnedIDs.load(targets, from: [], links: [], depth: 0)
+                        try self._pinnedIDs.load(targets, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -680,10 +680,10 @@ final class RecordMacroTests: XCTestCase {
                         "authorID": (self._authorID.ids, self._authorID.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "authorID":
-                        try self._authorID.load(targets, from: [], links: [], depth: 0)
+                        try self._authorID.load(targets, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -920,10 +920,10 @@ final class RecordMacroTests: XCTestCase {
                         "profile": (self._profile.ids, self._profile.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "profile":
-                        try self._profile.load(targets, from: records, links: links, depth: depth)
+                        try self._profile.load(targets, from: graph, depth: depth)
                     default:
                         break
                     }
@@ -995,12 +995,12 @@ final class RecordMacroTests: XCTestCase {
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "userID":
-                        try self._userID.load(targets, from: [], links: [], depth: 0)
+                        try self._userID.load(targets, from: graph, depth: 0)
                     case "accountID":
-                        try self._accountID.load(targets, from: [], links: [], depth: 0)
+                        try self._accountID.load(targets, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -1144,12 +1144,12 @@ final class RecordMacroTests: XCTestCase {
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "bookIDs":
-                        try self._bookIDs.load(targets, from: [], links: [], depth: 0)
+                        try self._bookIDs.load(targets, from: graph, depth: 0)
                     case "crateIDs":
-                        try self._crateIDs.load(targets, from: [], links: [], depth: 0)
+                        try self._crateIDs.load(targets, from: graph, depth: 0)
                     default:
                         break
                     }

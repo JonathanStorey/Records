@@ -1,0 +1,151 @@
+import CloudKit
+
+/// Saved records and the links between them, which references load their targets from. Used by
+/// the code `@Record` generates.
+///
+/// A record reads its references from the links that name it: the ones it owns, and the ones
+/// that point at it for its `@Reference(from:)` sides. A reference that holds records finds its
+/// targets' rows here.
+public struct RecordGraph {
+    /// Each record's row, by `key(_:_:)`.
+    private var rows: [String: RecordRow] = [:]
+    /// Each link, under the name of each record it names.
+    private(set) var linksByName: [String: [RecordLink]] = [:]
+    /// When each link was created, which orders links that share an order key.
+    private var created: [UUID: Date] = [:]
+    /// The file each asset was downloaded to, by asset ID, for assets read from a `CKRecord`.
+    private var assetFiles: [String: URL] = [:]
+    private var linkIDs: Set<UUID> = []
+
+    init() {}
+
+    // MARK: Building
+
+    /// The row of the record of type `recordType` named `name`.
+    subscript(recordType: CKRecord.RecordType, name: String) -> RecordRow? {
+        get { rows[Self.key(recordType, name)] }
+        set { rows[Self.key(recordType, name)] = newValue }
+    }
+
+    /// Adds `link` under each record it names, once.
+    mutating func add(_ link: RecordLink, createdAt: Date? = nil) {
+        guard linkIDs.insert(link.id).inserted else { return }
+        created[link.id] = createdAt
+        linksByName[link.sourceName, default: []].append(link)
+        if let target = link.targetName, target != link.sourceName {
+            linksByName[target, default: []].append(link)
+        }
+    }
+
+    /// Adds the link saved as `row`, named `name`. A row that can't be read is skipped.
+    mutating func addLink(_ row: [String: SQLValue], name: String) {
+        var row = RecordRow(row)
+        row.values["_name"] = .text(name)
+        guard let link = try? RecordLink(from: row) else { return }
+        add(link, createdAt: row.createdAt)
+    }
+
+    /// `other`'s link named by `link`, with its creation date.
+    mutating func add(_ link: RecordLink, from other: RecordGraph) {
+        add(link, createdAt: other.created[link.id])
+    }
+
+    /// A graph of `records` and `links` as CloudKit returns them. Each record is read as the
+    /// type `root` reaches it through, and records of other types are left out. Links that can't
+    /// be read are skipped.
+    init(records: [CKRecord], links: [CKRecord], reachableFrom root: any Record.Type) throws {
+        let decoder = CKRecordDecoder()
+        for record in links where record.recordType == RecordLink.recordType {
+            guard let row = try? decoder.decode(record, of: RecordLink.self), let link = try? RecordLink(from: row)
+            else { continue }
+            add(link, createdAt: record.creationDate)
+            if let assetID = link.assetID, let file = (record[RecordLink.assetKey] as? CKAsset)?.fileURL {
+                assetFiles[assetID] = file
+            }
+        }
+        let types = Self.types(reachableFrom: root)
+        for record in records {
+            guard let type = types[record.recordType] else { continue }
+            self[record.recordType, record.recordID.recordName] = try Self.row(of: record, as: type)
+        }
+    }
+
+    private static func row<T: Record>(of record: CKRecord, as type: T.Type) throws -> RecordRow {
+        try CKRecordDecoder().decode(record, of: T.self)
+    }
+
+    /// `root` and every type its references reach, by record type.
+    private static func types(reachableFrom root: any Record.Type) -> [CKRecord.RecordType: any Record.Type] {
+        var types: [CKRecord.RecordType: any Record.Type] = [root.recordType: root]
+        var queue: [any Record.Type] = [root]
+        while let type = queue.popLast() {
+            for reference in type.schema.references where types[reference.target.recordType] == nil {
+                types[reference.target.recordType] = reference.target
+                queue.append(reference.target)
+            }
+        }
+        return types
+    }
+
+    private static func key(_ recordType: CKRecord.RecordType, _ name: String) -> String {
+        recordType + "/" + name
+    }
+
+    // MARK: Reading
+
+    /// The record of type `T` with `id`, with its references holding records `depth` levels deep,
+    /// or `nil` when the graph doesn't hold it.
+    func record<T: Record>(_ type: T.Type, id: UUID, depth: Int) throws -> T? {
+        guard let row = self[T.recordType, id.uuidString] else { return nil }
+        var record = try T(from: row)
+        try load(&record, depth: depth)
+        return record
+    }
+
+    /// Fills `record`'s `@Reference` and `@Asset` properties from the links that name it.
+    ///
+    /// A reference that holds records is filled from the graph's rows, `depth` levels deep. With
+    /// 0, every reference holds only IDs. To-many targets are ordered by their order keys, then by
+    /// when the link was created, then by the link's ID.
+    func load<R: Record>(_ record: inout R, depth: Int) throws {
+        let name = record.id.uuidString
+        var byProperty: [String: [(target: ReferenceTarget, link: RecordLink)]] = [:]
+        for link in linksByName[name] ?? [] {
+            let property = String(link.sourceProperty)
+            let ownsLink = link.sourceName == name && link.sourceType == R.recordType
+            // An `@Asset`'s link: this record is its source.
+            if let assetID = link.assetID {
+                if ownsLink {
+                    record.loadAsset(property, id: UUID(uuidString: assetID), file: assetFiles[assetID])
+                }
+                continue
+            }
+            // The owning side: this record is the link's source.
+            if ownsLink, let targetID = link.targetName.flatMap(UUID.init(uuidString:)) {
+                byProperty[property, default: []].append((ReferenceTarget(id: targetID, order: link.order), link))
+            }
+            // The `@Reference(from:)` side: this record is the link's target, and its type names
+            // the owner's property as an inverse.
+            if link.targetName == name,
+               let inverse = R.schema.references.first(where: { $0.inverseOf == property && $0.target.recordType == link.sourceType }),
+               let sourceID = UUID(uuidString: link.sourceName) {
+                byProperty[inverse.property, default: []].append((ReferenceTarget(id: sourceID), link))
+            }
+        }
+
+        for (property, entries) in byProperty {
+            let ordered = entries.sorted { precedes($0, $1) }
+            try record.loadReference(property, to: ordered.map(\.target), from: self, depth: depth)
+        }
+    }
+
+    /// Whether `a` comes before `b` in a to-many reference: by order key, then by when its link
+    /// was created, then by the link's ID.
+    private func precedes(_ a: (target: ReferenceTarget, link: RecordLink), _ b: (target: ReferenceTarget, link: RecordLink)) -> Bool {
+        let (orderA, orderB) = (a.target.order ?? "", b.target.order ?? "")
+        if orderA != orderB { return OrderKey.precedes(orderA, orderB) }
+        let (dateA, dateB) = (created[a.link.id] ?? .distantPast, created[b.link.id] ?? .distantPast)
+        if dateA != dateB { return dateA < dateB }
+        return a.link.id.uuidString < b.link.id.uuidString
+    }
+}

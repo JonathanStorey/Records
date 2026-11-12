@@ -87,14 +87,13 @@ public struct ToOne<Target: Record> {
         }
     }
 
-    /// Sets the reference as read from storage. Uses the first of `targets`. When `depth` is at least 1 and `records` holds the target, decodes it with
-    /// `depth - 1`, so its own references hold records `depth - 1` levels further.
-    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int = 1) throws {
+    /// Sets the reference as read from storage. Uses the first of `targets`. When `depth` is at
+    /// least 1 and `graph` holds the target, reads it with `depth - 1`, so its own references
+    /// hold records `depth - 1` levels further.
+    public mutating func load(_ targets: [ReferenceTarget], from graph: RecordGraph, depth: Int = 1) throws {
         id = targets.first?.id
-        guard depth > 0 else { box = nil; return }
-        box = try id
-            .flatMap { id in records.first { Target.matches($0, id: id) } }
-            .map { Box(try CKRecordDecoder().decode(Target.self, from: $0, links: links, targets: records, depth: depth - 1)) }
+        guard depth > 0, let id else { box = nil; return }
+        box = try graph.record(Target.self, id: id, depth: depth - 1).map(Box.init)
     }
 
 
@@ -175,20 +174,16 @@ public struct ToMany<Target: Record> {
         }
     }
 
-    /// Sets the reference as read from storage. `targets` must already be in order. When `depth` is at least 1, decodes each target whose record
-    /// `records` holds with `depth - 1`, so its own references hold records `depth - 1` levels
-    /// further.
-    public mutating func load(_ targets: [ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int = 1) throws {
+    /// Sets the reference as read from storage. `targets` must already be in order. When `depth`
+    /// is at least 1, reads each target `graph` holds with `depth - 1`, so its own references
+    /// hold records `depth - 1` levels further.
+    public mutating func load(_ targets: [ReferenceTarget], from graph: RecordGraph, depth: Int = 1) throws {
         ids = targets.map(\.id)
 
         var values: [UUID: Target] = [:]
         if depth > 0 {
             for id in storedIDs {
-                if let record = records.first(where: { Target.matches($0, id: id) }) {
-                    values[id] = try CKRecordDecoder().decode(
-                        Target.self, from: record, links: links, targets: records, depth: depth - 1
-                    )
-                }
+                values[id] = try graph.record(Target.self, id: id, depth: depth - 1)
             }
         }
         box = values.isEmpty ? nil : Box(values)
@@ -231,13 +226,6 @@ extension Record {
 
     private func referenceIDs(named property: String?) -> [UUID] {
         referenceStates.first { $0.property == property }?.ids ?? []
-    }
-}
-
-extension Record {
-    /// Whether `record` is this type's record for `id`.
-    static func matches(_ record: CKRecord, id: UUID) -> Bool {
-        record.recordType == recordType && record.recordID.recordName == id.uuidString
     }
 }
 

@@ -103,14 +103,14 @@ public struct RecordMacro: ExtensionMacro {
             }
             lines += [
                 "    }",
-                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from records: [CKRecord], links: [CKRecord], depth: Int) throws {",
+                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {",
                 "        switch property {",
             ]
             for reference in references {
-                // The ID form never holds the records, so it ignores them.
+                // The ID form never holds the records, so it reads none.
                 lines += [
                     "        case \"\(reference.key)\":",
-                    "            try self.\(reference.storage).load(targets, \(reference.isID ? "from: [], links: [], depth: 0" : "from: records, links: links, depth: depth"))",
+                    "            try self.\(reference.storage).load(targets, from: graph, depth: \(reference.isID ? "0" : "depth"))",
                 ]
             }
             lines += [
