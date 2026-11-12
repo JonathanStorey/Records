@@ -9,13 +9,13 @@ private func makeContext(for types: any Record.Type...) throws -> RecordContext 
 }
 
 private func page(_ title: String, labels: [Label] = []) -> Page {
-    Page(id: UUID(), title: title, labels: labels, pinnedIDs: [])
+    Page(id: UUID(), title: title, labels: labels)
 }
 
 private func novel(_ title: String, year: Int, subtitle: String? = nil) -> Novel {
     Novel(
         id: UUID(), title: title, subtitle: subtitle, tags: [], year: year, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
 }
 

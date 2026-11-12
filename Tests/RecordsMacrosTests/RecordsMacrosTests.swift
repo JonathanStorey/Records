@@ -416,7 +416,7 @@ final class RecordMacroTests: XCTestCase {
                         Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
                     ],
                     references: [
-                        Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false, isSorted: false, holdsIDs: false),
+                        Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false, isSorted: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -552,7 +552,6 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var id: UUID
                 @Reference var tags: [Tag]
-                @Reference(Tag.self) var pinnedIDs: [UUID]
             }
             """,
             expandedSource: """
@@ -572,20 +571,6 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _tags: Records.ToMany<Tag>
-                var pinnedIDs: [UUID] {
-                    @storageRestrictions(initializes: _pinnedIDs)
-                    init(initialValue) {
-                        _pinnedIDs = Records.ToMany(ids: initialValue)
-                    }
-                    get {
-                        _pinnedIDs.ids
-                    }
-                    set {
-                        _pinnedIDs.ids = newValue
-                    }
-                }
-
-                var _pinnedIDs: Records.ToMany<Tag>
             }
 
             extension Note: Records.Record {
@@ -596,32 +581,27 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Note",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true, isSorted: false, holdsIDs: false),
-                        Records.ReferenceSchema(property: "pinnedIDs", target: Tag.self, isToMany: true, isSorted: false, holdsIDs: true),
+                        Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true, isSorted: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Note.id: "_name", \\Note.tags: "tags", \\Note.pinnedIDs: "pinnedIDs"]
+                    [\\Note.id: "_name", \\Note.tags: "tags"]
                 }
                 init(from row: Records.RecordRow) throws {
                     self.id = try row.id
                     self._tags = Records.ToMany(ids: [])
-                    self._pinnedIDs = Records.ToMany(ids: [])
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
                         "tags": (self._tags.ids, self._tags.loadedRecords),
-                        "pinnedIDs": (self._pinnedIDs.ids, self._pinnedIDs.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "tags":
                         try self._tags.load(targets, from: graph, depth: depth)
-                    case "pinnedIDs":
-                        try self._pinnedIDs.load(targets, from: graph, depth: 0)
                     default:
                         break
                     }
@@ -635,78 +615,7 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testRecordSkipsIDReferences() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            @Record
-            struct Article {
-                var id: UUID
-                @Reference(Person.self) var authorID: UUID?
-            }
-            """,
-            expandedSource: """
-            struct Article {
-                var id: UUID
-                var authorID: UUID? {
-                    @storageRestrictions(initializes: _authorID)
-                    init(initialValue) {
-                        _authorID = Records.ToOne(id: initialValue)
-                    }
-                    get {
-                        _authorID.id
-                    }
-                    set {
-                        _authorID.id = newValue
-                    }
-                }
-
-                var _authorID: Records.ToOne<Person>
-            }
-
-            extension Article: Records.Record {
-                static var recordType: CKRecord.RecordType {
-                    "Article"
-                }
-                static let schema = Records.RecordSchema(
-                    recordType: "Article",
-                    fields: [],
-                    references: [
-                        Records.ReferenceSchema(property: "authorID", target: Person.self, isToMany: false, isSorted: false, holdsIDs: true),
-                    ]
-                )
-                static var keyPaths: [PartialKeyPath<Self>: String] {
-                    [\\Article.id: "_name", \\Article.authorID: "authorID"]
-                }
-                init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
-                    self._authorID = Records.ToOne(id: nil)
-                }
-                func encodeFields(into row: inout Records.RecordRow) {
-                }
-                var referenceStates: [Records.ReferenceState] {
-                    Records.ReferenceState.all(of: Self.self, targets: [
-                        "authorID": (self._authorID.ids, self._authorID.loadedRecords),
-                    ])
-                }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
-                    switch property {
-                    case "authorID":
-                        try self._authorID.load(targets, from: graph, depth: 0)
-                    default:
-                        break
-                    }
-                }
-            }
-            """,
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testIDReferenceNeedsTargetType() throws {
+    func testOwnerHoldsRecords() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
@@ -720,7 +629,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference holds records, e.g. 'var author: Person?'; read the ID with 'referenceID(at:)'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -729,30 +638,7 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testIDReferenceMustBeOptional() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Note {
-                @Reference(Person.self) var authorID: UUID
-            }
-            """,
-            expandedSource: """
-            struct Note {
-                var authorID: UUID
-            }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference to one record must be optional", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testRecordReferenceRejectsTargetType() throws {
+    func testReferenceTakesNoTargetType() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
@@ -766,7 +652,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference only takes a record type on a UUID property; 'Person' already names it", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference doesn't take '_:'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -823,62 +709,6 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testSelfReferenceByIDIsAllowed() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Person {
-                @Reference(Person.self) var managerID: UUID?
-            }
-            """,
-            expandedSource: """
-            struct Person {
-                var managerID: UUID? {
-                    @storageRestrictions(initializes: _managerID)
-                    init(initialValue) {
-                        _managerID = Records.ToOne(id: initialValue)
-                    }
-                    get {
-                        _managerID.id
-                    }
-                    set {
-                        _managerID.id = newValue
-                    }
-                }
-
-                var _managerID: Records.ToOne<Person>
-            }
-            """,
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
-    func testReferenceTargetMustBeAType() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
-            struct Note {
-                @Reference(person) var authorID: UUID?
-            }
-            """,
-            expandedSource: """
-            struct Note {
-                var authorID: UUID?
-            }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference takes a record type, e.g. 'Person.self'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
-        )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
-    }
-
     func testOneToOneOwningSide() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
@@ -916,7 +746,7 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "User",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false, isSorted: false, holdsIDs: false),
+                        Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false, isSorted: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -996,8 +826,8 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Profile",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, isSorted: false, holdsIDs: true, inverseOf: "profile", deleteSelf: true),
-                        Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, isSorted: false, holdsIDs: true, inverseOf: "settingsID", deleteSelf: false),
+                        Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, isSorted: false, inverseOf: "profile", deleteSelf: true),
+                        Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, isSorted: false, inverseOf: "settingsID", deleteSelf: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -1070,7 +900,7 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(
-                    message: "@Reference takes a record type; name this property in the other side's '@Reference(from:)' instead",
+                    message: "@Reference doesn't name its other side; name this property in the other side's '@Reference(from:)' instead",
                     line: 2, column: 5
                 ),
             ],
@@ -1086,12 +916,12 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct User {
-                @Reference(Profile.self, deleteSelf: true) var profileID: UUID?
+                @Reference(deleteSelf: true) var profile: Profile?
             }
             """,
             expandedSource: """
             struct User {
-                var profileID: UUID?
+                var profile: Profile?
             }
             """,
             diagnostics: [
@@ -1150,8 +980,8 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Shelf",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, isSorted: false, holdsIDs: true, inverseOf: "shelf", deleteSelf: false),
-                        Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, isSorted: false, holdsIDs: true, inverseOf: "shelf", deleteSelf: false),
+                        Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, isSorted: false, inverseOf: "shelf", deleteSelf: false),
+                        Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, isSorted: false, inverseOf: "shelf", deleteSelf: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -2082,7 +1912,7 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Crate {
-                @Reference(Disc.self, sort: \\Disc.title) var discIDs: [UUID]
+                @Reference(from: \\Disc.crates, sort: \\Disc.title) var discIDs: [UUID]
             }
             """,
             expandedSource: """

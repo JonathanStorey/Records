@@ -43,7 +43,7 @@ import Testing
 }
 
 @Test func referencesAndTimestampsMatch() throws {
-    try expectMatch(Person(id: UUID(), name: "Ada", managerID: UUID()))
+    try expectMatch(Employee(id: UUID(), name: "Ada", manager: Employee(id: UUID(), name: "Grace", manager: nil)))
     try expectMatch(Writer(id: UUID(), name: "Grace", bookIDs: [UUID(), UUID()]))
     try expectMatch(Memo(id: UUID(), text: "Call back"))
 }
@@ -53,7 +53,7 @@ import Testing
         id: UUID(), title: "Notes", subtitle: nil, tags: ["math", "machines"], year: 1843,
         note: "draft", cover: Data("cover".utf8), shop: nil,
         sequel: nil, writers: [Writer(id: UUID(), name: "Ada", bookIDs: []), Writer(id: UUID(), name: "Grace", bookIDs: [])],
-        editorID: UUID()
+        editor: Writer(id: UUID(), name: "Charles", bookIDs: [])
     )
     novel.$shop = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5, longitude: -0.12), altitude: 12,

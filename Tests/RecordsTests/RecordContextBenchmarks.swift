@@ -91,7 +91,7 @@ struct RecordContextBenchmarks {
     @Test func saveARecordWithManyLinks() throws {
         let context = try RecordContainer(for: [Page.self], url: nil).mainContext
         let labels = (0..<Self.count).map { Label(id: UUID(), name: "\($0)") }
-        var page = Page(id: UUID(), title: "Notes", labels: labels, pinnedIDs: [])
+        var page = Page(id: UUID(), title: "Notes", labels: labels)
         let time = try measure("save a record with \(Self.count) new linked records") {
             context.insert(page)
             try context.save()
@@ -195,7 +195,7 @@ struct RecordContextBenchmarks {
         let context = try RecordContainer(for: [Page.self], url: nil).mainContext
         let labels = (0..<10).map { Label(id: UUID(), name: "\($0)") }
         for index in 0..<Self.count {
-            context.insert(Page(id: UUID(), title: "\(index)", labels: labels, pinnedIDs: []))
+            context.insert(Page(id: UUID(), title: "\(index)", labels: labels))
         }
         try context.save()
         let time = try measure("fetch \(Self.count) records with 10 links each") {

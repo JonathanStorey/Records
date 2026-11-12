@@ -177,13 +177,13 @@ extension PredicateTranslator.Link {
             self.init(
                 source: RecordLink.source(type: reference.target.recordType, property: ownerProperty),
                 ownName: "targetName", otherName: "sourceName",
-                isToMany: reference.isToMany, holdsIDs: reference.holdsIDs, target: reference.target
+                isToMany: reference.isToMany, holdsIDs: true, target: reference.target
             )
         } else {
             self.init(
                 source: RecordLink.source(type: owner, property: reference.property),
                 ownName: "sourceName", otherName: "targetName",
-                isToMany: reference.isToMany, holdsIDs: reference.holdsIDs, target: reference.target
+                isToMany: reference.isToMany, holdsIDs: false, target: reference.target
             )
         }
     }

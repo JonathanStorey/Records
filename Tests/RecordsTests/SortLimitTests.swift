@@ -133,7 +133,7 @@ private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]
     let context = try RecordContainer(for: [Page.self, Novel.self], url: nil).mainContext
     let labels = (0..<5).map { Label(id: UUID(), name: "\($0)") }
     for index in 0..<5 {
-        context.insert(Page(id: UUID(), title: "\(index)", labels: [labels[index]], pinnedIDs: []))
+        context.insert(Page(id: UUID(), title: "\(index)", labels: [labels[index]]))
     }
     try context.save()
     let pages = try context.fetch(RecordDescriptor<Page>(fetchLimit: 2, fetchOffset: 1))

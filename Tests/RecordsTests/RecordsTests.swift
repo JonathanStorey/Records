@@ -29,7 +29,6 @@ struct Box<Value: CKRecordValueProtocol & Equatable>: Equatable {
 struct Person: Equatable {
     var id: UUID
     var name: String
-    @Reference(Person.self) var managerID: UUID?
 }
 
 @Record
@@ -37,7 +36,7 @@ struct Article {
     var id: UUID
     var title: String
     @Reference var author: Person?
-    @Reference(Person.self) var editorID: UUID?
+    @Reference var editor: Person?
 }
 
 private func zone() -> CKRecordZone.ID {
@@ -196,30 +195,23 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 
 @Test func referenceIsNotWrittenAsAField() {
     let author = Person(id: UUID(), name: "Ada")
-    let article = Article(id: UUID(), title: "Notes", author: author, editorID: UUID())
+    let article = Article(id: UUID(), title: "Notes", author: author, editor: Person(id: UUID(), name: "Grace"))
     let record = CKRecordEncoder().encode(article, in: .records)
     #expect(Set(record.allKeys()) == ["title"])
 }
 
 @Test func referenceDecodesAsNil() throws {
-    let article = Article(id: UUID(), title: "Notes", author: Person(id: UUID(), name: "Ada"), editorID: UUID())
+    let article = Article(id: UUID(), title: "Notes", author: Person(id: UUID(), name: "Ada"), editor: Person(id: UUID(), name: "Grace"))
     let decoded = try CKRecordDecoder().decode(Article.self, from: CKRecordEncoder().encode(article, in: .records))
     #expect(decoded.title == "Notes")
     #expect(decoded.author == nil)
-    #expect(decoded.editorID == nil)
+    #expect(decoded.editor == nil)
 }
 
 @Test func referenceCanBeNilInMemberwiseInit() {
-    let article = Article(id: UUID(), title: "Notes", author: nil, editorID: nil)
+    let article = Article(id: UUID(), title: "Notes", author: nil, editor: nil)
     #expect(article.author == nil)
-    #expect(article.editorID == nil)
-}
-
-@Test func selfReferenceByIDIsSkipped() throws {
-    let person = Person(id: UUID(), name: "Ada", managerID: UUID())
-    let record = CKRecordEncoder().encode(person, in: .records)
-    #expect(Set(record.allKeys()) == ["name"])
-    #expect(try CKRecordDecoder().decode(Person.self, from: record).managerID == nil)
+    #expect(article.editor == nil)
 }
 
 // MARK: - Zone

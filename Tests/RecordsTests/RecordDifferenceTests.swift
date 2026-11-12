@@ -14,7 +14,7 @@ private func twoContexts() throws -> (RecordContext, RecordContext) {
 private func novel(_ title: String, year: Int) -> Novel {
     Novel(
         id: UUID(), title: title, subtitle: nil, tags: [], year: year, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
 }
 
@@ -89,7 +89,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 @Test func savingAStaleDraftKeepsLinksItDidNotEdit() throws {
     let (here, elsewhere) = try twoContexts()
     let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]], pinnedIDs: [])
+    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]])
     here.insert(saved)
     try here.save()
 
@@ -174,7 +174,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 @Test func aPageDeletedElsewhereComesBackWithItsLinks() throws {
     let (here, elsewhere) = try twoContexts()
     let labels = ["x", "y"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: labels, pinnedIDs: [])
+    let saved = Page(id: UUID(), title: "Page", labels: labels)
     here.insert(saved)
     try here.save()
 
@@ -249,7 +249,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 @Test func aStaleDraftSavesWithLinksChangedElsewhere() throws {
     let (here, elsewhere) = try twoContexts()
     let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]], pinnedIDs: [])
+    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]])
     here.insert(saved)
     try here.save()
 

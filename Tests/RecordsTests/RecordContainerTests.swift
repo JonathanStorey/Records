@@ -29,11 +29,11 @@ struct FakeLink {
     var id: UUID
 }
 
-/// Names `Account.settingsID`, which points at `Settings`, not here.
+/// Names `Account.settings`, which points at `Settings`, not here.
 @Record
 struct Imposter {
     var id: UUID
-    @Reference(from: \Account.settingsID) var accountID: UUID?
+    @Reference(from: \Account.settings) var accountID: UUID?
 }
 
 private func temporaryFile() -> URL {
@@ -120,9 +120,8 @@ private func temporaryFile() -> URL {
     #expect(schema.fields.first { $0.key == "released" }?.name == "year")
     #expect(schema.fields.filter(\.isOptional).map(\.key) == ["subtitle", "note", "shop"])
     #expect(schema.fields.filter(\.isEncrypted).map(\.key) == ["note", "shop"])
-    #expect(schema.references.map(\.property) == ["sequel", "writers", "editorID"])
+    #expect(schema.references.map(\.property) == ["sequel", "writers", "editor"])
     #expect(schema.references.map(\.isToMany) == [false, true, false])
-    #expect(schema.references.map(\.holdsIDs) == [false, false, true])
 
     let from = Writer.schema.references[0]
     #expect(from.isFrom && from.inverseOf == "writers" && from.target.recordType == "Novel")

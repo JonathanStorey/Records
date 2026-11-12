@@ -29,73 +29,51 @@ private func expectMatches<R: Record>(
 @Test func filtersOnAToOneIDReference() throws {
     let context = try context(for: Account.self, Settings.self)
     let settings = (0..<3).map { _ in Settings(id: UUID(), accountID: nil) }
-    for item in settings { context.insert(item) }
     let accounts = [
-        Account(id: UUID(), settingsID: settings[0].id),
-        Account(id: UUID(), settingsID: settings[1].id),
-        Account(id: UUID(), settingsID: nil),
+        Account(id: UUID(), settings: settings[0]),
+        Account(id: UUID(), settings: settings[1]),
+        Account(id: UUID(), settings: nil),
     ]
     for account in accounts { context.insert(account) }
+    context.insert(settings[2])
     try context.save()
 
-    let first = settings[0].id
-    let either: [UUID?] = [settings[0].id, settings[2].id]
+    let owner = accounts[0].id
+    let either: [UUID?] = [accounts[0].id, accounts[2].id]
     let missing = UUID()
     try expectMatches([
-        #Predicate<Account> { $0.settingsID == first },
-        #Predicate<Account> { $0.settingsID != first },
-        #Predicate<Account> { $0.settingsID == nil },
-        #Predicate<Account> { $0.settingsID != nil },
-        #Predicate<Account> { $0.settingsID == missing },
-        #Predicate<Account> { either.contains($0.settingsID) },
-        #Predicate<Account> { !($0.settingsID == first) && $0.settingsID != nil },
-    ], in: context)
-    #expect(try context.fetch(RecordDescriptor<Account>(predicate: #Predicate { $0.settingsID == first })).map(\.id)
-        == [accounts[0].id])
-
-    // The `from:` side reads the same links from the other end.
-    let owner = accounts[1].id
-    try expectMatches([
         #Predicate<Settings> { $0.accountID == owner },
-        #Predicate<Settings> { $0.accountID == nil },
         #Predicate<Settings> { $0.accountID != owner },
+        #Predicate<Settings> { $0.accountID == nil },
+        #Predicate<Settings> { $0.accountID != nil },
+        #Predicate<Settings> { $0.accountID == missing },
+        #Predicate<Settings> { either.contains($0.accountID) },
+        #Predicate<Settings> { !($0.accountID == owner) && $0.accountID != nil },
     ], in: context)
+    #expect(try context.fetch(RecordDescriptor<Settings>(predicate: #Predicate { $0.accountID == owner })).map(\.id)
+        == [settings[0].id])
 }
 
 @MainActor
 @Test func filtersOnToManyIDReferences() throws {
-    let context = try context(for: Page.self, Book.self, Shelf.self)
-    let labels = (0..<3).map { _ in UUID() }
-    let pages = [
-        Page(id: UUID(), title: "a", labels: [], pinnedIDs: [labels[0], labels[1]]),
-        Page(id: UUID(), title: "b", labels: [], pinnedIDs: [labels[1]]),
-        Page(id: UUID(), title: "c", labels: [], pinnedIDs: []),
-    ]
-    for page in pages { context.insert(page) }
-
-    let shelves = (0..<2).map { Shelf(id: UUID(), name: "\($0)", bookIDs: []) }
+    let context = try context(for: Book.self, Shelf.self)
+    let shelves = (0..<3).map { Shelf(id: UUID(), name: "\($0)", bookIDs: []) }
     for shelf in shelves { context.insert(shelf) }
     let books = [
         Book(id: UUID(), title: "x", shelf: shelves[0]),
         Book(id: UUID(), title: "y", shelf: shelves[0]),
-        Book(id: UUID(), title: "z", shelf: nil),
+        Book(id: UUID(), title: "z", shelf: shelves[1]),
     ]
     for book in books { context.insert(book) }
     try context.save()
 
-    let first = labels[0], second = labels[1], third = labels[2]
+    let first = books[0].id, second = books[1].id, third = books[2].id, missing = UUID()
     try expectMatches([
-        #Predicate<Page> { $0.pinnedIDs.contains(first) },
-        #Predicate<Page> { $0.pinnedIDs.contains(second) },
-        #Predicate<Page> { $0.pinnedIDs.contains(third) },
-        #Predicate<Page> { !$0.pinnedIDs.contains(second) },
-        #Predicate<Page> { $0.pinnedIDs.contains(first) || $0.pinnedIDs.contains(third) },
-    ], in: context)
-
-    let book = books[1].id
-    try expectMatches([
-        #Predicate<Shelf> { $0.bookIDs.contains(book) },
-        #Predicate<Shelf> { !$0.bookIDs.contains(book) },
+        #Predicate<Shelf> { $0.bookIDs.contains(first) },
+        #Predicate<Shelf> { $0.bookIDs.contains(third) },
+        #Predicate<Shelf> { $0.bookIDs.contains(missing) },
+        #Predicate<Shelf> { !$0.bookIDs.contains(second) },
+        #Predicate<Shelf> { $0.bookIDs.contains(first) || $0.bookIDs.contains(third) },
     ], in: context)
 }
 
@@ -119,18 +97,17 @@ private func expectMatches<R: Record>(
 @Test func idFiltersSeeChangesOnlyAfterSave() throws {
     let context = try context(for: Account.self, Settings.self)
     let settings = Settings(id: UUID(), accountID: nil)
-    var account = Account(id: UUID(), settingsID: settings.id)
-    context.insert(settings)
+    var account = Account(id: UUID(), settings: settings)
     context.insert(account)
     try context.save()
 
     // An unsaved edit drops the link, and the filter sees it only after the save.
-    account.settingsID = nil
+    account.settings = nil
     context.insert(account)
-    let id = settings.id
-    let linked = RecordDescriptor<Account>(predicate: #Predicate { $0.settingsID == id })
-    let unlinked = RecordDescriptor<Account>(predicate: #Predicate { $0.settingsID == nil })
-    #expect(try context.fetch(linked).map(\.id) == [account.id])
+    let id = account.id
+    let linked = RecordDescriptor<Settings>(predicate: #Predicate { $0.accountID == id })
+    let unlinked = RecordDescriptor<Settings>(predicate: #Predicate { $0.accountID == nil })
+    #expect(try context.fetch(linked).map(\.id) == [settings.id])
     #expect(try context.fetchCount(unlinked) == 0)
 
     try context.save()
@@ -140,8 +117,9 @@ private func expectMatches<R: Record>(
 
 @Test func anIDFilterIsALinkCondition() throws {
     let id = UUID()
-    let result = try #require(PredicateTranslator(for: Account.self).translate(#Predicate<Account> { $0.settingsID == id }))
+    let result = try #require(PredicateTranslator(for: Settings.self).translate(#Predicate<Settings> { $0.accountID == id }))
     #expect(result.filter.sql.hasPrefix("EXISTS (SELECT 1 FROM \"RecordLink\" AS \"l1\""))
-    #expect(result.filter.values == [.text("Account.settingsID"), .text(id.uuidString)])
+    #expect(result.filter.values.contains(.text("Account.settings")))
+    #expect(result.filter.values.contains(.text(id.uuidString)))
     #expect(result.isExact)
 }

@@ -13,7 +13,6 @@ struct Page {
     var id: UUID
     var title: String
     @Reference var labels: [Label]
-    @Reference(Label.self) var pinnedIDs: [UUID]
 }
 
 private let encoder = CKRecordEncoder()
@@ -29,7 +28,7 @@ private func decodedLinks(_ records: [CKRecord]) throws -> [RecordLink] {
 
 /// A page that was saved with its links and read back with its labels.
 private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord]) {
-    let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
+    let page = Page(id: UUID(), title: "Notes", labels: items)
     let links = encoder.links(for: page, in: .records)
     let decoded = try decoder.decode(
         Page.self, from: encoder.encode(page, in: .records),
@@ -42,7 +41,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func toManyHoldsRecordsInOrder() {
     let items = labels("a", "b", "c")
-    var page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
+    var page = Page(id: UUID(), title: "Notes", labels: items)
     #expect(page.labels == items)
     #expect(page._labels.ids == items.map(\.id))
 
@@ -52,13 +51,13 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func toManyKeepsEachTargetOnce() {
     let item = Label(id: UUID(), name: "a")
-    let page = Page(id: UUID(), title: "Notes", labels: [item, item], pinnedIDs: [])
+    let page = Page(id: UUID(), title: "Notes", labels: [item, item])
     #expect(page.labels == [item])
 }
 
 @Test func settingRecordsKeepsTargetsThatWerentLoaded() throws {
     let items = labels("a", "b")
-    let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
+    let page = Page(id: UUID(), title: "Notes", labels: items)
     let links = encoder.links(for: page, in: .records)
     var decoded = try decoder.decode(Page.self, from: encoder.encode(page, in: .records), links: links)
     #expect(decoded.labels.isEmpty)
@@ -73,7 +72,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func newRecordWritesOrderedLinks() throws {
     let items = labels("a", "b", "c")
-    let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
+    let page = Page(id: UUID(), title: "Notes", labels: items)
     let links = try decodedLinks(encoder.links(for: page, in: .records))
 
     #expect(links.map(\.source) == Array(repeating: "Page.labels", count: 3))
@@ -85,7 +84,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func toManyLinksHaveOneIDPerTarget() throws {
     let items = labels("a", "b")
-    let page = Page(id: UUID(), title: "Notes", labels: items, pinnedIDs: [])
+    let page = Page(id: UUID(), title: "Notes", labels: items)
     let records = encoder.links(for: page, in: .records)
     #expect(Set(records.map(\.recordID)).count == 2)
 
@@ -138,18 +137,6 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
     // Saved, the new order needs nothing more.
     let saved = encoder.links(for: page, in: .records, existing: links)
     #expect(encoder.changes(for: page, from: saved).isEmpty)
-}
-
-@Test func idFormWritesAndReadsLinks() throws {
-    let ids = [UUID(), UUID()]
-    let page = Page(id: UUID(), title: "Notes", labels: [], pinnedIDs: ids)
-    let links = encoder.links(for: page, in: .records)
-    #expect(try decodedLinks(links).map(\.source) == ["Page.pinnedIDs", "Page.pinnedIDs"])
-    #expect(signatures(of: page) == ["Page.labels:[Label]", "Page.pinnedIDs:[Label]"])
-
-    let decoded = try decoder.decode(Page.self, from: encoder.encode(page, in: .records), links: links.reversed())
-    #expect(decoded.pinnedIDs == ids)
-    #expect(decoded.labels.isEmpty)
 }
 
 // MARK: - Order keys

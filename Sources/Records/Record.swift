@@ -117,16 +117,6 @@ public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath
 @attached(peer, names: prefixed(_))
 public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath<Element, Value?>, order: SortOrder = .forward) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
-/// Marks a property that holds only the IDs of other `Record`s, e.g.
-/// `@Reference(Person.self) var authorID: UUID?` or `@Reference(Tag.self) var tagIDs: [UUID]`.
-/// Records never loads the records themselves.
-///
-/// Like `@Reference`, the property is stored as links, never as a field. It must be a `UUID?`
-/// or `[UUID]` with no initial value.
-@attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
-public macro Reference<Target: Record>(_ target: Target.Type) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
-
 /// Marks the read-only side of a two-way relationship, naming the owner's property.
 ///
 /// ```swift

@@ -19,11 +19,11 @@ private func link(_ record: CKRecord) throws -> RecordLink {
 /// An article that was saved with its links, then read back.
 private func savedArticle(
     author: Person? = Person(id: UUID(), name: "Ada"),
-    editorID: UUID? = UUID()
+    editor: Person? = Person(id: UUID(), name: "Grace")
 ) throws -> (article: Article, links: [CKRecord]) {
-    let article = Article(id: UUID(), title: "Notes", author: author, editorID: editorID)
+    let article = Article(id: UUID(), title: "Notes", author: author, editor: editor)
     let links = encoder.links(for: article, in: .records)
-    let targets = [author].compactMap { $0.map { encoder.encode($0, in: .records) } }
+    let targets = [author, editor].compactMap { $0.map { encoder.encode($0, in: .records) } }
     let decoded = try decoder.decode(
         Article.self, from: encoder.encode(article, in: .records), links: links, targets: targets
     )
@@ -34,7 +34,7 @@ private func savedArticle(
 
 @Test func referenceHoldsTheRecordAndItsID() {
     let ada = Person(id: UUID(), name: "Ada")
-    var article = Article(id: UUID(), title: "Notes", author: ada, editorID: nil)
+    var article = Article(id: UUID(), title: "Notes", author: ada, editor: nil)
     #expect(article.author == ada)
     #expect(article._author.id == ada.id)
 
@@ -75,22 +75,22 @@ private func savedArticle(
 // MARK: - Links
 
 @Test func newRecordWritesALinkPerReference() throws {
-    let ada = Person(id: UUID(), name: "Ada"), editorID = UUID()
-    let article = Article(id: UUID(), title: "Notes", author: ada, editorID: editorID)
+    let ada = Person(id: UUID(), name: "Ada"), grace = Person(id: UUID(), name: "Grace")
+    let article = Article(id: UUID(), title: "Notes", author: ada, editor: grace)
 
     let links = encoder.links(for: article, in: .records)
     #expect(links.allSatisfy { $0.recordType == "RecordLink" && $0.recordID.zoneID == Zone.records.zoneID })
 
     let decoded = try links.map(link)
-    #expect(decoded.map(\.source) == ["Article.author", "Article.editorID"])
-    #expect(signatures(of: article) == ["Article.author:Person", "Article.editorID:Person"])
+    #expect(decoded.map(\.source) == ["Article.author", "Article.editor"])
+    #expect(signatures(of: article) == ["Article.author:Person", "Article.editor:Person"])
     #expect(decoded.map(\.sourceName) == [article.id.uuidString, article.id.uuidString])
-    #expect(decoded.map(\.targetName) == [ada.id.uuidString, editorID.uuidString])
+    #expect(decoded.map(\.targetName) == [ada.id.uuidString, grace.id.uuidString])
     #expect(decoded.allSatisfy { $0.order == nil })
 }
 
 @Test func emptyReferencesWriteNoLinks() {
-    let article = Article(id: UUID(), title: "Notes", author: nil, editorID: nil)
+    let article = Article(id: UUID(), title: "Notes", author: nil, editor: nil)
     #expect(encoder.links(for: article, in: .records).isEmpty)
 }
 
@@ -102,7 +102,7 @@ private func savedArticle(
 @Test func changingATargetOverwritesTheSameLink() throws {
     var (article, links) = try savedArticle()
     let newEditor = UUID()
-    article.editorID = newEditor
+    article.editor = Person(id: newEditor, name: "Linus")
 
     let changes = encoder.changes(for: article, from: links)
     #expect(changes.saves.map(\.recordID) == [links[1].recordID])
@@ -142,15 +142,15 @@ private func savedArticle(
 }
 
 @Test func decodingFillsReferencesFromLinks() throws {
-    let ada = Person(id: UUID(), name: "Ada"), editorID = UUID()
-    let (article, _) = try savedArticle(author: ada, editorID: editorID)
+    let ada = Person(id: UUID(), name: "Ada"), grace = Person(id: UUID(), name: "Grace")
+    let (article, _) = try savedArticle(author: ada, editor: grace)
     #expect(article.author == ada)
-    #expect(article.editorID == editorID)
+    #expect(article.editor == grace)
 }
 
 @Test func decodingWithoutTargetsFillsOnlyIDs() throws {
     let ada = Person(id: UUID(), name: "Ada")
-    let article = Article(id: UUID(), title: "Notes", author: ada, editorID: nil)
+    let article = Article(id: UUID(), title: "Notes", author: ada, editor: nil)
     let links = encoder.links(for: article, in: .records)
     let decoded = try decoder.decode(Article.self, from: encoder.encode(article, in: .records), links: links)
     #expect(decoded.author == nil)
@@ -159,14 +159,14 @@ private func savedArticle(
 }
 
 @Test func decodingIgnoresOtherRecordsLinks() throws {
-    let other = Article(id: UUID(), title: "Other", author: Person(id: UUID(), name: "Ada"), editorID: UUID())
-    let article = Article(id: UUID(), title: "Notes", author: nil, editorID: nil)
+    let other = Article(id: UUID(), title: "Other", author: Person(id: UUID(), name: "Ada"), editor: Person(id: UUID(), name: "Grace"))
+    let article = Article(id: UUID(), title: "Notes", author: nil, editor: nil)
     let decoded = try decoder.decode(
         Article.self, from: encoder.encode(article, in: .records),
         links: encoder.links(for: other, in: .records)
     )
     #expect(decoded._author.id == nil)
-    #expect(decoded.editorID == nil)
+    #expect(decoded._editor.id == nil)
 }
 
 @Test func referenceIDsReadByKeyPath() {
