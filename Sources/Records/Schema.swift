@@ -52,10 +52,10 @@ public struct FieldSchema: Hashable, Sendable {
 
 /// How a field's value is stored in its SQLite column.
 ///
-/// `FieldCoding` gives each field the kind of what it writes: an enum its raw value's kind, and
-/// any other Codable value `.bytes` of JSON.
+/// `FieldCoding` gives each field the kind of what it writes: an enum its raw value's kind, a value
+/// stored as a string `.text`, and any other Codable value `.bytes` of JSON.
 public enum FieldKind: String, Hashable, Sendable {
-    /// `TEXT`, from a `String`.
+    /// `TEXT`, from a `String` or a value stored as one, such as a `UUID`.
     case text
     /// `INTEGER`, from a `Bool` or an integer.
     case integer

@@ -595,6 +595,8 @@ private func sqlValue(of value: Any) -> SQLValue? {
     case let date as Date: return .real(date.timeIntervalSinceReferenceDate)
     case let id as UUID: return .text(id.uuidString)
     case let raw as any RawRepresentable: return sqlValue(of: raw.rawValue)
+    case let url as URL: return .text(url.absoluteString)
+    case let value as any LosslessStringConvertible: return .text(value.description)
     default: return nil
     }
 }
