@@ -3,11 +3,11 @@ import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
 /// `@Reference` on a property that points at other records: one record, `@Reference var author: Person?`,
-/// or many, `@Reference var tags: [Tag]`. Given the record type, it holds only IDs, as in
-/// `@Reference(Person.self) var authorID: UUID?` or `@Reference(Tag.self) var tagIDs: [UUID]`.
+/// or many, `@Reference var tags: [Tag]`. The `@Reference(from:)` side holds only IDs, as in
+/// `@Reference(from: \Album.tracks) var albumID: UUID?`.
 ///
 /// Turns the property into a computed one backed by a `Records.ToOne` or `Records.ToMany` named
-/// with a leading underscore. The storage keeps the current targets and, for the record form, the
+/// with a leading underscore. The storage keeps the current targets and, on the owning side, the
 /// loaded records. An init accessor keeps the property in the memberwise initializer.
 ///
 /// Only the peer role reports problems, so each one is reported once. The accessor role adds
@@ -23,13 +23,13 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         else { return [] }
 
         let storage = reference.storage
-        let initial = switch (reference.isToMany, reference.isID) {
+        let initial = switch (reference.isToMany, reference.isFrom) {
         case (false, true): "Records.ToOne(id: initialValue)"
         case (false, false): "Records.ToOne(initialValue)"
         case (true, true): "Records.ToMany(ids: initialValue)"
         case (true, false): reference.sort == nil ? "Records.ToMany(initialValue)" : "Records.ToMany(initialValue, sorted: true)"
         }
-        let member = switch (reference.isToMany, reference.isID) {
+        let member = switch (reference.isToMany, reference.isFrom) {
         case (false, true): "id"
         case (false, false): "value"
         case (true, true): "ids"
@@ -84,8 +84,6 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         let key: String
         /// The target record type as written, such as `Person`.
         let target: String
-        /// Whether the property holds only the target IDs.
-        let isID: Bool
         /// Whether the property holds many targets, `[Target]` or `[UUID]`.
         let isToMany: Bool
         /// For `@Reference(from: \User.profile)`, the owner's property, such as `profile`.
@@ -150,33 +148,19 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
 
         let name = pattern.identifier.text
         let key = name.filter { $0 != "`" }
-        let isID = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
+        let holdsIDs = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
         let arguments = node.arguments?.as(LabeledExprListSyntax.self).map(Array.init) ?? []
 
-        // The first argument is `Person.self` or `from: \User.profile`. Only `from:` takes a
-        // key path: the owner never names its inverse, because two key paths naming each other's
-        // macro-backed properties would make the compiler expand each macro to resolve the other.
-        var typeArgument: ExprSyntax?
+        // Only `from:` takes a key path: the owner never names its inverse, because two key paths
+        // naming each other's macro-backed properties would make the compiler expand each macro to
+        // resolve the other.
         var keyPath: (root: String, property: String)?
-        let firstIsTarget = arguments.first.map { $0.label == nil || $0.label?.text == "from" } ?? false
+        let firstIsTarget = arguments.first?.label?.text == "from"
         if firstIsTarget, let first = arguments.first {
-            let keyPathExpr = first.expression.as(KeyPathExprSyntax.self)
-            switch first.label?.text {
-            case nil:
-                guard keyPathExpr == nil else {
-                    throw MacroExpansionErrorMessage(
-                        "@Reference takes a record type; name this property in the other side's '@Reference(from:)' instead"
-                    )
-                }
-                typeArgument = first.expression
-            case "from":
-                guard let keyPathExpr else {
-                    throw MacroExpansionErrorMessage("@Reference(from:) takes the owner's property, e.g. '\\User.profile'")
-                }
-                keyPath = try parse(keyPathExpr, owner: owner)
-            default:
-                break
+            guard let keyPathExpr = first.expression.as(KeyPathExprSyntax.self) else {
+                throw MacroExpansionErrorMessage("@Reference(from:) takes the owner's property, e.g. '\\User.profile'")
             }
+            keyPath = try parse(keyPathExpr, owner: owner)
         }
         let isFrom = keyPath != nil
         var deleteSelf = false
@@ -197,6 +181,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
                 sortArgument = argument.expression
             case "order":
                 orderArgument = argument.expression
+            case nil where argument.expression.is(KeyPathExprSyntax.self):
+                throw MacroExpansionErrorMessage(
+                    "@Reference doesn't name its other side; name this property in the other side's '@Reference(from:)' instead"
+                )
             default:
                 throw MacroExpansionErrorMessage("@Reference doesn't take '\(argument.label?.text ?? "_"):'")
             }
@@ -204,7 +192,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         // Sorting needs the records' fields, so only the owner's `[Target]` form can sort.
         var sort: String?
         if let sortArgument {
-            guard isToMany, !isID, !isFrom else {
+            guard isToMany, !isFrom else {
                 throw MacroExpansionErrorMessage("'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'")
             }
             if sortArgument.is(KeyPathExprSyntax.self) {
@@ -222,7 +210,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
 
         // The side that writes the links holds records. The `from:` side is a back-pointer, so it
         // holds IDs: anything can point at a record, and loading every owner would have no limit.
-        if isFrom, !isID {
+        if isFrom, !holdsIDs {
             let suggestion = isToMany
                 ? "var \(key.hasSuffix("s") ? String(key.dropLast()) : key)IDs: [UUID]"
                 : "var \(key)ID: UUID?"
@@ -232,15 +220,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         if deleteSelf, isToMany {
             throw MacroExpansionErrorMessage("'deleteSelf:' needs a to-one @Reference(from:) property")
         }
-        // `UUID?` and `[UUID]` hold only IDs, so the target type has to be named.
-        if isID, !isFrom, typeArgument == nil {
+        // The owning side holds records. `referenceID(at:)` reads the ID without loading one.
+        if holdsIDs, !isFrom {
             throw MacroExpansionErrorMessage(
-                "@Reference on a UUID needs the record type it points at, e.g. '@Reference(Person.self)'"
-            )
-        }
-        if !isID, typeArgument != nil {
-            throw MacroExpansionErrorMessage(
-                "@Reference only takes a record type on a UUID property; '\(wrapped.trimmedDescription)' already names it"
+                "@Reference holds records, e.g. 'var author: Person?'; read the ID with 'referenceID(at:)'"
             )
         }
 
@@ -248,15 +231,6 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         func resolved(_ type: String) -> String { type == "Self" ? owner ?? type : type }
 
         var target = resolved(wrapped.trimmedDescription)
-        if let typeArgument {
-            guard let member = typeArgument.as(MemberAccessExprSyntax.self),
-                  member.declName.baseName.tokenKind == .keyword(.self),
-                  let base = member.base
-            else {
-                throw MacroExpansionErrorMessage("@Reference takes a record type, e.g. 'Person.self'")
-            }
-            target = resolved(base.trimmedDescription)
-        }
         if let keyPath {
             if keyPath.root == owner, keyPath.property == key {
                 throw MacroExpansionErrorMessage("@Reference to itself is not supported yet")
@@ -265,7 +239,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         }
 
         return Reference(
-            name: name, key: key, target: target, isID: isID, isToMany: isToMany,
+            name: name, key: key, target: target, isToMany: isToMany,
             ownerProperty: keyPath?.property, deleteSelf: deleteSelf, sort: sort
         )
     }

@@ -26,7 +26,7 @@ private let venue = Venue(
 private let novel = Novel(
     id: UUID(), title: "Notes", subtitle: nil, tags: ["math", "machines"], year: 1843,
     note: "draft", cover: nil, shop: Coordinate(latitude: 51.5, longitude: -0.12),
-    sequel: nil, writers: [], editorID: nil
+    sequel: nil, writers: [], editor: nil
 )
 
 @Test func aRecordReadsBackFromItsRow() throws {

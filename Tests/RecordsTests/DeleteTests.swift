@@ -28,7 +28,7 @@ private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
 @Test func deletingATargetDropsItFromReferencesToIt() throws {
     let context = try makeContext()
     let labels = ["a", "b"].map { Label(id: UUID(), name: $0) }
-    let page = Page(id: UUID(), title: "Notes", labels: labels, pinnedIDs: [])
+    let page = Page(id: UUID(), title: "Notes", labels: labels)
     context.insert(page)
     try context.save()
 
@@ -93,7 +93,7 @@ private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
 @Test func deletingAnOwnerWithoutDeleteSelfKeepsItsTargets() throws {
     let context = try makeContext()
     let labels = ["a", "b"].map { Label(id: UUID(), name: $0) }
-    let page = Page(id: UUID(), title: "Notes", labels: labels, pinnedIDs: [])
+    let page = Page(id: UUID(), title: "Notes", labels: labels)
     context.insert(page)
     try context.save()
 

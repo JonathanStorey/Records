@@ -28,7 +28,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     let context = try RecordContainer(for: [Novel.self, Page.self], url: nil).mainContext
     let novel = Novel(
         id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     context.insert(novel)
     try context.save()
@@ -56,7 +56,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     // One record's edits discarded while another's stay.
     let other = Novel(
         id: UUID(), title: "Court and Spark", subtitle: nil, tags: [], year: 1974, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     context.insert(other)
     context.edit(id: UUID(), of: novel, in: .records, with: edited)
@@ -135,7 +135,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     let (context, novel) = try savedNovel()
     let fresh = Novel(
         id: UUID(), title: "New", subtitle: nil, tags: [], year: 2024, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     let first = UUID()
     let start = Date(timeIntervalSince1970: 1_000)
@@ -173,7 +173,7 @@ private func twoContexts() throws -> (RecordContainer, RecordContext, RecordCont
     let here = container.mainContext
     let novel = Novel(
         id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     here.insert(novel)
     try here.save()
@@ -257,7 +257,7 @@ private func twoContexts() throws -> (RecordContainer, RecordContext, RecordCont
     #expect(released == nil)
     container.mainContext.insert(Novel(
         id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     ))
     try container.mainContext.save()
 }

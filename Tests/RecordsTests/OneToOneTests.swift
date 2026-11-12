@@ -19,16 +19,16 @@ struct Profile: Equatable {
 @Record
 struct Account: Equatable {
     var id: UUID
-    @Reference(Settings.self) var settingsID: UUID?
+    @Reference var settings: Settings?
 }
 
 @Record
 struct Settings: Equatable {
     var id: UUID
-    @Reference(from: \Account.settingsID) var accountID: UUID?
+    @Reference(from: \Account.settings) var accountID: UUID?
 }
 
-/// A record owner with an ID-only `from:` side.
+/// A one-way to-one: the crest has no `from:` side.
 @Record
 struct Team: Equatable {
     var id: UUID
@@ -91,8 +91,8 @@ private func makeProfile() -> Profile {
     let profile = User.schema.inverse(of: "profile", in: Profile.self)
     #expect(profile?.property == "userID")
     #expect(profile?.deleteSelf == true)
-    #expect(Account.schema.inverse(of: "settingsID", in: Settings.self)?.property == "accountID")
-    #expect(Account.schema.inverse(of: "settingsID", in: Settings.self)?.deleteSelf == false)
+    #expect(Account.schema.inverse(of: "settings", in: Settings.self)?.property == "accountID")
+    #expect(Account.schema.inverse(of: "settings", in: Settings.self)?.deleteSelf == false)
     #expect(User.schema.inverse(of: "bio", in: Profile.self) == nil)
     #expect(Account.schema.inverse(of: "profile", in: Profile.self) == nil)
     #expect(Profile.schema.inverse(of: "userID", in: User.self) == nil)
@@ -132,10 +132,10 @@ private func makeProfile() -> Profile {
 
 @Test func idFormsDecodeOnBothSides() throws {
     let settings = Settings(id: UUID(), accountID: nil)
-    let account = Account(id: UUID(), settingsID: settings.id)
+    let account = Account(id: UUID(), settings: settings)
     let links = encoder.links(for: account, in: .records)
-    #expect(try links.map { try link($0).source } == ["Account.settingsID"])
-    #expect(signatures(of: account) == ["Account.settingsID:Settings <-> Settings.accountID:Account"])
+    #expect(try links.map { try link($0).source } == ["Account.settings"])
+    #expect(signatures(of: account) == ["Account.settings:Settings <-> Settings.accountID:Account"])
 
     let settingsAgain = try decoder.decode(Settings.self, from: encoder.encode(settings, in: .records), links: links)
     #expect(settingsAgain.accountID == account.id)

@@ -93,22 +93,19 @@ public struct ReferenceSchema: Sendable {
     public let isToMany: Bool
     /// Whether it sorts its records, so its links carry no order keys.
     public let isSorted: Bool
-    /// Whether it holds only IDs.
-    public let holdsIDs: Bool
     /// For a `@Reference(from:)` side, the owner's property, such as `profile` for `\User.profile`.
     public let inverseOf: String?
     /// For a `@Reference(from:)` side, whether this record is deleted with its owner.
     public let deleteSelf: Bool
 
     public init(
-        property: String, target: any Record.Type, isToMany: Bool, isSorted: Bool, holdsIDs: Bool,
+        property: String, target: any Record.Type, isToMany: Bool, isSorted: Bool,
         inverseOf: String? = nil, deleteSelf: Bool = false
     ) {
         self.property = property
         self.target = target
         self.isToMany = isToMany
         self.isSorted = isSorted
-        self.holdsIDs = holdsIDs
         self.inverseOf = inverseOf
         self.deleteSelf = deleteSelf
     }

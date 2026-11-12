@@ -75,7 +75,7 @@ extension Record {
     /// The reference `keyPath` reads, when it is one of this type's references that hold records.
     static func recordReference(for keyPath: AnyKeyPath) -> ReferenceSchema? {
         guard let partial = keyPath as? PartialKeyPath<Self>, let property = keyPaths[partial] else { return nil }
-        return schema.references.first { $0.property == property && !$0.holdsIDs }
+        return schema.references.first { $0.property == property && !$0.isFrom }
     }
 }
 

@@ -15,7 +15,7 @@ struct Novel: Codable {
     @Timestamped(.created) var createdAt: Date?
     @Reference var sequel: Novel?
     @Reference var writers: [Writer]
-    @Reference(Writer.self) var editorID: UUID?
+    @Reference var editor: Writer?
 }
 
 @Record
@@ -41,14 +41,14 @@ private let ada = Writer(id: UUID(), name: "Ada", bookIDs: [])
 private let grace = Writer(id: UUID(), name: "Grace", bookIDs: [])
 private let sequel = Novel(
     id: UUID(), title: "Part Two", subtitle: nil, tags: [], year: 2025, note: nil,
-    cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+    cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
 )
 
 private func makeBook() -> Novel {
     Novel(
         id: UUID(), title: "Notes", subtitle: "On engines", tags: ["math", "machines"], year: 1843,
         note: "draft", cover: Data("cover".utf8), shop: Coordinate(latitude: 51.5, longitude: -0.12),
-        sequel: sequel, writers: [ada, grace], editorID: UUID()
+        sequel: sequel, writers: [ada, grace], editor: ada
     )
 }
 
@@ -75,7 +75,7 @@ private func jsonObject(_ value: some Encodable) throws -> [String: Any] {
 @Test func codableUsesSwiftNamesAndSkipsTimestamps() throws {
     let json = try jsonObject(makeBook())
     #expect(Set(json.keys) == [
-        "id", "title", "subtitle", "tags", "year", "note", "cover", "shop", "sequel", "writers", "editorID",
+        "id", "title", "subtitle", "tags", "year", "note", "cover", "shop", "sequel", "writers", "editor",
     ])
 }
 
@@ -86,7 +86,7 @@ private func jsonObject(_ value: some Encodable) throws -> [String: Any] {
 
     let decoded = try roundTrip(sequel)
     #expect(decoded.subtitle == nil && decoded.note == nil && decoded.cover == nil && decoded.shop == nil)
-    #expect(decoded.referenceID(at: \.sequel) == nil && decoded.referenceIDs(at: \.writers).isEmpty && decoded.editorID == nil)
+    #expect(decoded.referenceID(at: \.sequel) == nil && decoded.referenceIDs(at: \.writers).isEmpty && decoded.referenceID(at: \.editor) == nil)
 }
 
 @Test func referencesDecodeAsIDs() throws {
@@ -96,7 +96,7 @@ private func jsonObject(_ value: some Encodable) throws -> [String: Any] {
     #expect(decoded.sequel == nil)
     #expect(decoded.referenceIDs(at: \.writers) == [ada.id, grace.id])
     #expect(decoded.writers.isEmpty)
-    #expect(decoded.editorID == book.editorID)
+    #expect(decoded.referenceID(at: \.editor) == ada.id)
 
     let json = try jsonObject(book)
     #expect(json["sequel"] as? String == sequel.id.uuidString)

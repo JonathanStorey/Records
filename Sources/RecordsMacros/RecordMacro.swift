@@ -107,10 +107,10 @@ public struct RecordMacro: ExtensionMacro {
                 "        switch property {",
             ]
             for reference in references {
-                // The ID form never holds the records, so it reads none.
+                // A `from:` side holds IDs, so it reads no records.
                 lines += [
                     "        case \"\(reference.key)\":",
-                    "            try self.\(reference.storage).load(targets, from: graph, depth: \(reference.isID ? "0" : "depth"))",
+                    "            try self.\(reference.storage).load(targets, from: graph, depth: \(reference.isFrom ? "0" : "depth"))",
                 ]
             }
             lines += [
@@ -208,7 +208,7 @@ public struct RecordMacro: ExtensionMacro {
         } else {
             lines.append("            references: [")
             for reference in references {
-                var arguments = "property: \"\(reference.key)\", target: \(reference.target).self, isToMany: \(reference.isToMany), isSorted: \(reference.sort != nil), holdsIDs: \(reference.isID)"
+                var arguments = "property: \"\(reference.key)\", target: \(reference.target).self, isToMany: \(reference.isToMany), isSorted: \(reference.sort != nil)"
                 if let owner = reference.ownerProperty {
                     arguments += ", inverseOf: \"\(owner)\", deleteSelf: \(reference.deleteSelf)"
                 }

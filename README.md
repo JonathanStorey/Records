@@ -159,12 +159,11 @@ A property that points at other records is marked `@Reference`. It is never writ
 Each target is stored as a separate link record instead, so two devices can change different
 links on the same record without conflicting.
 
-There are three forms:
+There are two forms:
 
 | Form | Declaration | Holds |
 | --- | --- | --- |
 | Records | `@Reference var artist: Artist?` or `@Reference var tags: [Tag]` | The records themselves |
-| IDs | `@Reference(Genre.self) var genreID: UUID?` or `@Reference(Listener.self) var followingIDs: [UUID]` | Only the IDs |
 | Read side | `@Reference(from: \Album.artist) var albumIDs: [UUID]` | The IDs of the records that point here |
 
 Three rules cover every relationship:
@@ -225,7 +224,7 @@ struct Album {
     @Reference var artist: Artist?
     @Reference var tracks: [Track]
     @Reference var cover: Artwork?
-    @Reference(Genre.self) var genreID: UUID?
+    @Reference var genre: Genre?
 }
 
 @Record
@@ -257,7 +256,7 @@ struct Tag {
 struct Genre {
     var id: UUID
     var name: String
-    @Reference(Genre.self) var parentID: UUID?
+    @Reference var parent: Genre?
 }
 
 @Record
@@ -266,7 +265,7 @@ struct Playlist {
     var name: String
     @Reference var curator: Listener?
     @Reference var tracks: [Track]
-    @Reference(Playlist.self) var folderID: UUID?
+    @Reference var folder: Playlist?
 }
 
 @Record
@@ -275,7 +274,7 @@ struct Listener {
     var name: String
     @Reference(from: \Playlist.curator) var playlistIDs: [UUID]
     @Reference var favorite: Track?
-    @Reference(Listener.self) var followingIDs: [UUID]
+    @Reference var following: [Listener]
 }
 ```
 
@@ -299,23 +298,19 @@ list its tracks. `Track.featuring: [Artist]` works the same way.
 
 ### Holding only IDs
 
-When you don't want the target's record loaded, hold its ID and name its type. Use this when you
-have the ID but not the record, such as from a picker or a URL, or when a to-many list could grow
-large.
-
-```swift
-@Reference(Genre.self) var genreID: UUID?              // on Album
-@Reference(Listener.self) var followingIDs: [UUID]     // on Listener
-```
+An owner always holds records, because its code chose them. To set a reference from an ID alone,
+such as one from a picker or a URL, fetch the record first. A record read without its references
+loaded still has their IDs: `album.referenceID(at: \.genre)` and
+`listener.referenceIDs(at: \.following)`.
 
 ### Pointing at the same type
 
-Any form can point at its own type. A track can be a remix of another track, and a genre can sit
+A reference can point at its own type. A track can be a remix of another track, and a genre can sit
 under a parent genre.
 
 ```swift
 @Reference var remixOf: Track?                  // on Track
-@Reference(Genre.self) var parentID: UUID?      // on Genre
+@Reference var parent: Genre?                   // on Genre
 ```
 
 A `from:` side can name a property of its own type, too:
@@ -631,7 +626,7 @@ let encoder = CKRecordEncoder()
 
 let album = Album(
     id: UUID(), title: "Signal Fires", year: 2019,
-    artist: nova, tracks: [ignition, bloom], cover: art, genreID: indie.id
+    artist: nova, tracks: [ignition, bloom], cover: art, genre: indie
 )
 
 let record = encoder.encode(album, in: zone)                      // the album's fields

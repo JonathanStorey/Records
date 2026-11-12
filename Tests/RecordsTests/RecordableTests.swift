@@ -57,7 +57,7 @@ private func savedNovel(in context: RecordContext) throws -> Novel {
 private func novel(_ title: String, year: Int) -> Novel {
     Novel(
         id: UUID(), title: title, subtitle: nil, tags: [], year: year, note: nil,
-        cover: nil, shop: nil, sequel: nil, writers: [], editorID: nil
+        cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
 }
 
