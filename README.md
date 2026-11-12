@@ -445,6 +445,25 @@ A reference that holds records can hold new ones. When saved, any target that ex
 that already exists is never written from a record that refers to it, so an old copy can't
 overwrite newer values. Insert it directly to save changes to it.
 
+To add or remove one target without touching the owner's record, edit the link directly. The key
+path names the owner's reference, and the owner is named by its ID, so this works whether or not
+its references are loaded:
+
+```swift
+context.insert(track, into: \Album.tracks, of: album.id)       // added after the other tracks
+context.insert([intro, outro], into: \Album.tracks, of: album.id)
+context.remove(track.id, from: \Album.tracks, of: album.id)    // the track itself is kept
+
+context.insert(nova, into: \Album.artist, of: album.id)        // replaces the artist
+context.remove(nova.id, from: \Album.artist, of: album.id)     // clears it, if it's still nova
+try context.save()
+```
+
+Only the link is written, so another device editing the album's fields at the same time never
+conflicts with it. A target that exists nowhere yet is inserted with its link, and one that exists
+is left as it is. Inserting a target the reference already holds, or removing one it doesn't,
+does nothing.
+
 Records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
 any time. `Zone.local` keeps records on this device without syncing them. As in CloudKit, a record is
 named by its zone and ID together, so the same record can be saved to more than one zone.
