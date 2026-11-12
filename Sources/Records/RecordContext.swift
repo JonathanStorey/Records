@@ -346,10 +346,7 @@ public final class RecordContext {
     public func insert<Owner: Record, Target: Record>(
         _ targets: [Target], into keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
     ) {
-        let reference = ownedReference(keyPath)
-        for target in targets {
-            link(target, through: reference, of: Owner.self, ownerID: ownerID)
-        }
+        insert(targets, into: property(keyPath), of: Owner.self, id: ownerID)
     }
 
     /// Points the to-one reference `keyPath` names on the record with `ownerID` at `target`,
@@ -361,7 +358,7 @@ public final class RecordContext {
     public func insert<Owner: Record, Target: Record>(
         _ target: Target, into keyPath: KeyPath<Owner, Target?>, of ownerID: UUID
     ) {
-        link(target, through: ownedReference(keyPath), of: Owner.self, ownerID: ownerID)
+        insert([target], into: property(keyPath), of: Owner.self, id: ownerID)
     }
 
     /// Takes the target with `targetID` out of the reference `keyPath` names on the record with
@@ -384,10 +381,7 @@ public final class RecordContext {
     public func remove<Owner: Record, Target: Record>(
         _ targetIDs: [UUID], from keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
     ) {
-        let reference = ownedReference(keyPath)
-        for targetID in targetIDs {
-            unlink(targetID, through: reference, of: Owner.self, ownerID: ownerID)
-        }
+        remove(targetIDs, from: property(keyPath), of: Owner.self, id: ownerID)
     }
 
     /// Clears the to-one reference `keyPath` names on the record with `ownerID` when it points at
@@ -395,15 +389,40 @@ public final class RecordContext {
     public func remove<Owner: Record, Target: Record>(
         _ targetID: UUID, from keyPath: KeyPath<Owner, Target?>, of ownerID: UUID
     ) {
-        unlink(targetID, through: ownedReference(keyPath), of: Owner.self, ownerID: ownerID)
+        remove([targetID], from: property(keyPath), of: Owner.self, id: ownerID)
     }
 
-    /// The reference `keyPath` names, as the links it writes need it.
-    private func ownedReference<Owner: Record>(_ keyPath: PartialKeyPath<Owner>) -> ReferenceState {
+    /// Links `targets` through the reference named `property` on the `Owner` with `ownerID`. Used
+    /// by `insert(_:into:of:)` and by `ReferenceIDs` and `ReferenceID`.
+    func insert<Owner: Record, Target: Record>(_ targets: [Target], into property: String, of owner: Owner.Type, id ownerID: UUID) {
+        let reference = ownedReference(property, of: Owner.self)
+        for target in targets {
+            link(target, through: reference, of: Owner.self, ownerID: ownerID)
+        }
+    }
+
+    /// Unlinks the targets with `targetIDs` from the reference named `property` on the `Owner`
+    /// with `ownerID`. Used by `remove(_:from:of:)` and by `ReferenceIDs` and `ReferenceID`.
+    func remove<Owner: Record>(_ targetIDs: [UUID], from property: String, of owner: Owner.Type, id ownerID: UUID) {
+        let reference = ownedReference(property, of: Owner.self)
+        for targetID in targetIDs {
+            unlink(targetID, through: reference, of: Owner.self, ownerID: ownerID)
+        }
+    }
+
+    /// The property `keyPath` names.
+    private func property<Owner: Record>(_ keyPath: PartialKeyPath<Owner>) -> String {
+        guard let property = Owner.keyPaths[keyPath] else {
+            preconditionFailure("\(keyPath) is not a @Reference of \(Owner.self)")
+        }
+        return property
+    }
+
+    /// The reference named `property`, as the links it writes need it.
+    private func ownedReference<Owner: Record>(_ property: String, of owner: Owner.Type) -> ReferenceState {
         checkRegistered(Owner.self)
-        guard let property = Owner.keyPaths[keyPath],
-              let schema = Owner.schema.references.first(where: { $0.property == property && !$0.isFrom })
-        else { preconditionFailure("\(keyPath) is not a @Reference of \(Owner.self)") }
+        guard let schema = Owner.schema.references.first(where: { $0.property == property && !$0.isFrom })
+        else { preconditionFailure("\(property) is not a @Reference of \(Owner.self)") }
         return ReferenceState(
             schema: schema, inverse: Owner.schema.inverse(of: property, in: schema.target), ids: [], records: []
         )

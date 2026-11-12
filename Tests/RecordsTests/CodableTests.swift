@@ -86,17 +86,17 @@ private func jsonObject(_ value: some Encodable) throws -> [String: Any] {
 
     let decoded = try roundTrip(sequel)
     #expect(decoded.subtitle == nil && decoded.note == nil && decoded.cover == nil && decoded.shop == nil)
-    #expect(decoded.referenceID(at: \.sequel) == nil && decoded.referenceIDs(at: \.writers).isEmpty && decoded.referenceID(at: \.editor) == nil)
+    #expect(decoded.$sequel.id == nil && decoded.$writers.ids.isEmpty && decoded.$editor.id == nil)
 }
 
 @Test func referencesDecodeAsIDs() throws {
     let book = makeBook()
     let decoded = try roundTrip(book)
-    #expect(decoded.referenceID(at: \.sequel) == sequel.id)
+    #expect(decoded.$sequel.id == sequel.id)
     #expect(decoded.sequel == nil)
-    #expect(decoded.referenceIDs(at: \.writers) == [ada.id, grace.id])
+    #expect(decoded.$writers.ids == [ada.id, grace.id])
     #expect(decoded.writers.isEmpty)
-    #expect(decoded.referenceID(at: \.editor) == ada.id)
+    #expect(decoded.$editor.id == ada.id)
 
     let json = try jsonObject(book)
     #expect(json["sequel"] as? String == sequel.id.uuidString)

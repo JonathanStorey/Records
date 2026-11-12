@@ -98,7 +98,7 @@ struct RecordContextBenchmarks {
         }
         #expect(time < 5_000)
 
-        page.labels = Array(labels.reversed())
+        page._labels.values = Array(labels.reversed())
         let reorder = try measure("save a reversed list of \(Self.count) links") {
             context.insert(page)
             try context.save()

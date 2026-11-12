@@ -557,6 +557,18 @@ public struct RecordMacro: ExtensionMacro {
         }
     }
 
+    /// `public `, `package `, `fileprivate `, or `private ` when the property has it, for the
+    /// peers a property macro adds beside it.
+    static func accessLevel(of variable: VariableDeclSyntax) -> String {
+        let levels: [Keyword] = [.public, .package, .internal, .fileprivate, .private]
+        for modifier in variable.modifiers where modifier.detail == nil {
+            if case .keyword(let keyword) = modifier.name.tokenKind, levels.contains(keyword) {
+                return keyword == .internal ? "" : "\(modifier.name.text) "
+            }
+        }
+        return ""
+    }
+
     /// `Int` for `Int?`, `Int!`, or `Optional<Int>`; `nil` for any other type.
     static func wrappedType(of type: TypeSyntax) -> TypeSyntax? {
         if let optional = type.as(OptionalTypeSyntax.self) {

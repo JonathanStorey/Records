@@ -100,7 +100,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     var book = Book(id: UUID(), title: "Dune", shelf: first)
     let original = encoder.links(for: book, in: .records)
 
-    book.shelf = second
+    book._shelf.value = second
     let changes = encoder.changes(for: book, from: original)
     let moved = changes.saves
     #expect(moved.map(\.recordID) == original.map(\.recordID))

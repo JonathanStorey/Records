@@ -80,10 +80,12 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 /// non-optional array, in a `var` with no initial value. Either may point at its own type.
 ///
 /// Where loading stopped, the property reads `nil` or `[]` even when it has targets.
-/// `referenceID(at:)` and `referenceIDs(at:)` give the IDs either way:
-/// `album.referenceIDs(at: \.tracks)`, `album.referenceID(at: \.artist)`.
+/// `$name` gives the IDs either way: `album.$tracks.ids`, `album.$artist.id`.
+///
+/// The property is read-only after the record is made. Change its targets through `$name` and a
+/// context: `album.$tracks.insert(track, in: context)`, `album.$artist.set(nova, in: context)`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
+@attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference() = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by their fields instead of kept in the order
@@ -94,27 +96,27 @@ public macro Reference() = #externalMacro(module: "RecordsMacros", type: "Refere
 /// ```
 ///
 /// The records are sorted each time the property is read, so its links carry no order keys.
-/// `referenceIDs(at: \.tags)` lists the IDs unsorted, because sorting needs the records.
+/// `$tags.ids` lists the IDs unsorted, because sorting needs the records.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
+@attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference<Element: Record>(sort descriptors: [SortDescriptor<Element>]) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by one descriptor, as in
 /// `@Reference(sort: SortDescriptor(\Tag.name)) var tags: [Tag]`. See `Reference(sort:)`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
+@attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference<Element: Record>(sort descriptor: SortDescriptor<Element>) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by one field, as in
 /// `@Reference(sort: \Tag.name, order: .reverse) var tags: [Tag]`. See `Reference(sort:)`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
+@attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath<Element, Value>, order: SortOrder = .forward) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks a to-many property whose records are sorted by one optional field, as in
 /// `@Reference(sort: \Album.year) var albums: [Album]` where `year` is an `Int?`.
 @attached(accessor, names: named(init), named(get), named(set))
-@attached(peer, names: prefixed(_))
+@attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath<Element, Value?>, order: SortOrder = .forward) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Marks the read-only side of a two-way relationship, naming the owner's property.
@@ -148,7 +150,7 @@ public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath
 /// is made. A to-many side lists its owners in the order their links were created. With
 /// `deleteSelf: true`, which needs a to-one side, the record is deleted when its owner is deleted.
 @attached(accessor, names: named(init), named(get))
-@attached(peer, names: prefixed(_))
+@attached(peer, names: prefixed(_), prefixed(`$`))
 public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, deleteSelf: Bool = false) = #externalMacro(module: "RecordsMacros", type: "ReferenceMacro")
 
 /// Stores a field of a `@Record` in the record's `encryptedValues`, so CloudKit encrypts it with

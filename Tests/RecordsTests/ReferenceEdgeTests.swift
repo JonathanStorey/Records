@@ -74,5 +74,5 @@ private func label(_ name: String) -> Label {
     #expect(decoded.manager?.manager?.name == "A")
     #expect(decoded.manager?.manager?.manager?.name == "B")
     #expect(decoded.manager?.manager?.manager?.manager == nil)
-    #expect(decoded.manager?.manager?.manager?.referenceID(at: \.manager) == aID)
+    #expect(decoded.manager?.manager?.manager?.$manager.id == aID)
 }
