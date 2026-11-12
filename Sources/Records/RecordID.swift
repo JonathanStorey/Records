@@ -82,7 +82,9 @@ final class TimestampClock: Sendable {
     static func date(of uuid: UUID) -> Date? {
         let value = withUnsafeBytes(of: uuid.uuid) { $0.reduce(UInt128(0)) { $0 << 8 | UInt128($1) } }
         guard value >> 76 & 0xF == 7, value >> 62 & 0b11 == 0b10 else { return nil }
-        let payload = value >> 80 << 74 | (value >> 64 & 0xFFF) << 62 | value & mask(62)
+        let high: UInt128 = (value >> 80) << 74
+        let middle: UInt128 = (value >> 64 & 0xFFF) << 62
+        let payload = high | middle | value & mask(62)
         let field = payload >> (payloadBits - timestampBits)
         let milliseconds = Int128(field >> tickIndexBits)
         let tickIndex = Int128(field & mask(tickIndexBits))
@@ -133,7 +135,9 @@ final class TimestampClock: Sendable {
         var generator = SystemRandomNumberGenerator()
         let randomBits = payloadBits - timestampBits
         let payload = UInt128(timestamp) << randomBits | UInt128(generator.next() as UInt64) & mask(randomBits)
-        let value = payload >> 74 << 80 | 0x7 << 76 | (payload >> 62 & 0xFFF) << 64 | 0b10 << 62 | payload & mask(62)
+        let high: UInt128 = (payload >> 74) << 80 | 0x7 << 76
+        let middle: UInt128 = (payload >> 62 & 0xFFF) << 64 | 0b10 << 62
+        let value = high | middle | payload & mask(62)
         let byte = { (index: Int) in UInt8(truncatingIfNeeded: value >> (120 - 8 * index)) }
         return UUID(uuid: (
             byte(0), byte(1), byte(2), byte(3), byte(4), byte(5), byte(6), byte(7),
