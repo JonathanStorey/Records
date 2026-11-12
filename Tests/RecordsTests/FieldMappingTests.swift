@@ -1,6 +1,6 @@
 import CloudKit
 import Foundation
-import Records
+@testable import Records
 import Testing
 
 enum Mood: String, Codable {
@@ -71,6 +71,80 @@ private func venue() -> Venue {
     #expect(throws: CKRecordDecodingError.typeMismatch(field: "mood")) {
         try CKRecordDecoder().decode(Venue.self, from: record)
     }
+}
+
+// MARK: - Values stored as strings
+
+struct SeatCode: RawRepresentable, Codable, Equatable {
+    var rawValue: UUID
+}
+
+struct Version: LosslessStringConvertible, Codable, Equatable {
+    var major: Int
+    var minor: Int
+
+    init(major: Int, minor: Int) {
+        self.major = major
+        self.minor = minor
+    }
+
+    init?(_ description: String) {
+        let parts = description.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 2 else { return nil }
+        self.init(major: parts[0], minor: parts[1])
+    }
+
+    var description: String { "\(major).\(minor)" }
+}
+
+@Record
+struct Ticket: Equatable {
+    var id: UUID
+    var holder: UUID
+    var seat: SeatCode?
+    var version: Version
+    var link: URL?
+    var count: Int
+}
+
+func ticket(holder: UUID = UUID()) -> Ticket {
+    Ticket(
+        id: UUID(), holder: holder, seat: SeatCode(rawValue: UUID()), version: Version(major: 2, minor: 1),
+        link: URL(string: "https://example.com/a?b=c"), count: 3
+    )
+}
+
+@Test func stringConvertibleValuesAreStoredAsStrings() {
+    let original = ticket()
+    let record = CKRecordEncoder().encode(original, in: .records)
+    #expect(record["holder"] as? String == original.holder.uuidString)
+    #expect(record["seat"] as? String == original.seat?.rawValue.uuidString)
+    #expect(record["version"] as? String == "2.1")
+    #expect(record["link"] as? String == "https://example.com/a?b=c")
+    #expect(record["count"] as? Int == 3)
+}
+
+@Test func anUnreadableStringIsATypeMismatch() {
+    let record = CKRecordEncoder().encode(ticket(), in: .records)
+    record["holder"] = "not a uuid"
+    #expect(throws: CKRecordDecodingError.typeMismatch(field: "holder")) {
+        try CKRecordDecoder().decode(Ticket.self, from: record)
+    }
+}
+
+@MainActor
+@Test func fetchingFiltersOnValuesStoredAsStrings() throws {
+    let holder = UUID()
+    let mine = ticket(holder: holder)
+    let context = try RecordContainer(for: [Ticket.self], url: nil).mainContext
+    context.insert(mine)
+    context.insert(ticket())
+    try context.save()
+    let seat = mine.seat
+    let byHolder = try context.fetch(RecordDescriptor(predicate: #Predicate<Ticket> { $0.holder == holder }))
+    let bySeat = try context.fetch(RecordDescriptor(predicate: #Predicate<Ticket> { $0.seat == seat }))
+    #expect(byHolder.map(\.id) == [mine.id])
+    #expect(bySeat.map(\.id) == [mine.id])
 }
 
 // MARK: - Stable JSON

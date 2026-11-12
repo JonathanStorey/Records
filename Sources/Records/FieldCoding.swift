@@ -7,8 +7,9 @@ import Foundation
 ///
 /// A value CloudKit stores directly, such as a `String`, `Int`, `Date`, `Data`, `CLLocation`, or
 /// an array of them, is stored as is. An enum whose raw value CloudKit stores is stored as its raw
-/// value. Any other `Codable` value is stored as JSON `Data`. A type that is none of these is a
-/// compile error.
+/// value. A `UUID`, a `URL`, a `LosslessStringConvertible` value, and a type whose raw value is a
+/// `UUID` are stored as strings. Any other `Codable` value is stored as JSON `Data`. A type that is
+/// none of these is a compile error.
 ///
 /// A type can match more than one rule: `String` is Codable, and so is `enum Mood: String, Codable`.
 /// Each such pair has its own initializer, which Swift prefers because it is more specific, so the
@@ -43,6 +44,47 @@ public struct FieldCoding<Value> {
     /// A Codable enum whose raw value CloudKit stores. Stored as its raw value.
     public init(_ type: Value.Type) where Value: RawRepresentable & Codable, Value.RawValue: CKRecordValueProtocol {
         self.init(kind: .direct(Value.RawValue.self), write: { $0.rawValue }, read: { ($0 as? Value.RawValue).flatMap(Value.init(rawValue:)) })
+    }
+
+    /// A value that converts to and from a string, such as a version number. Stored as its string.
+    public init(_ type: Value.Type) where Value: LosslessStringConvertible {
+        self.init(string: \.description) { Value($0) }
+    }
+
+    /// A Codable value that converts to and from a string. Stored as its string.
+    public init(_ type: Value.Type) where Value: LosslessStringConvertible & Codable {
+        self.init(string: \.description) { Value($0) }
+    }
+
+    /// A value CloudKit stores directly that also converts to and from a string, such as `Int`.
+    /// Stored directly.
+    public init(_ type: Value.Type) where Value: LosslessStringConvertible & Codable & CKRecordValueProtocol {
+        self.init(kind: .direct(Value.self), write: { $0 }, read: { $0 as? Value })
+    }
+
+    /// A `UUID`. Stored as its string.
+    public init(_ type: Value.Type) where Value == UUID {
+        self.init(string: \.uuidString) { UUID(uuidString: $0) }
+    }
+
+    /// A `URL`. Stored as its string.
+    public init(_ type: Value.Type) where Value == URL {
+        self.init(string: \.absoluteString) { URL(string: $0) }
+    }
+
+    /// A type whose raw value is a `UUID`. Stored as the UUID's string.
+    public init(_ type: Value.Type) where Value: RawRepresentable, Value.RawValue == UUID {
+        self.init(string: \.rawValue.uuidString) { UUID(uuidString: $0).flatMap(Value.init(rawValue:)) }
+    }
+
+    /// A Codable type whose raw value is a `UUID`. Stored as the UUID's string.
+    public init(_ type: Value.Type) where Value: RawRepresentable & Codable, Value.RawValue == UUID {
+        self.init(string: \.rawValue.uuidString) { UUID(uuidString: $0).flatMap(Value.init(rawValue:)) }
+    }
+
+    /// A value stored as a string.
+    private init(string: @escaping (Value) -> String, from parse: @escaping (String) -> Value?) {
+        self.init(kind: .text, write: { string($0) }, read: { ($0 as? String).flatMap(parse) })
     }
 
     /// Any other Codable value. Stored as JSON.

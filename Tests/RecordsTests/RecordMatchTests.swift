@@ -21,6 +21,11 @@ import Testing
     ))
 }
 
+@Test func stringStoredFieldsMatch() throws {
+    try expectMatch(ticket())
+    try expectMatch(Ticket(id: UUID(), holder: UUID(), seat: nil, version: Version(major: 0, minor: 0), link: nil, count: 0))
+}
+
 @Test func encryptedFieldsMatch() throws {
     try expectMatch(Vault(id: UUID(), name: "Home", secret: "s3cret", pin: 1234, codes: ["a", "b"]))
     try expectMatch(Vault(id: UUID(), name: "Empty", secret: "", pin: nil, codes: []))
