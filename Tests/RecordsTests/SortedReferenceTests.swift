@@ -1,6 +1,6 @@
 import CloudKit
 import Foundation
-import Records
+@testable import Records
 import Testing
 
 @Record

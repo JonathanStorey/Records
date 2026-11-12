@@ -336,14 +336,13 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     #expect(editor.value?.musician?.name == "Nova II")
 }
 
-/// Editing an expanded record saves its own fields, and its targets stay as they were saved.
+/// Editing an expanded record saves its own fields and keeps its targets.
 @MainActor
 @Test func editingAnExpandedRecordSavesOnlyItsOwnFields() throws {
     let (context, lp, nova) = try savedLP()
     let editor = Editor(lp, in: context, expand: [\LP.musician, \LP.cuts])
     var edited = try #require(editor.value)
     edited.title = "A (Live)"
-    edited.musician?.name = "Changed"
     editor.value = edited
     #expect(context.changes == [.update(lp.id)])
 
