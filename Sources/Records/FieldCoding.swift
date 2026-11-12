@@ -82,19 +82,14 @@ public struct FieldCoding<Value> {
         self.init(string: \.rawValue.uuidString) { UUID(uuidString: $0).flatMap(Value.init(rawValue:)) }
     }
 
-    /// An array of values that convert to and from strings. Stored as an array of strings.
-    public init<Element>(_ type: Value.Type) where Value == [Element], Element: LosslessStringConvertible {
-        self.init(elements: FieldCoding<Element>(Element.self))
-    }
-
     /// An array of Codable values that convert to and from strings. Stored as an array of strings.
-    public init<Element>(_ type: Value.Type) where Value == [Element], Element: LosslessStringConvertible & Codable {
-        self.init(elements: FieldCoding<Element>(Element.self))
+    public init(_ type: Value.Type) where Value: FieldArray & Codable, Value.Element: LosslessStringConvertible & Codable {
+        self.init(elements: FieldCoding<Value.Element>(Value.Element.self))
     }
 
     /// An array of values CloudKit stores directly that also convert to and from strings, such as
     /// `[Int]`. Stored directly.
-    public init<Element>(_ type: Value.Type) where Value == [Element], Element: LosslessStringConvertible & Codable & CKRecordValueProtocol {
+    public init(_ type: Value.Type) where Value: FieldArray & Codable & CKRecordValueProtocol, Value.Element: LosslessStringConvertible & Codable & CKRecordValueProtocol {
         self.init(kind: .direct(Value.self), write: { $0 }, read: { $0 as? Value })
     }
 
@@ -108,25 +103,20 @@ public struct FieldCoding<Value> {
         self.init(elements: FieldCoding<URL>(URL.self))
     }
 
-    /// An array of a type whose raw value is a `UUID`. Stored as an array of strings.
-    public init<Element>(_ type: Value.Type) where Value == [Element], Element: RawRepresentable, Element.RawValue == UUID {
-        self.init(elements: FieldCoding<Element>(Element.self))
-    }
-
     /// An array of a Codable type whose raw value is a `UUID`. Stored as an array of strings.
-    public init<Element>(_ type: Value.Type) where Value == [Element], Element: RawRepresentable & Codable, Element.RawValue == UUID {
-        self.init(elements: FieldCoding<Element>(Element.self))
+    public init(_ type: Value.Type) where Value: FieldArray & Codable, Value.Element: RawRepresentable & Codable, Value.Element.RawValue == UUID {
+        self.init(elements: FieldCoding<Value.Element>(Value.Element.self))
     }
 
     /// An array of values each stored as a string by `elements`. Reads only when every string does.
-    private init<Element>(elements: FieldCoding<Element>) where Value == [Element] {
+    private init(elements: FieldCoding<Value.Element>) where Value: FieldArray {
         self.init(
             kind: .archived,
-            write: { $0.compactMap { elements.write($0) as? String } },
+            write: { Array($0).compactMap { elements.write($0) as? String } },
             read: { stored in
                 guard let strings = stored as? [String] else { return nil }
                 let values = strings.compactMap { elements.read($0) }
-                return values.count == strings.count ? values : nil
+                return values.count == strings.count ? Value(values) : nil
             }
         )
     }
@@ -211,3 +201,8 @@ private extension JSONEncoder {
         return encoder
     }
 }
+
+/// An array, as `FieldCoding` sees it, so it can pick a coding by the element type.
+public protocol FieldArray: RangeReplaceableCollection {}
+
+extension Array: FieldArray {}
