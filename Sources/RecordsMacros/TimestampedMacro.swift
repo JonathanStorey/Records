@@ -22,14 +22,6 @@ public struct TimestampedMacro: AccessorMacro, PeerMacro {
             case .modified: "modifiedAt"
             }
         }
-
-        /// The `CKRecord` property that holds the date.
-        var recordProperty: String {
-            switch self {
-            case .created: "creationDate"
-            case .modified: "modificationDate"
-            }
-        }
     }
 
     public static func expansion(

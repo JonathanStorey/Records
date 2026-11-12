@@ -3,6 +3,14 @@ import Foundation
 import Testing
 @testable import Records
 
+/// The record to upload for `record` once `server` is its synced copy: its row, holding the
+/// server's system fields, with `record`'s fields written over them.
+func upload<R: Record>(_ record: R, onto server: CKRecord) throws -> CKRecord {
+    var row = try CKRecordDecoder().decode(server, of: R.self)
+    record.encodeFields(into: &row)
+    return CKRecordEncoder().encode(row, of: R.self, in: .records)
+}
+
 /// `record`'s database row, as saving writes it, without dates.
 func row<R: Record>(of record: R) -> RecordRow {
     var row = RecordRow(["_name": .text(record.id.uuidString), "_createdAt": .null, "_modifiedAt": .null])
@@ -65,7 +73,7 @@ private let novel = Novel(
     #expect(upload.recordChangeTag == server.recordChangeTag)
     #expect(upload["rating"] == nil)
     #expect(upload["title"] as? String == "Hall")
-    #expect(try Venue(record: upload).rating == nil)
+    #expect(try CKRecordDecoder().decode(Venue.self, from: upload).rating == nil)
 
     // System fields for another record are ignored.
     var other = row

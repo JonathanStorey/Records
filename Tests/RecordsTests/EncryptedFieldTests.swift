@@ -34,8 +34,8 @@ struct Vault: Equatable {
 
     vault.secret = "b"
     vault.pin = nil
-    vault.encodeFields(into: record)
+    let sent = try upload(vault, onto: record)
 
-    #expect(record.encryptedValues["secret"] as? String == "b")
-    #expect(record.encryptedValues["pin"] == nil)
+    #expect(sent.encryptedValues["secret"] as? String == "b")
+    #expect(sent.encryptedValues["pin"] == nil)
 }

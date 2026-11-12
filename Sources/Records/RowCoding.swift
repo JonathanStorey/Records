@@ -73,8 +73,8 @@ extension Record {
 }
 
 extension RecordSchema {
-    /// A record named `name` in `zone`, holding the fields of `row`. It is what `encodeFields`
-    /// would write, so the record's generated initializer reads it back.
+    /// A record named `name` in `zone`, holding the fields of `row`. `CKRecordDecoder` reads it
+    /// back into a row.
     ///
     /// Starting from `base`, every field is set, `nil` included, so a field cleared since the
     /// server's copy uploads as cleared.

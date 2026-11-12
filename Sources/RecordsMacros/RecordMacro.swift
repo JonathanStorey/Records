@@ -4,16 +4,16 @@ import SwiftSyntaxMacros
 
 /// `@Record` and `@Record("Name")`.
 ///
-/// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, an
-/// `init(record:)` that reads each stored property back, and an `encodeFields(into:)` that writes
-/// each stored property except `id` under its own name. A struct with `@Reference` properties
+/// Adds an extension that conforms the struct to `Records.Record`, with a `recordType`, a
+/// `schema`, an `init(from row:)` that reads each stored property from its database row, and an
+/// `encodeFields(into:)` that writes each one except `id`. The schema turns a row into a
+/// `CKRecord` and back, so no record type writes its own. A struct with `@Reference` properties
 /// also gets `referenceStates` and `loadReference(_:to:from:links:depth:)`. The schema describes
 /// every reference, including the `@Reference(from:)` sides, so the encoder finds each inverse
 /// there.
 ///
 /// An `@Asset` field is stored on its own link, so a struct with one gets `assetStates` and
-/// `loadAsset(_:id:file:)`. An `@Encrypted` field is read from and written to the record's
-/// `encryptedValues`.
+/// `loadAsset(_:id:file:)`.
 public struct RecordMacro: ExtensionMacro {
     /// Modifiers that mean a property isn't stored per record.
     private static var skipped: [TokenKind] { [.keyword(.static), .keyword(.class), .keyword(.lazy)] }
@@ -49,51 +49,7 @@ public struct RecordMacro: ExtensionMacro {
             recordType: recordType, fields: fields, references: references, access: access,
             isGeneric: structDecl.genericParameterClause != nil
         )
-            + keyPathLines(typeName: type.trimmedDescription, fields: fields, references: references, access: access) + [
-            "    \(access)init(record: CKRecord) throws {",
-            "        self.id = try CKRecordDecoder.decodeID(from: record)",
-        ]
-        for field in fields {
-            if field.isAsset {
-                // The asset is on its own link, so a decoded record has none until links load.
-                lines.append("        self._\(field.key) = Records.AssetField(id: nil, file: nil)")
-                continue
-            }
-            let source = field.isEncrypted ? "record.encryptedValues" : "record"
-            if field.isLocation {
-                lines.append("        self._\(field.key) = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent(\"\(field.fieldKey)\", from: \(source)))")
-                continue
-            }
-            let read: String
-            if let wrapped = field.wrappedType {
-                read = "Records.FieldCoding((\(wrapped)).self).decodeIfPresent(\"\(field.fieldKey)\", from: \(source))"
-            } else if field.isArray {
-                // CloudKit does not keep empty lists, so a missing array field means empty.
-                read = "Records.FieldCoding((\(field.type)).self).decodeIfPresent(\"\(field.fieldKey)\", from: \(source)) ?? []"
-            } else {
-                read = "Records.FieldCoding((\(field.type)).self).decode(\"\(field.fieldKey)\", from: \(source))"
-            }
-            lines.append("        self.\(field.name) = try \(read)")
-        }
-        // Links hold references, so a decoded record starts with none. `loadReference` fills them.
-        for reference in references {
-            let empty = reference.isToMany
-                ? "Records.ToMany(ids: []\(reference.sort == nil ? "" : ", sorted: true"))"
-                : "Records.ToOne(id: nil)"
-            lines.append("        self.\(reference.storage) = \(empty)")
-        }
-        // The server keeps these dates outside the record's fields.
-        for timestamp in try timestamps(in: structDecl.memberBlock) {
-            lines.append("        self.\(timestamp.storage).load(record.\(timestamp.kind.recordProperty))")
-        }
-        lines += [
-            "    }",
-            "    \(access)func encodeFields(into record: CKRecord) {",
-        ]
-        for field in fields where !field.isAsset {
-            lines.append("        \(field.destination)[\"\(field.fieldKey)\"] = \(field.written)")
-        }
-        lines.append("    }")
+            + keyPathLines(typeName: type.trimmedDescription, fields: fields, references: references, access: access)
         lines += rowLines(fields: fields, references: references, timestamps: try timestamps(in: structDecl.memberBlock), access: access)
         let assets = fields.filter(\.isAsset)
         if !assets.isEmpty {
@@ -172,9 +128,8 @@ public struct RecordMacro: ExtensionMacro {
         return [extensionDecl]
     }
 
-    /// `init(from row:)` and `encodeFields(into row:)`: the same properties as the `CKRecord`
-    /// pair, read from and written to their columns. A row has no encrypted values, so every
-    /// field is a column, and the dates are columns too.
+    /// `init(from row:)` and `encodeFields(into row:)`: every stored property read from and
+    /// written to its column, and the dates read from theirs.
     private static func rowLines(
         fields: [StoredProperty], references: [ReferenceMacro.Reference],
         timestamps: [(storage: String, kind: TimestampedMacro.Kind)], access: String
@@ -449,17 +404,6 @@ public struct RecordMacro: ExtensionMacro {
 
         /// Whether it is marked `@Location`, so it is stored as an encrypted archive of its `CLLocation`.
         let isLocation: Bool
-
-        /// Where the generated code writes the field.
-        var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
-
-        /// What the generated code writes: the archived `CLLocation` for a `@Location`, otherwise the value.
-        /// An `@Asset` is written to its link instead.
-        var written: String {
-            if isLocation { return "Records.LocationField.coding.value(self._\(key).location)" }
-            // `nil` clears the field.
-            return "Records.FieldCoding((\(wrappedType ?? type)).self).value(self.\(name))"
-        }
     }
 
     /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
@@ -472,7 +416,7 @@ public struct RecordMacro: ExtensionMacro {
         }
     }
 
-    /// Instance properties with storage that `init(record:)` can assign: not static, not lazy,
+    /// Instance properties with storage that `init(from:)` can assign: not static, not lazy,
     /// not computed, and not a `let` with an initial value. Properties with only `willSet` /
     /// `didSet` observers still have storage. Each one needs an explicit type, because the
     /// generated initializer decodes by type.

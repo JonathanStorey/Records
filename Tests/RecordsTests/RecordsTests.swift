@@ -156,17 +156,18 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 
 // MARK: - Encoding into an existing record
 
-@Test func encodeFieldsOverwritesTheRecord() throws {
+@Test func anUploadOverwritesTheServersRecord() throws {
     var note = Note(id: UUID(), title: "Draft", isPinned: false, rating: 2, tags: [], created: .now)
     let record = CKRecordEncoder().encode(note, in: .records)
 
     note.title = "Final"
     note.rating = nil
-    note.encodeFields(into: record)
+    let sent = try upload(note, onto: record)
 
-    #expect(record["title"] as? String == "Final")
-    #expect(record["rating"] == nil)
-    #expect(try CKRecordDecoder().decode(Note.self, from: record) == note)
+    #expect(sent.recordID == record.recordID)
+    #expect(sent["title"] as? String == "Final")
+    #expect(sent["rating"] == nil)
+    #expect(try CKRecordDecoder().decode(Note.self, from: sent) == note)
 }
 
 // MARK: - nil and empty values

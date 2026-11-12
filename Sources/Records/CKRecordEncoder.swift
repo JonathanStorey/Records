@@ -10,10 +10,7 @@ public struct CKRecordEncoder: Sendable {
     /// A new `CKRecord` for `record` in `zone`, with every field. CloudKit treats it as a record it
     /// has never seen.
     public func encode(_ record: some Record, in zone: Zone) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: record.id.uuidString, zoneID: zone.zoneID)
-        let ckRecord = CKRecord(recordType: type(of: record).recordType, recordID: recordID)
-        record.encodeFields(into: ckRecord)
-        return ckRecord
+        type(of: record).schema.record(from: record.columnValues(), name: record.id.uuidString, zone: zone)
     }
 
     /// The `CKRecord` to upload for `R`'s database row `row` in `zone`, with every field. A row

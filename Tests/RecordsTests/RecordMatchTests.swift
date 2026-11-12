@@ -83,7 +83,7 @@ func expectMatch<R: Record>(_ record: R, sourceLocation: SourceLocation = #_sour
     #expect(synced.recordChangeTag == direct.recordChangeTag, sourceLocation: sourceLocation)
 
     for (route, ckRecord) in [("direct", direct), ("row", local), ("synced row", synced)] {
-        expectSame(row(of: try R(record: ckRecord)), expected, of: R.self, route: "\(route), read back", sourceLocation)
+        expectSame(row(of: try decoder.decode(R.self, from: ckRecord)), expected, of: R.self, route: "\(route), read back", sourceLocation)
         expectSame(fields(try decoder.decode(ckRecord, of: R.self)), expected, of: R.self, route: "\(route), decoded", sourceLocation)
     }
 
