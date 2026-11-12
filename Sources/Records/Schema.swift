@@ -56,7 +56,8 @@ public enum FieldKind: String, Hashable, Sendable {
     case integer
     /// `REAL`, from a `Double` or `Float`.
     case real
-    /// `REAL` seconds since 1970, from a `Date`, so dates sort and compare in SQL.
+    /// `REAL` seconds since 2001, the way `Date` holds them, so a date reads back exactly and
+    /// dates sort and compare in SQL.
     case date
     /// `BLOB`, from `Data`, including Codable values stored as JSON.
     case bytes

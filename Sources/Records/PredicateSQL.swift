@@ -551,8 +551,6 @@ extension PredicateTranslator.Column {
     /// - Swift strings are equal when canonically equivalent ("é" as one or two scalars). Text
     ///   matches exactly when it is ASCII, so any other text is let through for Swift to decide.
     /// - SQLite stores NaN as NULL, so a NULL real may be NaN rather than `nil`.
-    /// - Dates are stored as seconds since 1970, which can round a date to its neighbor, so
-    ///   strict bounds are loosened and inequality isn't used.
     func comparison(_ comparator: SQLComparator, _ value: SQLValue, exact: Bool) -> SQLFilter? {
         let column = sql
         func filter(_ sql: String, _ values: [SQLValue] = [], isExact: Bool) -> SQLFilter? {
@@ -567,21 +565,13 @@ extension PredicateTranslator.Column {
             }
         }
         switch (kind, value) {
-        case (.integer, .integer), (.real, .integer), (.real, .real):
+        case (.integer, .integer), (.real, .integer), (.real, .real), (.date, .real):
             return filter("(\(column) \(comparator.symbol) ?)", [value], isExact: true)
         case (.text, .text(let string)) where !comparator.isOrdered:
             // Swift orders strings by Unicode rules SQLite doesn't follow, so only equality is used.
             if isRecordName { return filter("(\(column) \(comparator.symbol) ?)", [value], isExact: true) }
             let normalized = SQLValue.text(string.precomposedStringWithCanonicalMapping)
             return filter("(\(column) \(comparator.symbol) ? OR \(column) \(beyondASCII))", [normalized], isExact: false)
-        case (.date, .real):
-            let symbol: String? = switch comparator {
-            case .equal: "IS"
-            case .notEqual: nil
-            case .less, .lessOrEqual: "<="
-            case .greater, .greaterOrEqual: ">="
-            }
-            return symbol.flatMap { filter("(\(column) \($0) ?)", [value], isExact: false) }
         default:
             return nil
         }
@@ -602,7 +592,7 @@ private func sqlValue(of value: Any) -> SQLValue? {
     case let number as any BinaryInteger: return Int64(exactly: number).map(SQLValue.integer)
     case let number as Double: return number.isNaN ? nil : .real(number)
     case let number as Float: return number.isNaN ? nil : .real(Double(number))
-    case let date as Date: return .real(date.timeIntervalSince1970)
+    case let date as Date: return .real(date.timeIntervalSinceReferenceDate)
     case let id as UUID: return .text(id.uuidString)
     case let raw as any RawRepresentable: return sqlValue(of: raw.rawValue)
     default: return nil

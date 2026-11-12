@@ -43,8 +43,8 @@ private let novel = Novel(
     row.values["_createdAt"] = .real(100)
     row.values["_modifiedAt"] = .real(200)
     let memo = try Memo(from: row)
-    #expect(memo.createdAt == Date(timeIntervalSince1970: 100))
-    #expect(memo.modifiedAt == Date(timeIntervalSince1970: 200))
+    #expect(memo.createdAt == Date(timeIntervalSinceReferenceDate: 100))
+    #expect(memo.modifiedAt == Date(timeIntervalSinceReferenceDate: 200))
 }
 
 @MainActor
