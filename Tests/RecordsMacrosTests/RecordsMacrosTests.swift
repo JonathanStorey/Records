@@ -603,6 +603,11 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.tags: "tags", \\Note.pinnedIDs: "pinnedIDs"]
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._tags = Records.ToMany(ids: [])
+                    self._pinnedIDs = Records.ToMany(ids: [])
+                }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
@@ -672,6 +677,10 @@ final class RecordMacroTests: XCTestCase {
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Article.id: "_name", \\Article.authorID: "authorID"]
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._authorID = Records.ToOne(id: nil)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
@@ -913,6 +922,10 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\User.id: "_name", \\User.profile: "profile"]
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._profile = Records.ToOne(id: nil)
+                }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
@@ -989,6 +1002,11 @@ final class RecordMacroTests: XCTestCase {
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Profile.id: "_name", \\Profile.userID: "userID", \\Profile.accountID: "accountID"]
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._userID = Records.ToOne(id: nil)
+                    self._accountID = Records.ToOne(id: nil)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
@@ -1138,6 +1156,11 @@ final class RecordMacroTests: XCTestCase {
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Shelf.id: "_name", \\Shelf.bookIDs: "bookIDs", \\Shelf.crateIDs: "crateIDs"]
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._bookIDs = Records.ToMany(ids: [])
+                    self._crateIDs = Records.ToMany(ids: [])
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
@@ -1553,6 +1576,11 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Poster.id: "_name"]
                 }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._image = Records.AssetField(id: nil, file: nil)
+                    self._thumbnail = Records.AssetField(id: nil, file: nil)
+                }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var assetStates: [Records.AssetState] {
@@ -1812,6 +1840,11 @@ final class RecordMacroTests: XCTestCase {
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Memo.id: "_name"]
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = try row.id
+                    self._createdAt.load(row.createdAt)
+                    self._modifiedAt.load(row.modifiedAt)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
