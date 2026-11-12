@@ -122,7 +122,6 @@ private func temporaryFile() -> URL {
     #expect(schema.fields.filter(\.isEncrypted).map(\.key) == ["note", "shop"])
     #expect(schema.references.map(\.property) == ["sequel", "writers", "editor"])
     #expect(schema.references.map(\.isToMany) == [false, true, false])
-    #expect(schema.references.map(\.holdsIDs) == [false, false, true])
 
     let from = Writer.schema.references[0]
     #expect(from.isFrom && from.inverseOf == "writers" && from.target.recordType == "Novel")

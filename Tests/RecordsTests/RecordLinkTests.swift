@@ -33,7 +33,7 @@ private func reference(
     _ property: String, to target: any Record.Type, many: Bool = false, inverse: (name: String, many: Bool)? = nil
 ) -> ReferenceState {
     let schema = { (property: String, isToMany: Bool) in
-        ReferenceSchema(property: property, target: target, isToMany: isToMany, isSorted: false, holdsIDs: false)
+        ReferenceSchema(property: property, target: target, isToMany: isToMany, isSorted: false)
     }
     return ReferenceState(
         schema: schema(property, many), inverse: inverse.map { schema($0.name, $0.many) }, ids: [], records: []
