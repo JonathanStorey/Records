@@ -17,8 +17,9 @@ public struct RecordRow: Equatable {
     /// The record's `id`, from its name. Used by the code `@Record` generates.
     public var id: UUID {
         get throws {
-            guard case .text(let name) = values["_name"], let id = UUID(uuidString: name) else {
-                throw CKRecordDecodingError.invalidRecordName(values["_name"].map { "\($0)" } ?? "")
+            let name = if case .text(let name) = values["_name"] { name } else { "" }
+            guard let id = UUID(uuidString: name) else {
+                throw CKRecordDecodingError.invalidRecordName(name)
             }
             return id
         }
@@ -32,7 +33,7 @@ public struct RecordRow: Equatable {
 
     private func date(_ column: String) -> Date? {
         guard case .real(let seconds) = values[column] else { return nil }
-        return Date(timeIntervalSince1970: seconds)
+        return Date(timeIntervalSinceReferenceDate: seconds)
     }
 
     /// The record the server last returned, rebuilt from the archived system fields, so it

@@ -283,6 +283,9 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @Test func valuesRoundTripThroughTheirColumns() throws {
     let date = Date(timeIntervalSince1970: 1_700_000_000.5)
     #expect(FieldKind.date.recordValue(FieldKind.date.sqlValue(date)) as? Date == date)
+    // Any date reads back exactly, to the last bit.
+    let now = Date.now
+    #expect(FieldKind.date.recordValue(FieldKind.date.sqlValue(now)) as? Date == now)
     #expect(FieldKind.integer.recordValue(FieldKind.integer.sqlValue(true)) as? Bool == true)
     #expect(FieldKind.real.recordValue(FieldKind.real.sqlValue(2.5)) as? Double == 2.5)
     #expect(FieldKind.bytes.recordValue(FieldKind.bytes.sqlValue(Data([1, 2]))) as? Data == Data([1, 2]))

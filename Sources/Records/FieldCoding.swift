@@ -3,7 +3,7 @@ import CoreLocation
 import Foundation
 
 /// How one field type is stored in a `CKRecord` and in its SQLite column. Used by the code
-/// `@Record` generates, as in `FieldCoding(String.self).decode("title", from: record)`.
+/// `@Record` generates, as in `FieldCoding(String.self).decode("title", from: row)`.
 ///
 /// A value CloudKit stores directly, such as a `String`, `Int`, `Date`, `Data`, `CLLocation`, or
 /// an array of them, is stored as is. An enum whose raw value CloudKit stores is stored as its raw
@@ -65,26 +65,6 @@ public struct FieldCoding<Value> {
     public func value(_ value: Value?) -> (any CKRecordValueProtocol)? {
         value.flatMap(write)
     }
-
-    /// The value of `key`. Pass `record.encryptedValues` for an `@Encrypted` field.
-    public func decode(_ key: String, from record: any CKRecordKeyValueSetting) throws -> Value {
-        guard let value = try decodeIfPresent(key, from: record) else {
-            throw CKRecordDecodingError.missingField(key)
-        }
-        return value
-    }
-
-    /// The value of `key`, or `nil` when the field is missing. Pass `record.encryptedValues` for
-    /// an `@Encrypted` field.
-    public func decodeIfPresent(_ key: String, from record: any CKRecordKeyValueSetting) throws -> Value? {
-        guard let stored = record.object(forKey: key) else { return nil }
-        guard let value = read(stored) else {
-            throw CKRecordDecodingError.typeMismatch(field: key)
-        }
-        return value
-    }
-
-    // MARK: Rows
 
     /// The value of the column `key`.
     public func decode(_ key: String, from row: RecordRow) throws -> Value {

@@ -20,10 +20,7 @@ public struct CKRecordDecoder: Sendable {
     public init() {}
 
     public func decode<R: Record>(_ type: R.Type, from record: CKRecord) throws -> R {
-        guard record.recordType == R.recordType else {
-            throw CKRecordDecodingError.recordTypeMismatch(expected: R.recordType, found: record.recordType)
-        }
-        return try R(record: record)
+        try R(from: decode(record, of: R.self))
     }
 
     /// Decodes `record` and fills its `@Reference` and `@Asset` properties from `links`.
@@ -106,23 +103,17 @@ public struct CKRecordDecoder: Sendable {
         }
         var row = RecordRow([
             "_name": .text(record.recordID.recordName),
-            "_createdAt": record.creationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
-            "_modifiedAt": record.modificationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
+            "_createdAt": record.creationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null,
+            "_modifiedAt": record.modificationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null,
             "_systemFields": RecordRow.systemFields(of: record),
         ])
         for field in R.schema.fields {
             let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]
             row.values[field.key] = field.kind.sqlValue(value)
+            if value != nil, row.values[field.key] == .null {
+                throw CKRecordDecodingError.typeMismatch(field: field.key)
+            }
         }
         return row
-    }
-
-    /// The record's `id`, parsed from its record name. Used by the code `@Record` generates.
-    public static func decodeID(from record: CKRecord) throws -> UUID {
-        let name = record.recordID.recordName
-        guard let id = UUID(uuidString: name) else {
-            throw CKRecordDecodingError.invalidRecordName(name)
-        }
-        return id
     }
 }

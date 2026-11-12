@@ -24,7 +24,7 @@ extension FieldKind {
         case .real:
             return (value as? NSNumber).map { .real($0.doubleValue) } ?? .null
         case .date:
-            return (value as? Date).map { .real($0.timeIntervalSince1970) } ?? .null
+            return (value as? Date).map { .real($0.timeIntervalSinceReferenceDate) } ?? .null
         case .bytes:
             if let location = value as? CLLocation {
                 // A `@Location` stored as a `CLLocation` rather than its archive.
@@ -49,7 +49,7 @@ extension FieldKind {
         case (.real, .real(let number)):
             return NSNumber(value: number)
         case (.date, .real(let seconds)):
-            return Date(timeIntervalSince1970: seconds)
+            return Date(timeIntervalSinceReferenceDate: seconds)
         case (.bytes, .blob(let data)):
             return data
         case (.archived, .blob(let data)):
@@ -73,8 +73,8 @@ extension Record {
 }
 
 extension RecordSchema {
-    /// A record named `name` in `zone`, holding the fields of `row`. It is what `encodeFields`
-    /// would write, so the record's generated initializer reads it back.
+    /// A record named `name` in `zone`, holding the fields of `row`. `CKRecordDecoder` reads it
+    /// back into a row.
     ///
     /// Starting from `base`, every field is set, `nil` included, so a field cleared since the
     /// server's copy uploads as cleared.

@@ -27,7 +27,7 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 @Test func aLocationStoredAsACLLocationStillReads() throws {
     let record = CKRecordEncoder().encode(Gig(id: UUID(), title: "Proms", venue: nil, home: nil), in: .records)
     record.encryptedValues["venue"] = hall.location
-    #expect(try Gig(record: record).venue == hall)
+    #expect(try CKRecordDecoder().decode(Gig.self, from: record).venue == hall)
     #expect(try Gig(from: CKRecordDecoder().decode(record, of: Gig.self)).venue == hall)
 }
 
@@ -76,6 +76,5 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 
     gig.$venue = nil
     #expect(gig.venue == nil)
-    gig.encodeFields(into: record)
-    #expect(record.encryptedValues["venue"] == nil)
+    #expect(try upload(gig, onto: record).encryptedValues["venue"] == nil)
 }
