@@ -145,7 +145,7 @@ private func link(
     #expect(record.recordType == "RecordLink")
     #expect(record.recordID.recordName == stored.id.uuidString)
     #expect(record.recordID.zoneID.zoneName == "Notes")
-    #expect(Set(record.allKeys()) == ["source", "sourceName", "targetName", "order"])
+    #expect(Set(record.allKeys()) == ["source", "sourceName", "targetName", "added"])
     #expect(record["source"] as? String == "Note.tags")
     #expect(record.parent == nil)
     #expect(try CKRecordDecoder().decode(RecordLink.self, from: record) == stored)

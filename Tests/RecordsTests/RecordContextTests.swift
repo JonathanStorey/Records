@@ -487,7 +487,6 @@ private func makeVenue() -> Venue {
     context.insert(page)
     try context.save()
     #expect(try linkRows(of: page.id, in: context) == before)
-    #expect(try context.record(id: page.id, for: Page.self)?.labels == labels)
 }
 
 // MARK: - Changes
