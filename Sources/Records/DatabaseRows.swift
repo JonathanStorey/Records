@@ -39,21 +39,14 @@ extension Database {
             """,
             zoneValues + matchingValues + matchingValues
         )
-        var linksByName: [String: [CKRecord]] = [:]
+        var graph = RecordGraph()
         for row in linkRows {
             guard case .text(let name) = row["_name"] else { continue }
-            let link = RecordLink.schema.record(from: row, name: name, zone: zone)
-            if case .text(let source) = row["sourceName"] { linksByName[source, default: []].append(link) }
-            if case .text(let target) = row["targetName"], row["targetName"] != row["sourceName"] {
-                linksByName[target, default: []].append(link)
-            }
+            graph.addLink(row, name: name)
         }
-
-        let decoder = CKRecordDecoder()
-        return try rows.compactMap { row in
-            guard case .text(let name) = row["_name"] else { return nil }
+        return try rows.map { row in
             var record = try R(from: RecordRow(row))
-            try decoder.load(&record, links: linksByName[name] ?? [], depth: 0)
+            try graph.load(&record, depth: 0)
             return record
         }
     }
@@ -63,10 +56,11 @@ extension Database {
     func load<R: Record>(_ type: R.Type, key: RecordKey) throws -> R? {
         guard let row = try currentRow(of: key), row["_deleted"] != .integer(1) else { return nil }
         var record = try R(from: RecordRow(row))
-        let links = try savedLinks(touching: key).map { name, row in
-            RecordLink.schema.record(from: row, name: name, zone: key.zone)
+        var graph = RecordGraph()
+        for (name, row) in try savedLinks(touching: key) {
+            graph.addLink(row, name: name)
         }
-        try CKRecordDecoder().load(&record, links: links, depth: 0)
+        try graph.load(&record, depth: 0)
         return record
     }
 

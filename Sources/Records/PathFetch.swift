@@ -83,21 +83,29 @@ extension Record {
 private struct Graph {
     /// The zone every record in the graph is read from.
     let zone: Zone
-    var records: [RecordKey: CKRecord] = [:]
-    var linksByName: [String: [CKRecord]] = [:]
+    var records = RecordGraph()
+    /// The names of the records whose links are loaded.
     var linksLoaded: Set<String> = []
-    private var linkNames: Set<String> = []
 
     init(zone: Zone) {
         self.zone = zone
     }
 
-    /// Adds `link` under each record it names, once.
-    mutating func add(link: CKRecord) {
-        guard linkNames.insert(link.recordID.recordName).inserted else { return }
-        let source = link["sourceName"] as? String
-        if let source { linksByName[source, default: []].append(link) }
-        if let target = link["targetName"] as? String, target != source { linksByName[target, default: []].append(link) }
+    subscript(key: RecordKey) -> RecordRow? {
+        get { records[key.recordType, key.name] }
+        set { records[key.recordType, key.name] = newValue }
+    }
+
+    /// The links that name the record named `name`.
+    func links(naming name: String) -> [RecordLink] {
+        records.linksByName[name] ?? []
+    }
+}
+
+private extension RecordLink {
+    /// The record name the link holds in `column`, `sourceName` or `targetName`.
+    func name(in column: String) -> String? {
+        column == "sourceName" ? sourceName : column == "targetName" ? targetName : nil
     }
 }
 
@@ -144,7 +152,7 @@ private final class LoadedReader {
     private let graph: Graph
     private let traversal: Traversal
     private let infos: PathInfos
-    private var linksRead: [RecordKey: [CKRecord]] = [:]
+    private var linksRead: [RecordKey: [RecordLink]] = [:]
 
     init(graph: Graph, traversal: Traversal, infos: PathInfos) {
         self.graph = graph
@@ -155,21 +163,23 @@ private final class LoadedReader {
     /// `root` decoded with its traversed references holding records, `traversal.hops` deep, or
     /// `nil` when the graph doesn't hold it.
     func decode<R: Record>(_ type: R.Type, root: RecordKey) throws -> R? {
-        guard let record = graph.records[root] else { return nil }
-        let reached = reachable(from: root)
-        var seen: Set<String> = []
-        let links = reached.flatMap(links(readBy:)).filter { seen.insert($0.recordID.recordName).inserted }
-        let targets = reached.filter { $0 != root }.compactMap { graph.records[$0] }
-        return try CKRecordDecoder().decode(R.self, from: record, links: links, targets: targets, depth: traversal.hops)
+        guard let row = graph[root] else { return nil }
+        var loaded = RecordGraph()
+        for node in reachable(from: root) {
+            for link in links(readBy: node) { loaded.add(link, from: graph.records) }
+            if node != root { loaded[node.recordType, node.name] = graph[node] }
+        }
+        var record = try R(from: row)
+        try loaded.load(&record, depth: traversal.hops)
+        return record
     }
 
     /// The links `node` reads: the ones it owns, and the ones that point at it for its `from:` sides.
-    private func links(readBy node: RecordKey) -> [CKRecord] {
+    private func links(readBy node: RecordKey) -> [RecordLink] {
         if let links = linksRead[node] { return links }
-        let links = (graph.linksByName[node.name] ?? []).filter { link in
-            guard let source = link["source"] as? String else { return false }
-            let owns = link["sourceName"] as? String == node.name && source.hasPrefix(node.recordType + ".")
-            let reads = link["targetName"] as? String == node.name && infos[node.recordType].inverseSources.contains(source)
+        let links = graph.links(naming: node.name).filter { link in
+            let owns = link.sourceName == node.name && link.sourceType == node.recordType
+            let reads = link.targetName == node.name && infos[node.recordType].inverseSources.contains(link.source)
             return owns || reads
         }
         linksRead[node] = links
@@ -185,11 +195,11 @@ private final class LoadedReader {
             var next: [RecordKey] = []
             for node in frontier {
                 for (link, target) in infos[node.recordType].traversed {
-                    for record in graph.linksByName[node.name] ?? []
-                    where record["source"] as? String == link.source && record[link.ownName] as? String == node.name {
-                        guard let other = record[link.otherName] as? String else { continue }
+                    for record in graph.links(naming: node.name)
+                    where record.source == link.source && record.name(in: link.ownName) == node.name {
+                        guard let other = record.name(in: link.otherName) else { continue }
                         let key = RecordKey(recordType: target, name: other, zone: graph.zone)
-                        if graph.records[key] != nil, seen.insert(key).inserted {
+                        if graph[key] != nil, seen.insert(key).inserted {
                             found.append(key)
                             next.append(key)
                         }
@@ -212,11 +222,10 @@ extension RecordContext {
         let rows = try database.rows("SELECT * FROM \(database.quoted(R.recordType)) WHERE \(matching)", values)
         var roots: [RecordKey] = []
         var graph = Graph(zone: zone)
-        let schema = R.schema
         for row in rows {
             guard case .text(let name) = row["_name"] else { continue }
             let key = RecordKey(recordType: R.recordType, name: name, zone: zone)
-            graph.records[key] = schema.record(from: row, name: name, zone: zone)
+            graph[key] = RecordRow(row)
             roots.append(key)
         }
         let infos = PathInfos(types: types, traversal: traversal)
@@ -229,8 +238,6 @@ extension RecordContext {
             guard let loaded = try reader.decode(R.self, root: root) else { continue }
             if try predicate.evaluate(loaded) { matches.append((loaded, root)) }
         }
-        let decoder = CKRecordDecoder()
-
         if !descriptor.sortBy.isEmpty {
             let order = descriptor.sortBy
             matches.sort { order.compare($0.loaded, $1.loaded) == .orderedAscending }
@@ -240,8 +247,10 @@ extension RecordContext {
 
         // Return records as `fetch` always does, with references holding IDs.
         return try matches[start..<end].map { match in
-            guard let record = graph.records[match.root] else { return match.loaded }
-            return try decoder.decode(R.self, from: record, links: graph.linksByName[match.root.name] ?? [], depth: 0)
+            guard let row = graph[match.root] else { return match.loaded }
+            var record = try R(from: row)
+            try graph.records.load(&record, depth: 0)
+            return record
         }
     }
 
@@ -253,12 +262,13 @@ extension RecordContext {
         let zone = zone ?? self.zone
         let traversal = Traversal(prefetching: keyPaths, from: R.self)
         guard !traversal.isEmpty, !records.isEmpty else { return records }
-        let encoder = CKRecordEncoder()
         var graph = Graph(zone: zone)
         let roots = records.map { record in
             let node = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-            graph.records[node] = encoder.encode(record, in: zone)
-            for link in encoder.links(for: record, in: zone) { graph.add(link: link) }
+            var row = RecordRow(["_name": .text(record.id.uuidString)])
+            record.encodeFields(into: &row)
+            graph[node] = row
+            for link in record.links() { graph.records.add(link) }
             return node
         }
         let infos = PathInfos(types: types, traversal: traversal)
@@ -286,9 +296,9 @@ extension RecordContext {
             var next: [CKRecord.RecordType: Set<String>] = [:]
             for node in frontier {
                 for (link, target) in infos[node.recordType].traversed {
-                    for record in graph.linksByName[node.name] ?? []
-                    where record["source"] as? String == link.source && record[link.ownName] as? String == node.name {
-                        if let other = record[link.otherName] as? String, graph.records[RecordKey(recordType: target, name: other, zone: zone)] == nil {
+                    for record in graph.links(naming: node.name)
+                    where record.source == link.source && record.name(in: link.ownName) == node.name {
+                        if let other = record.name(in: link.otherName), graph[RecordKey(recordType: target, name: other, zone: zone)] == nil {
                             next[target, default: []].insert(other)
                         }
                     }
@@ -297,7 +307,7 @@ extension RecordContext {
 
             frontier = []
             for (recordType, names) in next {
-                guard let schema = types[recordType]?.schema else { continue }
+                guard types[recordType] != nil else { continue }
                 for chunk in Array(names).chunked(400) {
                     let (current, zoneValues) = Database.matching(zone: zone, filter: nil)
                     let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
@@ -308,7 +318,7 @@ extension RecordContext {
                     for row in rows {
                         guard case .text(let name) = row["_name"] else { continue }
                         let node = RecordKey(recordType: recordType, name: name, zone: zone)
-                        graph.records[node] = schema.record(from: row, name: name, zone: zone)
+                        graph[node] = RecordRow(row)
                         frontier.append(node)
                     }
                 }
@@ -324,7 +334,6 @@ extension RecordContext {
         guard !missing.isEmpty else { return }
         graph.linksLoaded.formUnion(missing)
         let (current, zoneValues) = Database.matching(zone: zone, filter: nil)
-        let linkSchema = RecordLink.schema
         for chunk in missing.chunked(400) {
             let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
             let values = chunk.map(SQLValue.text)
@@ -336,16 +345,16 @@ extension RecordContext {
                 zoneValues + values + values
             )
             for row in rows {
-                guard case .text(let name) = row["_name"] else { continue }
-                let link = linkSchema.record(from: row, name: name, zone: zone)
-                if !Self.isOwned(link, byAnyOf: ownLinksGiven, in: zone) { graph.add(link: link) }
+                guard case .text(let name) = row["_name"], !Self.isOwned(row, byAnyOf: ownLinksGiven, in: zone) else { continue }
+                graph.records.addLink(row, name: name)
             }
         }
     }
 
-    /// Whether `link` is owned by one of `records`: its source is that record's type and name.
-    private nonisolated static func isOwned(_ link: CKRecord, byAnyOf records: Set<RecordKey>, in zone: Zone) -> Bool {
-        guard !records.isEmpty, let source = link["source"] as? String, let sourceName = link["sourceName"] as? String
+    /// Whether the link saved as `link` is owned by one of `records`: its source is that record's
+    /// type and name.
+    private nonisolated static func isOwned(_ link: [String: SQLValue], byAnyOf records: Set<RecordKey>, in zone: Zone) -> Bool {
+        guard !records.isEmpty, case .text(let source) = link["source"], case .text(let sourceName) = link["sourceName"]
         else { return false }
         let sourceType = String(source.split(separator: ".", maxSplits: 1).first ?? "")
         return records.contains(RecordKey(recordType: sourceType, name: sourceName, zone: zone))

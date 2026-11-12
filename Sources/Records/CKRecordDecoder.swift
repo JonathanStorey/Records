@@ -42,56 +42,8 @@ public struct CKRecordDecoder: Sendable {
         depth: Int = 1
     ) throws -> R {
         var decoded = try decode(type, from: record)
-        try load(&decoded, links: links, targets: targets, depth: depth)
+        try RecordGraph(records: targets, links: links, reachableFrom: R.self).load(&decoded, depth: depth)
         return decoded
-    }
-
-    /// Fills `decoded`'s `@Reference` and `@Asset` properties from `links`, as
-    /// `decode(_:from:links:targets:depth:)` does.
-    func load<R: Record>(_ decoded: inout R, links: [CKRecord], targets: [CKRecord] = [], depth: Int = 1) throws {
-        let sourceName = decoded.id.uuidString
-
-        var byProperty: [String: [(target: ReferenceTarget, link: CKRecord)]] = [:]
-        for linkRecord in links where linkRecord.recordType == RecordLink.recordType {
-            // Skip a malformed link rather than fail the whole record.
-            guard let link = try? decode(RecordLink.self, from: linkRecord) else { continue }
-            let property = String(link.sourceProperty)
-            let ownsLink = link.sourceName == sourceName && link.sourceType == R.recordType
-            // An `@Asset`'s link: this record is its source.
-            if let assetID = link.assetID {
-                if ownsLink {
-                    let asset = linkRecord[RecordLink.assetKey] as? CKAsset
-                    decoded.loadAsset(property, id: UUID(uuidString: assetID), file: asset?.fileURL)
-                }
-                continue
-            }
-            // The owning side: this record is the link's source.
-            if ownsLink, let targetID = link.targetName.flatMap(UUID.init(uuidString:)) {
-                byProperty[property, default: []].append((ReferenceTarget(id: targetID, order: link.order), linkRecord))
-            }
-            // The `@Reference(from:)` side: this record is the link's target, and its type names
-            // the owner's property as an inverse.
-            if link.targetName == sourceName,
-               let inverse = R.schema.references.first(where: { $0.inverseOf == property && $0.target.recordType == link.sourceType }),
-               let sourceID = UUID(uuidString: link.sourceName) {
-                byProperty[inverse.property, default: []].append((ReferenceTarget(id: sourceID), linkRecord))
-            }
-        }
-
-        for (property, entries) in byProperty {
-            let ordered = entries.sorted(by: Self.precedes)
-            try decoded.loadReference(property, to: ordered.map(\.target), from: targets, links: links, depth: depth)
-        }
-    }
-
-    /// Whether `a` comes before `b` in a to-many reference: by order key, then by when its link
-    /// was created, then by the link's name.
-    private static func precedes(_ a: (target: ReferenceTarget, link: CKRecord), _ b: (target: ReferenceTarget, link: CKRecord)) -> Bool {
-        let (orderA, orderB) = (a.target.order ?? "", b.target.order ?? "")
-        if orderA != orderB { return OrderKey.precedes(orderA, orderB) }
-        let (dateA, dateB) = (a.link.creationDate ?? .distantPast, b.link.creationDate ?? .distantPast)
-        if dateA != dateB { return dateA < dateB }
-        return a.link.recordID.recordName < b.link.recordID.recordName
     }
 
     /// `record` as `R`'s database row: each field's column value, with the record's name, the

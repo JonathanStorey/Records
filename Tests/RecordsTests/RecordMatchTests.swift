@@ -52,7 +52,8 @@ import Testing
     var novel = Novel(
         id: UUID(), title: "Notes", subtitle: nil, tags: ["math", "machines"], year: 1843,
         note: "draft", cover: Data("cover".utf8), shop: nil,
-        sequel: nil, writers: [], editorID: UUID()
+        sequel: nil, writers: [Writer(id: UUID(), name: "Ada", bookIDs: []), Writer(id: UUID(), name: "Grace", bookIDs: [])],
+        editorID: UUID()
     )
     novel.$shop = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5, longitude: -0.12), altitude: 12,
@@ -100,8 +101,13 @@ func expectMatch<R: Record>(_ record: R, sourceLocation: SourceLocation = #_sour
         #expect(sent == held, sourceLocation: sourceLocation)
     }
     var fromRow = try R(from: expected)
-    try decoder.load(&fromRow, links: links, depth: 0)
+    try RecordGraph(records: [], links: links, reachableFrom: R.self).load(&fromRow, depth: 0)
     #expect(fromRow.assetStates == record.assetStates, sourceLocation: sourceLocation)
+
+    // Each link is a record too, and reaches CloudKit the same way.
+    for link in record.links() {
+        try expectMatch(link, sourceLocation: sourceLocation)
+    }
 }
 
 /// `row` without the system fields, which only a `CKRecord` from the server has.

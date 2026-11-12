@@ -612,10 +612,13 @@ extension RecordDifference {
         }
 
         row["_name"] = .text(draft.id.uuidString)
-        let linkRecords = links.map { name, row in RecordLink.schema.record(from: row, name: name, zone: .records) }
+        var graph = RecordGraph()
+        for (name, row) in links {
+            graph.addLink(row, name: name)
+        }
         guard var merged = try? R(from: RecordRow(row)) else { return draft }
         do {
-            try CKRecordDecoder().load(&merged, links: linkRecords, depth: 0)
+            try graph.load(&merged, depth: 0)
         } catch {
             return draft
         }
@@ -624,7 +627,7 @@ extension RecordDifference {
             // A `from:` side holds only IDs, as a `UUID?` or a `[UUID]`.
             let value = saved[keyPath: keyPath]
             let ids = (value as? [UUID]) ?? (value as? UUID).map { [$0] } ?? []
-            try? merged.loadReference(property, to: ids.map { ReferenceTarget(id: $0) }, from: [], links: [], depth: 0)
+            try? merged.loadReference(property, to: ids.map { ReferenceTarget(id: $0) }, from: graph, depth: 0)
         }
         return merged
     }
