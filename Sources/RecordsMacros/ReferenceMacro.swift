@@ -194,7 +194,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         // The owning side holds records. `$name.id` reads the ID without loading one.
         if holdsIDs, !isFrom {
             throw MacroExpansionErrorMessage(
-                "@Reference holds records, e.g. 'var author: Person?'; read the ID with '$\(key).id'"
+                "@Reference holds records, e.g. 'var author: Person?', and '$author.id' reads its ID"
             )
         }
 
