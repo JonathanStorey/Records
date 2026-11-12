@@ -17,7 +17,7 @@ private func ids(_ record: some Record, _ property: String) -> [UUID] {
 
 /// The current, undeleted links that point at `id`.
 @MainActor
-private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
+private func linksTo<R>(_ id: RecordID<R>, in context: RecordContext) throws -> Int {
     try context.database.rows(
         "SELECT * FROM \"RecordLink\" WHERE \"targetName\" = ? AND \"_isCurrent\" = 1 AND \"_deleted\" = 0",
         [.text(id.uuidString)]
@@ -27,8 +27,8 @@ private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
 @MainActor
 @Test func deletingATargetDropsItFromReferencesToIt() throws {
     let context = try makeContext()
-    let labels = ["a", "b"].map { Label(id: UUID(), name: $0) }
-    let page = Page(id: UUID(), title: "Notes", labels: labels)
+    let labels = ["a", "b"].map { Label(name: $0) }
+    let page = Page(title: "Notes", labels: labels)
     context.insert(page)
     try context.save()
 
@@ -37,14 +37,14 @@ private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
 
     #expect(try linksTo(labels[0].id, in: context) == 0)
     let saved = try #require(try context.record(id: page.id, for: Page.self))
-    #expect(ids(saved, "labels") == [labels[1].id])
+    #expect(ids(saved, "labels") == [labels[1].uuid])
 }
 
 @MainActor
 @Test func deletingTheOneSideOfAManyOwnedLinkClearsIt() throws {
     let context = try makeContext()
-    let shelf = Shelf(id: UUID(), name: "Fiction", bookIDs: [])
-    let book = Book(id: UUID(), title: "Dune", shelf: shelf)
+    let shelf = Shelf(name: "Fiction", bookIDs: [])
+    let book = Book(title: "Dune", shelf: shelf)
     context.insert(shelf)
     context.insert(book)
     try context.save()
@@ -59,8 +59,8 @@ private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
 @MainActor
 @Test func deleteSelfDeletesOwnedRecordsWithTheirOwner() throws {
     let context = try makeContext()
-    let songs = ["One", "Two"].map { Song(id: UUID(), title: $0, albumID: nil) }
-    let release = Release(id: UUID(), tracks: songs)
+    let songs = ["One", "Two"].map { Song(title: $0, albumID: nil) }
+    let release = Release(tracks: songs)
     context.insert(release)
     try context.save()
     #expect(try context.fetch(RecordDescriptor<Song>()).count == 2)
@@ -76,12 +76,12 @@ private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
 @MainActor
 @Test func deleteSelfSparesRecordsMovedInTheSameSave() throws {
     let context = try makeContext()
-    let songs = ["One", "Two"].map { Song(id: UUID(), title: $0, albumID: nil) }
-    let old = Release(id: UUID(), tracks: songs)
+    let songs = ["One", "Two"].map { Song(title: $0, albumID: nil) }
+    let old = Release(tracks: songs)
     context.insert(old)
     try context.save()
 
-    context.insert(Release(id: UUID(), tracks: [songs[1]]))
+    context.insert(Release(tracks: [songs[1]]))
     context.delete(old)
     try context.save()
 
@@ -92,8 +92,8 @@ private func linksTo(_ id: UUID, in context: RecordContext) throws -> Int {
 @MainActor
 @Test func deletingAnOwnerWithoutDeleteSelfKeepsItsTargets() throws {
     let context = try makeContext()
-    let labels = ["a", "b"].map { Label(id: UUID(), name: $0) }
-    let page = Page(id: UUID(), title: "Notes", labels: labels)
+    let labels = ["a", "b"].map { Label(name: $0) }
+    let page = Page(title: "Notes", labels: labels)
     context.insert(page)
     try context.save()
 

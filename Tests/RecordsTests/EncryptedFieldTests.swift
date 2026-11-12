@@ -4,7 +4,6 @@ import Testing
 
 @Record
 struct Vault: Equatable {
-    var id: UUID
     var name: String
     @Encrypted var secret: String
     @Encrypted var pin: Int?
@@ -12,7 +11,7 @@ struct Vault: Equatable {
 }
 
 @Test func encryptedFieldsAreWrittenToEncryptedValues() {
-    let vault = Vault(id: UUID(), name: "Home", secret: "s3cret", pin: 1234, codes: ["a", "b"])
+    let vault = Vault(name: "Home", secret: "s3cret", pin: 1234, codes: ["a", "b"])
     let record = CKRecordEncoder().encode(vault, in: .records)
 
     #expect(record["name"] as? String == "Home")
@@ -23,13 +22,13 @@ struct Vault: Equatable {
 }
 
 @Test func encryptedFieldsRoundTrip() throws {
-    let vault = Vault(id: UUID(), name: "Home", secret: "s3cret", pin: nil, codes: [])
+    let vault = Vault(name: "Home", secret: "s3cret", pin: nil, codes: [])
     let decoded = try CKRecordDecoder().decode(Vault.self, from: CKRecordEncoder().encode(vault, in: .records))
     #expect(decoded == vault)
 }
 
 @Test func encryptedFieldsAreWrittenIntoTheirRecord() throws {
-    let record = CKRecordEncoder().encode(Vault(id: UUID(), name: "Home", secret: "a", pin: 1, codes: []), in: .records)
+    let record = CKRecordEncoder().encode(Vault(name: "Home", secret: "a", pin: 1, codes: []), in: .records)
     var vault = try CKRecordDecoder().decode(Vault.self, from: record)
 
     vault.secret = "b"

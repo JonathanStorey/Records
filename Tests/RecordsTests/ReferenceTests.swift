@@ -4,7 +4,6 @@ import Testing
 
 @Record
 struct Employee: Equatable {
-    var id: UUID
     var name: String
     @Reference var manager: Employee?
 }
@@ -18,10 +17,10 @@ private func link(_ record: CKRecord) throws -> RecordLink {
 
 /// An article that was saved with its links, then read back.
 private func savedArticle(
-    author: Person? = Person(id: UUID(), name: "Ada"),
-    editor: Person? = Person(id: UUID(), name: "Grace")
+    author: Person? = Person(name: "Ada"),
+    editor: Person? = Person(name: "Grace")
 ) throws -> (article: Article, links: [CKRecord]) {
-    let article = Article(id: UUID(), title: "Notes", author: author, editor: editor)
+    let article = Article(title: "Notes", author: author, editor: editor)
     let links = encoder.links(for: article, in: .records)
     let targets = [author, editor].compactMap { $0.map { encoder.encode($0, in: .records) } }
     let decoded = try decoder.decode(
@@ -33,8 +32,8 @@ private func savedArticle(
 // MARK: - Storage
 
 @Test func referenceHoldsTheRecordAndItsID() {
-    let ada = Person(id: UUID(), name: "Ada")
-    var article = Article(id: UUID(), title: "Notes", author: ada, editor: nil)
+    let ada = Person(name: "Ada")
+    var article = Article(title: "Notes", author: ada, editor: nil)
     #expect(article.author == ada)
     #expect(article._author.id == ada.id)
 
@@ -44,8 +43,8 @@ private func savedArticle(
 }
 
 @Test func recordCanReferToItsOwnType() throws {
-    let boss = Employee(id: UUID(), name: "Grace", manager: nil)
-    let employee = Employee(id: UUID(), name: "Ada", manager: boss)
+    let boss = Employee(name: "Grace", manager: nil)
+    let employee = Employee(name: "Ada", manager: boss)
     #expect(employee.manager == boss)
 
     let links = encoder.links(for: employee, in: .records)
@@ -61,8 +60,8 @@ private func savedArticle(
 }
 
 @Test func equalityComparesTargetsNotLoadedRecords() throws {
-    let boss = Employee(id: UUID(), name: "Grace", manager: nil)
-    let employee = Employee(id: UUID(), name: "Ada", manager: boss)
+    let boss = Employee(name: "Grace", manager: nil)
+    let employee = Employee(name: "Ada", manager: boss)
     let record = encoder.encode(employee, in: .records)
     let links = encoder.links(for: employee, in: .records)
 
@@ -75,8 +74,8 @@ private func savedArticle(
 // MARK: - Links
 
 @Test func newRecordWritesALinkPerReference() throws {
-    let ada = Person(id: UUID(), name: "Ada"), grace = Person(id: UUID(), name: "Grace")
-    let article = Article(id: UUID(), title: "Notes", author: ada, editor: grace)
+    let ada = Person(name: "Ada"), grace = Person(name: "Grace")
+    let article = Article(title: "Notes", author: ada, editor: grace)
 
     let links = encoder.links(for: article, in: .records)
     #expect(links.allSatisfy { $0.recordType == "RecordLink" && $0.recordID.zoneID == Zone.records.zoneID })
@@ -90,7 +89,7 @@ private func savedArticle(
 }
 
 @Test func emptyReferencesWriteNoLinks() {
-    let article = Article(id: UUID(), title: "Notes", author: nil, editor: nil)
+    let article = Article(title: "Notes", author: nil, editor: nil)
     #expect(encoder.links(for: article, in: .records).isEmpty)
 }
 
@@ -101,8 +100,8 @@ private func savedArticle(
 
 @Test func changingATargetOverwritesTheSameLink() throws {
     var (article, links) = try savedArticle()
-    let newEditor = UUID()
-    article._editor.value = Person(id: newEditor, name: "Linus")
+    let newEditor = Person.ID()
+    article._editor.value = Person(name: "Linus", id: newEditor)
 
     let changes = encoder.changes(for: article, from: links)
     #expect(changes.saves.map(\.recordID) == [links[1].recordID])
@@ -122,9 +121,9 @@ private func savedArticle(
 // MARK: - Decoding with links
 
 @Test func depthSetsHowManyLevelsHoldRecords() throws {
-    let top = Employee(id: UUID(), name: "Linus", manager: nil)
-    let boss = Employee(id: UUID(), name: "Grace", manager: top)
-    let employee = Employee(id: UUID(), name: "Ada", manager: boss)
+    let top = Employee(name: "Linus", manager: nil)
+    let boss = Employee(name: "Grace", manager: top)
+    let employee = Employee(name: "Ada", manager: boss)
     let links = [employee, boss].flatMap { encoder.links(for: $0, in: .records) }
     let records = [employee, boss, top].map { encoder.encode($0, in: .records) }
 
@@ -142,15 +141,15 @@ private func savedArticle(
 }
 
 @Test func decodingFillsReferencesFromLinks() throws {
-    let ada = Person(id: UUID(), name: "Ada"), grace = Person(id: UUID(), name: "Grace")
+    let ada = Person(name: "Ada"), grace = Person(name: "Grace")
     let (article, _) = try savedArticle(author: ada, editor: grace)
     #expect(article.author == ada)
     #expect(article.editor == grace)
 }
 
 @Test func decodingWithoutTargetsFillsOnlyIDs() throws {
-    let ada = Person(id: UUID(), name: "Ada")
-    let article = Article(id: UUID(), title: "Notes", author: ada, editor: nil)
+    let ada = Person(name: "Ada")
+    let article = Article(title: "Notes", author: ada, editor: nil)
     let links = encoder.links(for: article, in: .records)
     let decoded = try decoder.decode(Article.self, from: encoder.encode(article, in: .records), links: links)
     #expect(decoded.author == nil)
@@ -159,8 +158,8 @@ private func savedArticle(
 }
 
 @Test func decodingIgnoresOtherRecordsLinks() throws {
-    let other = Article(id: UUID(), title: "Other", author: Person(id: UUID(), name: "Ada"), editor: Person(id: UUID(), name: "Grace"))
-    let article = Article(id: UUID(), title: "Notes", author: nil, editor: nil)
+    let other = Article(title: "Other", author: Person(name: "Ada"), editor: Person(name: "Grace"))
+    let article = Article(title: "Notes", author: nil, editor: nil)
     let decoded = try decoder.decode(
         Article.self, from: encoder.encode(article, in: .records),
         links: encoder.links(for: other, in: .records)
@@ -170,12 +169,12 @@ private func savedArticle(
 }
 
 @Test func dollarNameReadsTheIDs() {
-    let shelf = Shelf(id: UUID(), name: "Fiction", bookIDs: [])
-    let book = Book(id: UUID(), title: "Dune", shelf: shelf)
-    let songs = ["Intro", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
-    let release = Release(id: UUID(), tracks: songs)
+    let shelf = Shelf(name: "Fiction", bookIDs: [])
+    let book = Book(title: "Dune", shelf: shelf)
+    let songs = ["Intro", "Outro"].map { Song(title: $0, albumID: nil) }
+    let release = Release(tracks: songs)
 
     #expect(book.$shelf.id == shelf.id)
-    #expect(Book(id: UUID(), title: "Emma", shelf: nil).$shelf.id == nil)
+    #expect(Book(title: "Emma", shelf: nil).$shelf.id == nil)
     #expect(release.$tracks.ids == songs.map(\.id))
 }

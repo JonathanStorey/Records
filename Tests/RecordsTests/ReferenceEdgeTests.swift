@@ -3,20 +3,20 @@ import Testing
 @testable import Records
 
 private func label(_ name: String) -> Label {
-    Label(id: UUID(), name: name)
+    Label(name: name)
 }
 
 // MARK: - To many
 
 @Test func repeatedIDsKeepTheirFirstPosition() {
-    let (a, b, c) = (UUID(), UUID(), UUID())
+    let (a, b, c) = (Label.ID(), Label.ID(), Label.ID())
     let many = ToMany<Label>(ids: [a, b, a, c, b])
     #expect(many.ids == [a, b, c])
 }
 
 @Test func settingValuesKeepsUnloadedTargetsInPlace() {
     let loaded = label("b")
-    let (a, c) = (UUID(), UUID())
+    let (a, c) = (Label.ID(), Label.ID())
     var many = ToMany<Label>(ids: [a, loaded.id, c])
     let added = label("d")
     many.values = [loaded, added]
@@ -27,7 +27,7 @@ private func label(_ name: String) -> Label {
 @Test func settingIDsRemovesUnloadedTargets() {
     let kept = label("a")
     var many = ToMany<Label>([kept])
-    many.ids.append(UUID())
+    many.ids.append(Label.ID())
     many.ids = [kept.id]
     #expect(many.values == [kept])
 }
@@ -42,7 +42,7 @@ private func label(_ name: String) -> Label {
 @Test func changingTheIDDropsTheLoadedTarget() {
     var one = ToOne(label("a"))
     #expect(one.value?.name == "a")
-    one.id = UUID()
+    one.id = Label.ID()
     #expect(one.value == nil)
 }
 
@@ -62,9 +62,9 @@ private func label(_ name: String) -> Label {
 
 @Test func decodingACycleStopsAtItsDepth() throws {
     let encoder = CKRecordEncoder(), decoder = CKRecordDecoder()
-    let (aID, bID) = (UUID(), UUID())
-    let a = Employee(id: aID, name: "A", manager: Employee(id: bID, name: "B", manager: nil))
-    var b = Employee(id: bID, name: "B", manager: nil)
+    let (aID, bID) = (Employee.ID(), Employee.ID())
+    let a = Employee(name: "A", manager: Employee(name: "B", manager: nil, id: bID), id: aID)
+    var b = Employee(name: "B", manager: nil, id: bID)
     b._manager.id = aID
     let links = encoder.links(for: a, in: .records) + encoder.links(for: b, in: .records)
     let records = [a, b].map { encoder.encode($0, in: .records) }

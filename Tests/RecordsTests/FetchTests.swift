@@ -9,12 +9,12 @@ private func makeContext(for types: any Record.Type...) throws -> RecordContext 
 }
 
 private func page(_ title: String, labels: [Label] = []) -> Page {
-    Page(id: UUID(), title: title, labels: labels)
+    Page(title: title, labels: labels)
 }
 
 private func novel(_ title: String, year: Int, subtitle: String? = nil) -> Novel {
     Novel(
-        id: UUID(), title: title, subtitle: subtitle, tags: [], year: year, note: nil,
+        title: title, subtitle: subtitle, tags: [], year: year, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
 }
@@ -134,7 +134,7 @@ private func save(_ records: [some Record], in context: RecordContext) throws {
 @MainActor
 @Test func fetchFillsReferenceIDs() throws {
     let context = try makeContext(for: Page.self, Novel.self)
-    let labels = ["x", "y", "z"].map { Label(id: UUID(), name: $0) }
+    let labels = ["x", "y", "z"].map { Label(name: $0) }
     try save([page("one", labels: [labels[2], labels[0]]), page("two", labels: [labels[1]])], in: context)
 
     let pages = try context.fetch(RecordDescriptor<Page>(sortBy: [SortDescriptor(\.title)]))
@@ -142,7 +142,7 @@ private func save(_ records: [some Record], in context: RecordContext) throws {
     #expect(ids == [[labels[2].id, labels[0].id], [labels[1].id]])
 
     // The `from:` side reads the same links from the other end.
-    let writer = Writer(id: UUID(), name: "Herbert", bookIDs: [])
+    let writer = Writer(name: "Herbert", bookIDs: [])
     var dune = novel("Dune", year: 1965)
     dune._writers.values = [writer]
     try save([dune], in: context)

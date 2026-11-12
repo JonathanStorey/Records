@@ -19,15 +19,17 @@ device and sync them through CloudKit with `CKSyncEngine`. Swift macros generate
 
 ## Defining records
 
-Mark a struct with `@Record`. It needs an `id: UUID`, which becomes the record name. Every other
-stored property becomes a field of the same name.
+Mark a struct with `@Record`. Every stored property becomes a field of the same name. `@Record`
+adds `var id = Tag.ID()`, which becomes the record name. A new ID is a version 7 UUID that leads
+with the time it was made, counted from 2001 as `Date` counts, so IDs sort in the order records
+were made and `tag.id.date` reads the time back. Its type names its record, so an album's ID can't
+be passed where a track's is expected. Declare `var id: Tag.ID` yourself to supply IDs.
 
 ```swift
 import Records
 
 @Record
 struct Tag {
-    var id: UUID
     var name: String
 }
 ```
@@ -38,7 +40,6 @@ with a key only the user's devices hold:
 ```swift
 @Record
 struct Listener {
-    var id: UUID
     var name: String
     @Encrypted var email: String?
 }
@@ -53,7 +54,6 @@ record itself:
 ```swift
 @Record
 struct Artwork {
-    var id: UUID
     @Asset var image: Data?
 }
 
@@ -80,7 +80,6 @@ accuracy, course, or speed:
 ```swift
 @Record
 struct Gig {
-    var id: UUID
     @Location var venue: Coordinate?
 }
 
@@ -114,7 +113,6 @@ struct Credits: Codable { var producer: String; var engineer: String }
 
 @Record
 struct Track {
-    var id: UUID
     var mood: Mood          // stored as "calm" or "energetic"
     var credits: Credits    // stored as JSON
 }
@@ -164,14 +162,14 @@ There are two forms:
 | Form | Declaration | Holds |
 | --- | --- | --- |
 | Records | `@Reference var artist: Artist?` or `@Reference var tags: [Tag]` | The records themselves |
-| Read side | `@Reference(from: \Album.artist) var albumIDs: [UUID]` | The IDs of the records that point here |
+| Read side | `@Reference(from: \Album.artist) var albumIDs: [Album.ID]` | The IDs of the records that point here |
 
 Three rules cover every relationship:
 
 1. **The side without `from:` owns the links.** It writes them when it is saved. The `from:`
    side never writes links. It is filled from the owner's links when the record is decoded, and
    can only be set when the record is made.
-2. **A `from:` side always holds IDs**, `UUID?` or `[UUID]`. Anything can point at a record, so
+2. **A `from:` side always holds IDs**, such as `Album.ID?` or `[Album.ID]`. Anything can point at a record, so
    loading every owner as a record would have no limit. To show an owner's fields, fetch it by
    ID, or make the other side the owner.
 3. **A to-one reference is optional and a to-many reference is a non-optional array.** A to-many
@@ -211,14 +209,12 @@ playlists, and listeners.
 ```swift
 @Record
 struct Artist {
-    var id: UUID
     var name: String
-    @Reference(from: \Album.artist) var albumIDs: [UUID]
+    @Reference(from: \Album.artist) var albumIDs: [Album.ID]
 }
 
 @Record
 struct Album {
-    var id: UUID
     var title: String
     var year: Int
     @Reference var artist: Artist?
@@ -229,39 +225,34 @@ struct Album {
 
 @Record
 struct Artwork {
-    var id: UUID
     var url: String
-    @Reference(from: \Album.cover, deleteSelf: true) var albumID: UUID?
+    @Reference(from: \Album.cover, deleteSelf: true) var albumID: Album.ID?
 }
 
 @Record
 struct Track {
-    var id: UUID
     var title: String
     var seconds: Int
-    @Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID?
+    @Reference(from: \Album.tracks, deleteSelf: true) var albumID: Album.ID?
     @Reference var tags: [Tag]
     @Reference var featuring: [Artist]
     @Reference var remixOf: Track?
-    @Reference(from: \Playlist.tracks) var playlistIDs: [UUID]
+    @Reference(from: \Playlist.tracks) var playlistIDs: [Playlist.ID]
 }
 
 @Record
 struct Tag {
-    var id: UUID
     var name: String
 }
 
 @Record
 struct Genre {
-    var id: UUID
     var name: String
     @Reference var parent: Genre?
 }
 
 @Record
 struct Playlist {
-    var id: UUID
     var name: String
     @Reference var curator: Listener?
     @Reference var tracks: [Track]
@@ -270,9 +261,8 @@ struct Playlist {
 
 @Record
 struct Listener {
-    var id: UUID
     var name: String
-    @Reference(from: \Playlist.curator) var playlistIDs: [UUID]
+    @Reference(from: \Playlist.curator) var playlistIDs: [Playlist.ID]
     @Reference var favorite: Track?
     @Reference var following: [Listener]
 }
@@ -314,7 +304,7 @@ under a parent genre.
 ```
 
 A `from:` side can name a property of its own type, too:
-`@Reference(from: \Employee.manager) var reportIDs: [UUID]`.
+`@Reference(from: \Employee.manager) var reportIDs: [Employee.ID]`.
 
 ### One-to-one
 
@@ -323,7 +313,7 @@ names it with `from:`, and `deleteSelf: true` deletes the artwork with its album
 
 ```swift
 @Reference var cover: Artwork?                                             // on Album
-@Reference(from: \Album.cover, deleteSelf: true) var albumID: UUID?        // on Artwork
+@Reference(from: \Album.cover, deleteSelf: true) var albumID: Album.ID?        // on Artwork
 ```
 
 ### One-to-many, owned by the many side
@@ -333,7 +323,7 @@ album writes one link and never touches the artist. The artist lists its albums 
 
 ```swift
 @Reference var artist: Artist?                          // on Album
-@Reference(from: \Album.artist) var albumIDs: [UUID]    // on Artist
+@Reference(from: \Album.artist) var albumIDs: [Album.ID]    // on Artist
 ```
 
 `Playlist.curator` and `Listener.playlistIDs` are another example.
@@ -346,7 +336,7 @@ album moves it there, because a track's link is keyed by the track alone.
 
 ```swift
 @Reference var tracks: [Track]                                             // on Album
-@Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID?       // on Track
+@Reference(from: \Album.tracks, deleteSelf: true) var albumID: Album.ID?       // on Track
 ```
 
 ### Many-to-many
@@ -356,7 +346,7 @@ and keeps their order. The track lists its playlists by ID.
 
 ```swift
 @Reference var tracks: [Track]                              // on Playlist
-@Reference(from: \Playlist.tracks) var playlistIDs: [UUID]  // on Track
+@Reference(from: \Playlist.tracks) var playlistIDs: [Playlist.ID]  // on Track
 ```
 
 A one-way to-many reference like `Track.tags` is already many-to-many, so adding a `from:` side
@@ -665,7 +655,7 @@ let zone: Zone = "Music"
 let encoder = CKRecordEncoder()
 
 let album = Album(
-    id: UUID(), title: "Signal Fires", year: 2019,
+    title: "Signal Fires", year: 2019,
     artist: nova, tracks: [ignition, bloom], cover: art, genre: indie
 )
 

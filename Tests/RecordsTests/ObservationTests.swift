@@ -27,7 +27,7 @@ private func observes(_ read: () -> Void, change: () throws -> Void) rethrows ->
 private func savedNovel() throws -> (RecordContext, Novel) {
     let context = try RecordContainer(for: [Novel.self, Page.self], url: nil).mainContext
     let novel = Novel(
-        id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
+        title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     context.insert(novel)
@@ -50,16 +50,16 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     #expect(!observes(read) { context.edit(id: id, of: novel, in: .records, with: edited) })
     #expect(try observes(read) { try context.save() })
 
-    context.edit(id: UUID(), of: novel, in: .records, with: edited)
+    context.edit(of: novel, in: .records, with: edited)
     #expect(observes(read) { context.rollback() })
 
     // One record's edits discarded while another's stay.
     let other = Novel(
-        id: UUID(), title: "Court and Spark", subtitle: nil, tags: [], year: 1974, note: nil,
+        title: "Court and Spark", subtitle: nil, tags: [], year: 1974, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     context.insert(other)
-    context.edit(id: UUID(), of: novel, in: .records, with: edited)
+    context.edit(of: novel, in: .records, with: edited)
     #expect(observes(read) { context.rollback(id: novel.id) })
     #expect(context.hasChanges)
 }
@@ -69,7 +69,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
 @Test func rollingBackAnotherZoneRedraws() throws {
     let (context, novel) = try savedNovel()
     context.zone = "Work"
-    context.edit(id: UUID(), of: novel, in: .records, with: novel)
+    context.edit(of: novel, in: .records, with: novel)
     #expect(context.changes.isEmpty)
     #expect(observes({ _ = context.draft(id: novel.id, for: Novel.self, in: .records) }) { context.rollback() })
 }
@@ -92,8 +92,8 @@ private func savedNovel() throws -> (RecordContext, Novel) {
 @Test func hasChangesRedrawsOnlyWhenItFlips() throws {
     let (context, novel) = try savedNovel()
     let read = { _ = context.hasChanges }
-    #expect(observes(read) { context.edit(id: UUID(), of: novel, in: .records, with: novel) })
-    #expect(!observes(read) { context.edit(id: UUID(), of: novel, in: .records, with: novel) })
+    #expect(observes(read) { context.edit(of: novel, in: .records, with: novel) })
+    #expect(!observes(read) { context.edit(of: novel, in: .records, with: novel) })
     #expect(observes(read) { context.rollback() })
     #expect(!context.hasChanges)
 }
@@ -124,7 +124,7 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     edited.year = 1973
     #expect(!observes(read) { context.edit(id: id, of: novel, in: .records, with: edited) })
     #expect(observes(read) { context.edit(id: id, of: novel, in: .records, with: nil) })
-    #expect(context.changes == [.delete(novel.id)])
+    #expect(context.changes == [.delete(novel.uuid)])
     #expect(try observes(read) { try context.save() })
     #expect(context.changes.isEmpty)
 }
@@ -134,17 +134,17 @@ private func savedNovel() throws -> (RecordContext, Novel) {
 @Test func changesKeepTheOrderEditsBegan() throws {
     let (context, novel) = try savedNovel()
     let fresh = Novel(
-        id: UUID(), title: "New", subtitle: nil, tags: [], year: 2024, note: nil,
+        title: "New", subtitle: nil, tags: [], year: 2024, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     let first = UUID()
     let start = Date(timeIntervalSince1970: 1_000)
     context.edit(id: first, of: novel, in: .records, with: novel, on: start)
     context.insert(fresh)
-    context.edit(id: UUID(), of: novel, in: .records, with: novel, on: start)
+    context.edit(of: novel, in: .records, with: novel, on: start)
     // A later edit to the first doesn't move it.
     context.edit(id: first, of: novel, in: .records, with: novel, on: start.addingTimeInterval(5))
-    #expect(context.changes == [.update(novel.id), .insert(fresh.id), .update(novel.id)])
+    #expect(context.changes == [.update(novel.uuid), .insert(fresh.uuid), .update(novel.uuid)])
 
     context.zone = "Work"
     #expect(context.changes.isEmpty)
@@ -172,7 +172,7 @@ private func twoContexts() throws -> (RecordContainer, RecordContext, RecordCont
     let container = try RecordContainer(for: [Novel.self, Page.self], url: nil)
     let here = container.mainContext
     let novel = Novel(
-        id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
+        title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
     here.insert(novel)
@@ -234,11 +234,11 @@ private func twoContexts() throws -> (RecordContainer, RecordContext, RecordCont
     let deleteID = UUID()
     here.edit(id: editID, of: novel, in: .records, with: edited)
     here.edit(id: deleteID, of: novel, in: .records, with: nil)
-    #expect(here.changes == [.update(novel.id), .delete(novel.id)])
+    #expect(here.changes == [.update(novel.uuid), .delete(novel.uuid)])
 
     elsewhere.delete(novel)
     try elsewhere.save()
-    #expect(here.changes == [.insert(novel.id)])
+    #expect(here.changes == [.insert(novel.uuid)])
     #expect(here.differences[deleteID] == nil)
 
     try here.save()
@@ -256,7 +256,7 @@ private func twoContexts() throws -> (RecordContainer, RecordContext, RecordCont
     }
     #expect(released == nil)
     container.mainContext.insert(Novel(
-        id: UUID(), title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
+        title: "Blue", subtitle: nil, tags: [], year: 1971, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     ))
     try container.mainContext.save()

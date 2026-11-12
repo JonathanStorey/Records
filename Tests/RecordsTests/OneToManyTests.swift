@@ -7,14 +7,12 @@ import Testing
 /// Owned by the many side: each book writes its own link. The `from:` side holds IDs.
 @Record
 struct Shelf: Equatable {
-    var id: UUID
     var name: String
-    @Reference(from: \Book.shelf) var bookIDs: [UUID]
+    @Reference(from: \Book.shelf) var bookIDs: [Book.ID]
 }
 
 @Record
 struct Book: Equatable {
-    var id: UUID
     var title: String
     @Reference var shelf: Shelf?
 }
@@ -22,24 +20,21 @@ struct Book: Equatable {
 /// Owned by the one side: the album orders its tracks, and a track is deleted with its album.
 @Record
 struct Release: Equatable {
-    var id: UUID
     @Reference var tracks: [Song]
 }
 
 @Record
 struct Song: Equatable {
-    var id: UUID
     var title: String
-    @Reference(from: \Release.tracks, deleteSelf: true) var albumID: UUID?
+    @Reference(from: \Release.tracks, deleteSelf: true) var albumID: Release.ID?
 }
 
 /// Pointing at its own type, with IDs on the `from:` side.
 @Record
 struct Staff: Equatable {
-    var id: UUID
     var name: String
     @Reference var manager: Staff?
-    @Reference(from: \Staff.manager) var reportIDs: [UUID]
+    @Reference(from: \Staff.manager) var reportIDs: [Staff.ID]
 }
 
 private let encoder = CKRecordEncoder()
@@ -50,14 +45,14 @@ private func link(_ record: CKRecord) throws -> RecordLink {
 }
 
 private func makeShelf(_ name: String = "Fiction") -> Shelf {
-    Shelf(id: UUID(), name: name, bookIDs: [])
+    Shelf(name: name, bookIDs: [])
 }
 
 // MARK: - Owned by the many side
 
 @Test func manySideWritesTheLinks() throws {
     let shelf = makeShelf()
-    let books = ["Dune", "Emma"].map { Book(id: UUID(), title: $0, shelf: shelf) }
+    let books = ["Dune", "Emma"].map { Book(title: $0, shelf: shelf) }
     let links = try books.flatMap { encoder.links(for: $0, in: .records) }.map(link)
 
     #expect(links.count == 2)
@@ -70,7 +65,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 
 @Test func addingAToManyInverseKeepsLinkIDs() {
     let sourceID = UUID(), targetID = UUID()
-    let twoWay = Book(id: UUID(), title: "Dune", shelf: makeShelf()).referenceStates[0]
+    let twoWay = Book(title: "Dune", shelf: makeShelf()).referenceStates[0]
     let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [], records: [])
     #expect(twoWay.inverse != nil)
     #expect(
@@ -81,7 +76,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 
 @Test func oneSideDecodesItsOwners() throws {
     let shelf = makeShelf()
-    let books = ["Dune", "Emma"].map { Book(id: UUID(), title: $0, shelf: shelf) }
+    let books = ["Dune", "Emma"].map { Book(title: $0, shelf: shelf) }
     let links = books.flatMap { encoder.links(for: $0, in: .records) }
     let bookRecords = books.map { encoder.encode($0, in: .records) }
     let shelfRecord = encoder.encode(shelf, in: .records)
@@ -97,7 +92,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 
 @Test func movingABookMovesItBetweenShelves() throws {
     let first = makeShelf("Fiction"), second = makeShelf("History")
-    var book = Book(id: UUID(), title: "Dune", shelf: first)
+    var book = Book(title: "Dune", shelf: first)
     let original = encoder.links(for: book, in: .records)
 
     book._shelf.value = second
@@ -115,8 +110,8 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 // MARK: - Owned by the one side
 
 @Test func oneSideWritesOrderedLinks() throws {
-    let tracks = ["Intro", "Song", "Outro"].map { Song(id: UUID(), title: $0, albumID: nil) }
-    let album = Release(id: UUID(), tracks: tracks)
+    let tracks = ["Intro", "Song", "Outro"].map { Song(title: $0, albumID: nil) }
+    let album = Release(tracks: tracks)
     let links = encoder.links(for: album, in: .records)
     let read = try links.map(link)
 
@@ -138,9 +133,9 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 }
 
 @Test func aTrackBelongsToOneAlbum() {
-    let track = Song(id: UUID(), title: "Song", albumID: nil)
-    let first = Release(id: UUID(), tracks: [track])
-    let second = Release(id: UUID(), tracks: [track])
+    let track = Song(title: "Song", albumID: nil)
+    let first = Release(tracks: [track])
+    let second = Release(tracks: [track])
 
     // One-to-many links leave out the owner, so adding the track to a second album
     // overwrites its link to the first.
@@ -153,8 +148,8 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 // MARK: - Self-reference
 
 @Test func managersReadTheirReportsIDs() throws {
-    let boss = Staff(id: UUID(), name: "Ada", manager: nil, reportIDs: [])
-    let reports = ["Grace", "Linus"].map { Staff(id: UUID(), name: $0, manager: boss, reportIDs: []) }
+    let boss = Staff(name: "Ada", manager: nil, reportIDs: [])
+    let reports = ["Grace", "Linus"].map { Staff(name: $0, manager: boss, reportIDs: []) }
     let links = reports.flatMap { encoder.links(for: $0, in: .records) }
     #expect(try links.map { try link($0).source } == ["Staff.manager", "Staff.manager"])
     #expect(signatures(of: reports[0]) == ["Staff.manager:Staff <-> Staff.reportIDs:[Staff]"])

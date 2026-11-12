@@ -4,7 +4,6 @@ import Testing
 
 @Record
 struct Novel: Codable {
-    var id: UUID
     var title: String
     var subtitle: String?
     var tags: [String]
@@ -20,15 +19,13 @@ struct Novel: Codable {
 
 @Record
 struct Writer: Codable, Equatable {
-    var id: UUID
     var name: String
-    @Reference(from: \Novel.writers) var bookIDs: [UUID]
+    @Reference(from: \Novel.writers) var bookIDs: [Novel.ID]
 }
 
 /// A record that writes its own `encode(to:)`, which `@Record` keeps.
 @Record
 struct Stamp: Codable {
-    var id: UUID
     var label: String
 
     func encode(to encoder: any Encoder) throws {
@@ -37,16 +34,16 @@ struct Stamp: Codable {
     }
 }
 
-private let ada = Writer(id: UUID(), name: "Ada", bookIDs: [])
-private let grace = Writer(id: UUID(), name: "Grace", bookIDs: [])
+private let ada = Writer(name: "Ada", bookIDs: [])
+private let grace = Writer(name: "Grace", bookIDs: [])
 private let sequel = Novel(
-    id: UUID(), title: "Part Two", subtitle: nil, tags: [], year: 2025, note: nil,
+    title: "Part Two", subtitle: nil, tags: [], year: 2025, note: nil,
     cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
 )
 
 private func makeBook() -> Novel {
     Novel(
-        id: UUID(), title: "Notes", subtitle: "On engines", tags: ["math", "machines"], year: 1843,
+        title: "Notes", subtitle: "On engines", tags: ["math", "machines"], year: 1843,
         note: "draft", cover: Data("cover".utf8), shop: Coordinate(latitude: 51.5, longitude: -0.12),
         sequel: sequel, writers: [ada, grace], editor: ada
     )
@@ -104,8 +101,8 @@ private func jsonObject(_ value: some Encodable) throws -> [String: Any] {
 }
 
 @Test func fromSideEncodesItsIDs() throws {
-    let bookID = UUID()
-    let writer = Writer(id: UUID(), name: "Ada", bookIDs: [bookID])
+    let bookID = Novel.ID()
+    let writer = Writer(name: "Ada", bookIDs: [bookID])
     #expect(try roundTrip(writer) == writer)
     #expect(try roundTrip(writer).bookIDs == [bookID])
 }
@@ -122,6 +119,6 @@ private func jsonObject(_ value: some Encodable) throws -> [String: Any] {
 }
 
 @Test func aWrittenEncodeIsKept() throws {
-    let data = try JSONEncoder().encode(Stamp(id: UUID(), label: "first"))
+    let data = try JSONEncoder().encode(Stamp(label: "first"))
     #expect(String(decoding: data, as: UTF8.self) == "\"first\"")
 }

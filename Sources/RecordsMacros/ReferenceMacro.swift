@@ -4,7 +4,7 @@ import SwiftSyntaxMacros
 
 /// `@Reference` on a property that points at other records: one record, `@Reference var author: Person?`,
 /// or many, `@Reference var tags: [Tag]`. The `@Reference(from:)` side holds only IDs, as in
-/// `@Reference(from: \Album.tracks) var albumID: UUID?`.
+/// `@Reference(from: \Album.tracks) var albumID: Album.ID?`.
 ///
 /// Turns the property into a computed one backed by a `Records.ToOne` or `Records.ToMany` named
 /// with a leading underscore. The storage keeps the current targets and, on the owning side, the
@@ -91,7 +91,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         let key: String
         /// The target record type as written, such as `Person`.
         let target: String
-        /// Whether the property holds many targets, `[Target]` or `[UUID]`.
+        /// Whether the property holds many targets, `[Target]` or `[Owner.ID]`.
         let isToMany: Bool
         /// For `@Reference(from: \User.profile)`, the owner's property, such as `profile`.
         /// The owner's type is `target`.
@@ -155,7 +155,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
 
         let name = pattern.identifier.text
         let key = name.filter { $0 != "`" }
-        let holdsIDs = ["UUID", "Foundation.UUID"].contains(wrapped.trimmedDescription)
+        // `Album.ID`, or the `RecordID` it stands for. A bare `UUID` names no record.
+        let wrappedText = wrapped.trimmedDescription
+        let holdsIDs = wrappedText.hasSuffix(".ID") || wrappedText.hasPrefix("RecordID<") || wrappedText.hasPrefix("Records.RecordID<")
+        let holdsUUIDs = ["UUID", "Foundation.UUID"].contains(wrappedText)
         let arguments = node.arguments?.as(LabeledExprListSyntax.self).map(Array.init) ?? []
 
         // Only `from:` takes a key path: the owner never names its inverse, because two key paths
@@ -217,10 +220,10 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
 
         // The side that writes the links holds records. The `from:` side is a back-pointer, so it
         // holds IDs: anything can point at a record, and loading every owner would have no limit.
-        if isFrom, !holdsIDs {
+        if isFrom, !holdsIDs, let root = keyPath?.root {
             let suggestion = isToMany
-                ? "var \(key.hasSuffix("s") ? String(key.dropLast()) : key)IDs: [UUID]"
-                : "var \(key)ID: UUID?"
+                ? "var \(key.hasSuffix("s") ? String(key.dropLast()) : key)IDs: [\(root).ID]"
+                : "var \(key)ID: \(root).ID?"
             throw MacroExpansionErrorMessage("@Reference(from:) holds IDs, e.g. '\(suggestion)'")
         }
         // Deleting one of many owners can't mean deleting this record.
@@ -228,7 +231,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             throw MacroExpansionErrorMessage("'deleteSelf:' needs a to-one @Reference(from:) property")
         }
         // The owning side holds records. `$name.id` reads the ID without loading one.
-        if holdsIDs, !isFrom {
+        if holdsIDs || holdsUUIDs, !isFrom {
             throw MacroExpansionErrorMessage(
                 "@Reference holds records, e.g. 'var author: Person?', and '$author.id' reads its ID"
             )

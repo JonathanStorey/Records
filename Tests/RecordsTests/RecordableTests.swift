@@ -56,7 +56,7 @@ private func savedNovel(in context: RecordContext) throws -> Novel {
 
 private func novel(_ title: String, year: Int) -> Novel {
     Novel(
-        id: UUID(), title: title, subtitle: nil, tags: [], year: year, note: nil,
+        title: title, subtitle: nil, tags: [], year: year, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
 }
@@ -71,7 +71,7 @@ private func novel(_ title: String, year: Int) -> Novel {
 
     let editor = Editor(saved, in: context)
     editor.value?.title = "Blue (Live)"
-    #expect(context.changes == [.update(saved.id)])
+    #expect(context.changes == [.update(saved.uuid)])
     #expect(editor.value?.title == "Blue (Live)")
     #expect(try context.record(id: saved.id, for: Novel.self)?.title == "Blue")
 
@@ -94,7 +94,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(second.value?.year == 1972)
     second.value?.title = "Blue (Live)"
     #expect(context.differences.count == 2)
-    #expect(context.changes == [.update(saved.id), .update(saved.id)])
+    #expect(context.changes == [.update(saved.uuid), .update(saved.uuid)])
 
     try context.save()
     let read = try #require(try context.record(id: saved.id, for: Novel.self))
@@ -154,7 +154,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     context.rollback(id: blue.id)
     #expect(first.value?.year == 1971)
     #expect(first.value?.title == "Blue")
-    #expect(context.changes == [.update(court.id)])
+    #expect(context.changes == [.update(court.uuid)])
 }
 
 /// A new record's first edit is an insert.
@@ -166,7 +166,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(editor.value == nil)
 
     editor.value = fresh
-    #expect(context.changes == [.insert(fresh.id)])
+    #expect(context.changes == [.insert(fresh.uuid)])
     try context.save()
     #expect(try context.record(id: fresh.id, for: Novel.self)?.title == "New")
 }
@@ -182,7 +182,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     let second = Editor(fresh, in: context)
     first.value?.title = "Newer"
     second.value?.year = 2025
-    #expect(context.differences[second.id]?.change == .update(fresh.id))
+    #expect(context.differences[second.id]?.change == .update(fresh.uuid))
 
     try context.save()
     let read = try #require(try context.record(id: fresh.id, for: Novel.self))
@@ -213,7 +213,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(!context.hasChanges)
 
     editor.value?.year = 2025
-    #expect(context.changes == [.update(fresh.id)])
+    #expect(context.changes == [.update(fresh.uuid)])
     try context.save()
     #expect(try context.record(id: fresh.id, for: Novel.self)?.year == 2025)
 }
@@ -257,7 +257,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     editor.value?.year = 1972
     #expect(context.changes.isEmpty)
     context.zone = .records
-    #expect(context.changes == [.update(saved.id)])
+    #expect(context.changes == [.update(saved.uuid)])
 }
 
 /// A container's default zone is where its contexts start and where editors edit.
@@ -272,7 +272,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     context.zone = .records
     #expect(context.changes.isEmpty)
     context.zone = "Work"
-    #expect(context.changes == [.insert(fresh.id)])
+    #expect(context.changes == [.insert(fresh.uuid)])
 }
 
 /// An editor given a zone edits the record there, and the same record in two zones is two
@@ -303,8 +303,8 @@ private func novel(_ title: String, year: Int) -> Novel {
 
 @MainActor
 private func savedLP() throws -> (RecordContext, LP, Musician) {
-    let nova = Musician(id: UUID(), name: "Nova", isActive: true)
-    let lp = LP(id: UUID(), title: "A", year: 1999, musician: nova, cuts: [Cut(id: UUID(), title: "Bloom", seconds: 200)])
+    let nova = Musician(name: "Nova", isActive: true)
+    let lp = LP(title: "A", year: 1999, musician: nova, cuts: [Cut(title: "Bloom", seconds: 200)])
     let context = try RecordContainer(for: [LP.self, Musician.self, Cut.self], url: nil).mainContext
     context.insert(lp)
     try context.save()
@@ -344,7 +344,7 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     var edited = try #require(editor.value)
     edited.title = "A (Live)"
     editor.value = edited
-    #expect(context.changes == [.update(lp.id)])
+    #expect(context.changes == [.update(lp.uuid)])
 
     try context.save()
     #expect(try context.record(id: lp.id, for: LP.self)?.title == "A (Live)")
@@ -375,7 +375,7 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
 
     context.delete(saved)
     #expect(editor.value == nil)
-    #expect(context.changes == [.delete(saved.id)])
+    #expect(context.changes == [.delete(saved.uuid)])
     try context.save()
     #expect(editor.value == nil)
     #expect(try context.record(id: saved.id, for: Novel.self) == nil)
@@ -389,7 +389,7 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
 
     let editor = Editor(saved, in: context)
     editor.value = nil
-    #expect(context.changes == [.delete(saved.id)])
+    #expect(context.changes == [.delete(saved.uuid)])
     try context.save()
     #expect(try context.record(id: saved.id, for: Novel.self) == nil)
 }
@@ -403,7 +403,7 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     let editor = Editor(saved, in: context)
     editor.value = nil
     editor.value = saved
-    #expect(context.changes == [.update(saved.id)])
+    #expect(context.changes == [.update(saved.uuid)])
     #expect(editor.value?.title == "Blue")
 
     editor.value = nil
@@ -486,7 +486,7 @@ private struct NovelEditor: View {
     let binding = try #require(probe.binding)
     binding.wrappedValue.title = "Blue (Live)"
     let id = try #require(probe.id)
-    #expect(context.differences[id]?.change == .update(saved.id))
+    #expect(context.differences[id]?.change == .update(saved.uuid))
 
     #expect(binding.wrappedValue.title == "Blue (Live)")
     try context.save()

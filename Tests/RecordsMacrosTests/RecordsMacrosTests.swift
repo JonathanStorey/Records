@@ -72,7 +72,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Note.id: "_name", \\Note.title: "title", \\Note.isPinned: "isPinned", \\Note.rating: "rating", \\Note.tags: "tags"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
                     self.isPinned = try Records.FieldCoding((Bool).self).decode("isPinned", from: row)
                     self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)
@@ -124,7 +124,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\LegacyFolder.id: "_name", \\LegacyFolder.default: "default"]
                 }
                 public init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.`default` = try Records.FieldCoding((Bool).self).decode("default", from: row)
                 }
                 public func encodeFields(into row: inout Records.RecordRow) {
@@ -172,7 +172,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Box.id: "_name", \\Box.value: "value"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.value = try Records.FieldCoding((Value).self).decodeIfPresent("value", from: row)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
@@ -293,7 +293,7 @@ final class RecordMacroTests: XCTestCase {
         #endif
     }
 
-    func testMissingIDIsAnError() throws {
+    func testMissingIDIsAdded() throws {
         #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
@@ -305,11 +305,33 @@ final class RecordMacroTests: XCTestCase {
             expandedSource: """
             struct Note {
                 var title: String
+
+                var id: Records.RecordID<Note> = Records.RecordID()
+            }
+
+            extension Note: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Note"
+                }
+                static let schema = Records.RecordSchema(
+                    recordType: "Note",
+                    fields: [
+                        Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
+                    ],
+                    references: []
+                )
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Note.id: "_name", \\Note.title: "title"]
+                }
+                init(from row: Records.RecordRow) throws {
+                    self.id = Records.RecordID(try row.id)
+                    self.title = try Records.FieldCoding((String).self).decode("title", from: row)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((String).self).encode(self.title, into: &row, forKey: "title")
+                }
             }
             """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Record requires a stored 'id: UUID' property", line: 1, column: 1),
-            ],
             macroSpecs: macroSpecs
         )
         #else
@@ -333,7 +355,7 @@ final class RecordMacroTests: XCTestCase {
             """,
             diagnostics: [
                 DiagnosticSpec(
-                    message: "@Record cannot decode 'id' because it is a 'let' with an initial value; use 'var id = UUID()' or 'let id: UUID'",
+                    message: "@Record cannot decode 'id' because it is a 'let' with an initial value; leave 'id' out and @Record adds 'var id = Note.ID()'",
                     line: 1,
                     column: 1
                 ),
@@ -429,7 +451,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Article.id: "_name", \\Article.title: "title", \\Article.author: "author"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
                     self._author = Records.ToOne(id: nil)
                 }
@@ -438,7 +460,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "author": (self._author.ids, self._author.loadedRecords),
+                        "author": (self._author.ids.map(\\.uuid), self._author.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
@@ -600,14 +622,14 @@ final class RecordMacroTests: XCTestCase {
                     [\\Note.id: "_name", \\Note.tags: "tags"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self._tags = Records.ToMany(ids: [])
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "tags": (self._tags.ids, self._tags.loadedRecords),
+                        "tags": (self._tags.ids.map(\\.uuid), self._tags.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
@@ -783,14 +805,14 @@ final class RecordMacroTests: XCTestCase {
                     [\\User.id: "_name", \\User.profile: "profile"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self._profile = Records.ToOne(id: nil)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "profile": (self._profile.ids, self._profile.loadedRecords),
+                        "profile": (self._profile.ids.map(\\.uuid), self._profile.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
@@ -817,14 +839,14 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct Profile {
                 var id: UUID
-                @Reference(from: \\User.profile, deleteSelf: true) var userID: UUID?
-                @Reference(from: \\Account.settingsID) var accountID: UUID?
+                @Reference(from: \\User.profile, deleteSelf: true) var userID: User.ID?
+                @Reference(from: \\Account.settingsID) var accountID: Account.ID?
             }
             """,
             expandedSource: """
             struct Profile {
                 var id: UUID
-                var userID: UUID? {
+                var userID: User.ID? {
                     @storageRestrictions(initializes: _userID)
                     init(initialValue) {
                         _userID = Records.ToOne(id: initialValue)
@@ -835,7 +857,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _userID: Records.ToOne<User>
-                var accountID: UUID? {
+                var accountID: Account.ID? {
                     @storageRestrictions(initializes: _accountID)
                     init(initialValue) {
                         _accountID = Records.ToOne(id: initialValue)
@@ -864,7 +886,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Profile.id: "_name", \\Profile.userID: "userID", \\Profile.accountID: "accountID"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self._userID = Records.ToOne(id: nil)
                     self._accountID = Records.ToOne(id: nil)
                 }
@@ -971,14 +993,14 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct Shelf {
                 var id: UUID
-                @Reference(from: \\Book.shelf) var bookIDs: [UUID]
-                @Reference(from: \\Crate.shelf) var crateIDs: [UUID]
+                @Reference(from: \\Book.shelf) var bookIDs: [Book.ID]
+                @Reference(from: \\Crate.shelf) var crateIDs: [Crate.ID]
             }
             """,
             expandedSource: """
             struct Shelf {
                 var id: UUID
-                var bookIDs: [UUID] {
+                var bookIDs: [Book.ID] {
                     @storageRestrictions(initializes: _bookIDs)
                     init(initialValue) {
                         _bookIDs = Records.ToMany(ids: initialValue)
@@ -989,7 +1011,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _bookIDs: Records.ToMany<Book>
-                var crateIDs: [UUID] {
+                var crateIDs: [Crate.ID] {
                     @storageRestrictions(initializes: _crateIDs)
                     init(initialValue) {
                         _crateIDs = Records.ToMany(ids: initialValue)
@@ -1018,7 +1040,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Shelf.id: "_name", \\Shelf.bookIDs: "bookIDs", \\Shelf.crateIDs: "crateIDs"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self._bookIDs = Records.ToMany(ids: [])
                     self._crateIDs = Records.ToMany(ids: [])
                 }
@@ -1051,12 +1073,12 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Shelf {
-                @Reference(from: \\Book.shelf, deleteSelf: true) var bookIDs: [UUID]
+                @Reference(from: \\Book.shelf, deleteSelf: true) var bookIDs: [Book.ID]
             }
             """,
             expandedSource: """
             struct Shelf {
-                var bookIDs: [UUID]
+                var bookIDs: [Book.ID]
             }
             """,
             diagnostics: [
@@ -1076,14 +1098,14 @@ final class RecordMacroTests: XCTestCase {
             @Record
             struct Shelf {
                 var id: UUID
-                @Reference(from: \\Book.shelf) var bookIDs: [UUID]
-                @Reference(from: \\Book.shelf) var otherIDs: [UUID]
+                @Reference(from: \\Book.shelf) var bookIDs: [Book.ID]
+                @Reference(from: \\Book.shelf) var otherIDs: [Book.ID]
             }
             """,
             expandedSource: """
             struct Shelf {
                 var id: UUID
-                var bookIDs: [UUID] {
+                var bookIDs: [Book.ID] {
                     @storageRestrictions(initializes: _bookIDs)
                     init(initialValue) {
                         _bookIDs = Records.ToMany(ids: initialValue)
@@ -1094,7 +1116,7 @@ final class RecordMacroTests: XCTestCase {
                 }
 
                 var _bookIDs: Records.ToMany<Book>
-                var otherIDs: [UUID] {
+                var otherIDs: [Book.ID] {
                     @storageRestrictions(initializes: _otherIDs)
                     init(initialValue) {
                         _otherIDs = Records.ToMany(ids: initialValue)
@@ -1131,7 +1153,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference(from:) holds IDs, e.g. 'var bookIDs: [UUID]'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference(from:) holds IDs, e.g. 'var bookIDs: [Book.ID]'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -1147,7 +1169,7 @@ final class RecordMacroTests: XCTestCase {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "@Reference(from:) holds IDs, e.g. 'var userID: UUID?'", line: 2, column: 5),
+                DiagnosticSpec(message: "@Reference(from:) holds IDs, e.g. 'var userID: User.ID?'", line: 2, column: 5),
             ],
             macroSpecs: macroSpecs
         )
@@ -1161,12 +1183,12 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Person {
-                @Reference(from: \\Person.spouseID) var spouseID: UUID?
+                @Reference(from: \\Person.spouseID) var spouseID: Person.ID?
             }
             """,
             expandedSource: """
             struct Person {
-                var spouseID: UUID?
+                var spouseID: Person.ID?
             }
             """,
             diagnostics: [
@@ -1220,7 +1242,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Note.id: "_name", \\Note.first: "first", \\Note.last: "last", \\Note.rating: "rating"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.first = try Records.FieldCoding((String).self).decode("first", from: row)
                     self.last = try Records.FieldCoding((String).self).decode("last", from: row)
                     self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)
@@ -1278,7 +1300,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Account.id: "_name", \\Account.name: "name", \\Account.note: "note", \\Account.pin: "pin"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.name = try Records.FieldCoding((String).self).decode("name", from: row)
                     self.note = try Records.FieldCoding((String).self).decodeIfPresent("note", from: row)
                     self.pin = try Records.FieldCoding((Int).self).decode("pin", from: row)
@@ -1443,7 +1465,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Poster.id: "_name"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self._image = Records.AssetField(id: nil, file: nil)
                     self._thumbnail = Records.AssetField(id: nil, file: nil)
                 }
@@ -1623,7 +1645,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Gig.id: "_name"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self._venue = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("venue", from: row))
                     self._home = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("home", from: row))
                 }
@@ -1708,7 +1730,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Memo.id: "_name"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self._createdAt.load(row.createdAt)
                     self._modifiedAt.load(row.modifiedAt)
                 }
@@ -1802,7 +1824,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Album.id: "_name", \\Album.year: "released"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.year = try Records.FieldCoding((Int).self).decode("released", from: row)
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
@@ -1960,12 +1982,12 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Crate {
-                @Reference(from: \\Disc.crates, sort: \\Disc.title) var discIDs: [UUID]
+                @Reference(from: \\Disc.crates, sort: \\Disc.title) var discIDs: [Disc.ID]
             }
             """,
             expandedSource: """
             struct Crate {
-                var discIDs: [UUID]
+                var discIDs: [Disc.ID]
             }
             """,
             diagnostics: [
@@ -2098,12 +2120,12 @@ final class RecordMacroTests: XCTestCase {
         assertMacroExpansion(
             """
             struct Note {
-                @Reference(from: \\Album.tracks, deleteSelf: maybe) var albumID: UUID?
+                @Reference(from: \\Album.tracks, deleteSelf: maybe) var albumID: Album.ID?
             }
             """,
             expandedSource: """
             struct Note {
-                var albumID: UUID?
+                var albumID: Album.ID?
             }
             """,
             diagnostics: [
@@ -2270,7 +2292,7 @@ final class RecordMacroTests: XCTestCase {
                     [\\Note.id: "_name", \\Note.title: "title", \\Note.rating: "rating"]
                 }
                 init(from row: Records.RecordRow) throws {
-                    self.id = try row.id
+                    self.id = Records.RecordID(try row.id)
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
                     self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)
                 }

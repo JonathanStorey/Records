@@ -33,7 +33,7 @@ enum Relationship: String, Sendable, CaseIterable {
 @Record("RecordLink")
 struct RecordLink: Equatable, Sendable {
     /// Derived from the link's identity. See `id(source:kind:sourceName:targetName:)`.
-    var id: UUID
+    var id: RecordID<RecordLink>
     /// The owning property, as `Type.property`, such as `Album.tracks`. For a `@Reference` it is
     /// the property that writes links. For an `@Asset` it is the asset's property.
     var source: String
@@ -107,7 +107,7 @@ extension RecordLink {
     /// The link a `@Reference` writes to `target`.
     init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, target: ReferenceTarget) {
         self.init(
-            id: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: target.id),
+            id: RecordID(Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: target.id)),
             source: Self.source(type: sourceType, property: reference.property),
             sourceName: sourceID.uuidString,
             targetName: target.id.uuidString,
@@ -134,7 +134,7 @@ extension RecordLink {
     init(asset: AssetState, assetID: UUID, sourceType: CKRecord.RecordType, sourceID: UUID) {
         let source = Self.source(type: sourceType, property: asset.property)
         self.init(
-            id: Self.id(source: source, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: ""),
+            id: RecordID(Self.id(source: source, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: "")),
             source: source,
             sourceName: sourceID.uuidString,
             targetName: nil,
@@ -168,11 +168,11 @@ extension Record {
                 ? OrderKey.assign(reference.ids.map { orders[RecordLink.orderKey(source: source, targetName: $0.uuidString)] })
                 : reference.ids.map { _ in nil }
             return zip(reference.ids, keys).map { id, order in
-                RecordLink(reference: reference, sourceType: Self.recordType, sourceID: self.id, target: ReferenceTarget(id: id, order: order))
+                RecordLink(reference: reference, sourceType: Self.recordType, sourceID: uuid, target: ReferenceTarget(id: id, order: order))
             }
         }
         let assets = assetStates.compactMap { asset in
-            asset.id.map { RecordLink(asset: asset, assetID: $0, sourceType: Self.recordType, sourceID: self.id) }
+            asset.id.map { RecordLink(asset: asset, assetID: $0, sourceType: Self.recordType, sourceID: uuid) }
         }
         return references + assets
     }

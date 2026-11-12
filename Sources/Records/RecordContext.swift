@@ -144,14 +144,14 @@ public final class RecordContext {
     /// yet saved, the record as the pending edits make it.
     private func base<R: Record>(for record: R, in zone: Zone) -> R? {
         checkRegistered(R.self)
-        return draft(id: record.id, for: R.self, in: zone, savedFirst: true)
+        return draft(id: record.uuid, for: R.self, in: zone, savedFirst: true)
     }
 
     /// The record with `id` in `zone` as `save()` would write it: the saved record with every
     /// pending edit to it laid over, oldest first, or `nil` when it is missing or deleted.
-    func draft<R: Record>(id: UUID, for type: R.Type, in zone: Zone) -> R? {
+    func draft<R: Record>(id: RecordID<R>, for type: R.Type, in zone: Zone) -> R? {
         observeDrafts()
-        return draft(id: id, for: type, in: zone, savedFirst: false)
+        return draft(id: id.uuid, for: type, in: zone, savedFirst: false)
     }
 
     /// `draft(id:for:in:)`, or with `savedFirst`, the saved record when there is one.
@@ -233,8 +233,8 @@ public final class RecordContext {
     }
 
     /// Discards every pending edit to the record with `id` in the current `zone`.
-    public func rollback(id: UUID) {
-        differences = differences.filter { $0.value.zone != zone || $0.value.recordID != id }
+    public func rollback<R: Record>(id: RecordID<R>) {
+        differences = differences.filter { $0.value.zone != zone || $0.value.recordID != id.uuid }
         updateChanges()
     }
 
@@ -313,7 +313,7 @@ public final class RecordContext {
         while !queue.isEmpty {
             let (zone, record) = queue.removeFirst()
             for target in record.loadedTargets {
-                let key = RecordKey(recordType: type(of: target).recordType, name: target.id.uuidString, zone: zone)
+                let key = RecordKey(recordType: type(of: target).recordType, name: target.uuid.uuidString, zone: zone)
                 guard visited.insert(key).inserted,
                       try database.currentRow(of: key) == nil
                 else { continue }
@@ -336,7 +336,7 @@ public final class RecordContext {
     /// `target` is inserted too when it exists nowhere yet. A target that exists is left as it
     /// is, so a stale copy can't overwrite it. A target already in the reference keeps its place.
     public func insert<Owner: Record, Target: Record>(
-        _ target: Target, into keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+        _ target: Target, into keyPath: KeyPath<Owner, [Target]>, of ownerID: Owner.ID
     ) {
         insert([target], into: keyPath, of: ownerID)
     }
@@ -344,9 +344,9 @@ public final class RecordContext {
     /// Adds `targets` to the reference `keyPath` names on the record with `ownerID`, in order,
     /// after its other targets. See `insert(_:into:of:)`.
     public func insert<Owner: Record, Target: Record>(
-        _ targets: [Target], into keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+        _ targets: [Target], into keyPath: KeyPath<Owner, [Target]>, of ownerID: Owner.ID
     ) {
-        insert(targets, into: property(keyPath), of: Owner.self, id: ownerID)
+        insert(targets, into: property(keyPath), of: Owner.self, id: ownerID.uuid)
     }
 
     /// Points the to-one reference `keyPath` names on the record with `ownerID` at `target`,
@@ -356,9 +356,9 @@ public final class RecordContext {
     /// context.insert(nova, into: \Album.artist, of: album.id)
     /// ```
     public func insert<Owner: Record, Target: Record>(
-        _ target: Target, into keyPath: KeyPath<Owner, Target?>, of ownerID: UUID
+        _ target: Target, into keyPath: KeyPath<Owner, Target?>, of ownerID: Owner.ID
     ) {
-        insert([target], into: property(keyPath), of: Owner.self, id: ownerID)
+        insert([target], into: property(keyPath), of: Owner.self, id: ownerID.uuid)
     }
 
     /// Takes the target with `targetID` out of the reference `keyPath` names on the record with
@@ -371,7 +371,7 @@ public final class RecordContext {
     ///
     /// A target the reference doesn't hold is ignored.
     public func remove<Owner: Record, Target: Record>(
-        _ targetID: UUID, from keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+        _ targetID: Target.ID, from keyPath: KeyPath<Owner, [Target]>, of ownerID: Owner.ID
     ) {
         remove([targetID], from: keyPath, of: ownerID)
     }
@@ -379,17 +379,17 @@ public final class RecordContext {
     /// Takes the targets with `targetIDs` out of the reference `keyPath` names on the record with
     /// `ownerID`. See `remove(_:from:of:)`.
     public func remove<Owner: Record, Target: Record>(
-        _ targetIDs: [UUID], from keyPath: KeyPath<Owner, [Target]>, of ownerID: UUID
+        _ targetIDs: [Target.ID], from keyPath: KeyPath<Owner, [Target]>, of ownerID: Owner.ID
     ) {
-        remove(targetIDs, from: property(keyPath), of: Owner.self, id: ownerID)
+        remove(targetIDs.map(\.uuid), from: property(keyPath), of: Owner.self, id: ownerID.uuid)
     }
 
     /// Clears the to-one reference `keyPath` names on the record with `ownerID` when it points at
     /// the target with `targetID`. See `remove(_:from:of:)`.
     public func remove<Owner: Record, Target: Record>(
-        _ targetID: UUID, from keyPath: KeyPath<Owner, Target?>, of ownerID: UUID
+        _ targetID: Target.ID, from keyPath: KeyPath<Owner, Target?>, of ownerID: Owner.ID
     ) {
-        remove([targetID], from: property(keyPath), of: Owner.self, id: ownerID)
+        remove([targetID.uuid], from: property(keyPath), of: Owner.self, id: ownerID.uuid)
     }
 
     /// Links `targets` through the reference named `property` on the `Owner` with `ownerID`. Used
@@ -433,10 +433,10 @@ public final class RecordContext {
     private func link<Owner: Record, Target: Record>(
         _ target: Target, through reference: ReferenceState, of owner: Owner.Type, ownerID: UUID
     ) {
-        if draft(id: target.id, for: Target.self, in: zone, savedFirst: true) == nil {
+        if draft(id: target.uuid, for: Target.self, in: zone, savedFirst: true) == nil {
             insert(target)
         }
-        let id = RecordLink.id(reference: reference, sourceType: Owner.recordType, sourceID: ownerID, targetID: target.id)
+        let id = RecordLink.id(reference: reference, sourceType: Owner.recordType, sourceID: ownerID, targetID: target.uuid)
         let existing = draft(id: id, for: RecordLink.self, in: zone, savedFirst: false)
         if existing?.sourceName == ownerID.uuidString, existing?.targetName == target.id.uuidString { return }
 
@@ -446,7 +446,7 @@ public final class RecordContext {
             : nil
         let link = RecordLink(
             reference: reference, sourceType: Owner.recordType, sourceID: ownerID,
-            target: ReferenceTarget(id: target.id, order: order)
+            target: ReferenceTarget(id: target.uuid, order: order)
         )
         edit(id: directEdit(of: link), of: link, in: zone, with: link)
     }
@@ -484,7 +484,7 @@ public final class RecordContext {
     /// yet saved don't show until `save()`.
     ///
     /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
-    public func record<R: Record>(id: UUID, for type: R.Type = R.self) throws -> R? {
+    public func record<R: Record>(id: RecordID<R>, for type: R.Type = R.self) throws -> R? {
         _ = lastSaved
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
@@ -721,7 +721,7 @@ extension RecordDifference {
     }
 
     /// The ID of the record edited.
-    var recordID: UUID { record.id }
+    var recordID: UUID { record.uuid }
 
     /// Where the record is kept: its type, its ID and its zone.
     var key: RecordKey {
@@ -783,9 +783,9 @@ extension RecordDifference {
         }
         let fromSides = Set(R.schema.references.filter(\.isFrom).map(\.property))
         for (keyPath, property) in R.keyPaths where fromSides.contains(property) {
-            // A `from:` side holds only IDs, as a `UUID?` or a `[UUID]`.
+            // A `from:` side holds only IDs, as an `Owner.ID?` or an `[Owner.ID]`.
             let value = saved[keyPath: keyPath]
-            let ids = (value as? [UUID]) ?? (value as? UUID).map { [$0] } ?? []
+            let ids = (value as? [any AnyRecordID])?.map(\.uuid) ?? (value as? any AnyRecordID).map { [$0.uuid] } ?? []
             try? merged.loadReference(property, to: ids.map { ReferenceTarget(id: $0) }, from: graph, depth: 0)
         }
         return merged

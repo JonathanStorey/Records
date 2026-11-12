@@ -13,7 +13,7 @@ private func twoContexts() throws -> (RecordContext, RecordContext) {
 
 private func novel(_ title: String, year: Int) -> Novel {
     Novel(
-        id: UUID(), title: title, subtitle: nil, tags: [], year: year, note: nil,
+        title: title, subtitle: nil, tags: [], year: year, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
 }
@@ -88,8 +88,8 @@ private func novel(_ title: String, year: Int) -> Novel {
 @MainActor
 @Test func savingAStaleDraftKeepsLinksItDidNotEdit() throws {
     let (here, elsewhere) = try twoContexts()
-    let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]])
+    let labels = ["x", "y", "z", "w"].map { Label(name: $0) }
+    let saved = Page(title: "Page", labels: [labels[0], labels[1]])
     here.insert(saved)
     try here.save()
 
@@ -142,7 +142,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     here.insert(kept)
     here.delete(gone)
     here.insert(added)
-    #expect(here.changes == [.update(kept.id), .delete(gone.id), .insert(added.id)])
+    #expect(here.changes == [.update(kept.uuid), .delete(gone.uuid), .insert(added.uuid)])
 }
 
 /// Inserting a record again replaces the same edit, which keeps the base it started from.
@@ -163,18 +163,18 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(here.differences.count == 1)
     #expect((difference.edit as? Novel)?.year == 1973)
     #expect((difference.base as? Novel)?.year == 1971)
-    #expect(difference.change == .update(saved.id))
+    #expect(difference.change == .update(saved.uuid))
 
     here.delete(draft)
     #expect(here.differences.count == 1)
-    #expect(here.changes == [.delete(saved.id)])
+    #expect(here.changes == [.delete(saved.uuid)])
 }
 
 @MainActor
 @Test func aPageDeletedElsewhereComesBackWithItsLinks() throws {
     let (here, elsewhere) = try twoContexts()
-    let labels = ["x", "y"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: labels)
+    let labels = ["x", "y"].map { Label(name: $0) }
+    let saved = Page(title: "Page", labels: labels)
     here.insert(saved)
     try here.save()
 
@@ -248,8 +248,8 @@ private func novel(_ title: String, year: Int) -> Novel {
 @MainActor
 @Test func aStaleDraftSavesWithLinksChangedElsewhere() throws {
     let (here, elsewhere) = try twoContexts()
-    let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]])
+    let labels = ["x", "y", "z", "w"].map { Label(name: $0) }
+    let saved = Page(title: "Page", labels: [labels[0], labels[1]])
     here.insert(saved)
     try here.save()
 
@@ -266,7 +266,7 @@ private func novel(_ title: String, year: Int) -> Novel {
         let page = try #require(try here.record(id: saved.id, for: Page.self))
         return Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
     }
-    #expect(try labelIDs() == [labels[0].id, labels[3].id])
+    #expect(try labelIDs() == [labels[0].uuid, labels[3].uuid])
     #expect(here.hasChanges)
 
     try here.save()
@@ -278,7 +278,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     let original = novel("Blue", year: 1971)
     var edit = original
     edit.year = 1972
-    let difference = RecordDifference(id: UUID(), zone: .records, base: original, edit: edit, modified: .now)
+    let difference = RecordDifference(zone: .records, base: original, edit: edit, modified: .now)
     #expect((difference.laid(over: nil) as? Novel)?.year == 1972)
 
     var saved = original
@@ -287,11 +287,11 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(value.title == "Blue (Remastered)")
     #expect(value.year == 1972)
 
-    let writer = Writer(id: UUID(), name: "Ada", bookIDs: [])
-    let savedWriter = Writer(id: writer.id, name: "Ada", bookIDs: [original.id])
+    let writer = Writer(name: "Ada", bookIDs: [])
+    let savedWriter = Writer(name: "Ada", bookIDs: [original.id], id: writer.id)
     var editedWriter = writer
     editedWriter.name = "Ada L."
-    let writerDifference = RecordDifference(id: UUID(), zone: .records, base: writer, edit: editedWriter, modified: .now)
+    let writerDifference = RecordDifference(zone: .records, base: writer, edit: editedWriter, modified: .now)
     let writerValue = try #require(writerDifference.laid(over: savedWriter) as? Writer)
     #expect(writerValue.name == "Ada L.")
     #expect(writerValue.bookIDs == [original.id])
@@ -300,12 +300,12 @@ private func novel(_ title: String, year: Int) -> Novel {
 /// A difference's change follows its base and edit.
 @Test func theChangeFollowsTheBaseAndEdit() {
     let record = novel("Blue", year: 1971)
-    var difference = RecordDifference(id: UUID(), zone: .records, base: nil, edit: record, modified: .now)
-    #expect(difference.change == .insert(record.id))
+    var difference = RecordDifference(zone: .records, base: nil, edit: record, modified: .now)
+    #expect(difference.change == .insert(record.uuid))
     difference.base = record
-    #expect(difference.change == .update(record.id))
+    #expect(difference.change == .update(record.uuid))
     difference.edit = nil
-    #expect(difference.change == .delete(record.id))
+    #expect(difference.change == .delete(record.uuid))
     #expect(difference.change.id == record.id)
 }
 
@@ -315,7 +315,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     let original = novel("Blue", year: 1971)
     var edit = original
     edit.year = 1972
-    var difference = RecordDifference(id: UUID(), zone: .records, base: original, edit: edit, modified: .now)
+    var difference = RecordDifference(zone: .records, base: original, edit: edit, modified: .now)
 
     var remote = original
     remote.title = "Blue (Remastered)"
@@ -326,7 +326,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect((difference.base as? Novel)?.title == "Blue (Remastered)")
 
     difference.rebase(onto: nil)
-    #expect(difference.change == .insert(original.id))
+    #expect(difference.change == .insert(original.uuid))
     #expect((difference.edit as? Novel)?.year == 1972)
 }
 
@@ -343,8 +343,8 @@ private func novel(_ title: String, year: Int) -> Novel {
     var newer = saved
     newer.year = 1990
     let start = Date(timeIntervalSince1970: 1_000)
-    here.edit(id: UUID(), of: saved, in: .records, with: newer, on: start.addingTimeInterval(1))
-    here.edit(id: UUID(), of: saved, in: .records, with: older, on: start)
+    here.edit(of: saved, in: .records, with: newer, on: start.addingTimeInterval(1))
+    here.edit(of: saved, in: .records, with: older, on: start)
     #expect(here.draft(id: saved.id, for: Novel.self, in: .records)?.year == 1990)
 
     try here.save()
@@ -363,7 +363,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     var draft = saved
     draft.year = 1972
     here.insert(draft)
-    here.edit(id: UUID(), of: saved, in: .records, with: draft)
+    here.edit(of: saved, in: .records, with: draft)
     here.rollback()
     #expect(!here.hasChanges)
     #expect(here.draft(id: saved.id, for: Novel.self, in: .records)?.year == 1971)

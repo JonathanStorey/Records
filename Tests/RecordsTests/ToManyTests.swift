@@ -4,13 +4,11 @@ import Testing
 
 @Record
 struct Label: Equatable {
-    var id: UUID
     var name: String
 }
 
 @Record
 struct Page {
-    var id: UUID
     var title: String
     @Reference var labels: [Label]
 }
@@ -19,7 +17,7 @@ private let encoder = CKRecordEncoder()
 private let decoder = CKRecordDecoder()
 
 private func labels(_ names: String...) -> [Label] {
-    names.map { Label(id: UUID(), name: $0) }
+    names.map { Label(name: $0) }
 }
 
 private func decodedLinks(_ records: [CKRecord]) throws -> [RecordLink] {
@@ -28,7 +26,7 @@ private func decodedLinks(_ records: [CKRecord]) throws -> [RecordLink] {
 
 /// A page that was saved with its links and read back with its labels.
 private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord]) {
-    let page = Page(id: UUID(), title: "Notes", labels: items)
+    let page = Page(title: "Notes", labels: items)
     let links = encoder.links(for: page, in: .records)
     let decoded = try decoder.decode(
         Page.self, from: encoder.encode(page, in: .records),
@@ -41,7 +39,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func toManyHoldsRecordsInOrder() {
     let items = labels("a", "b", "c")
-    var page = Page(id: UUID(), title: "Notes", labels: items)
+    var page = Page(title: "Notes", labels: items)
     #expect(page.labels == items)
     #expect(page._labels.ids == items.map(\.id))
 
@@ -50,19 +48,19 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 }
 
 @Test func toManyKeepsEachTargetOnce() {
-    let item = Label(id: UUID(), name: "a")
-    let page = Page(id: UUID(), title: "Notes", labels: [item, item])
+    let item = Label(name: "a")
+    let page = Page(title: "Notes", labels: [item, item])
     #expect(page.labels == [item])
 }
 
 @Test func settingRecordsKeepsTargetsThatWerentLoaded() throws {
     let items = labels("a", "b")
-    let page = Page(id: UUID(), title: "Notes", labels: items)
+    let page = Page(title: "Notes", labels: items)
     let links = encoder.links(for: page, in: .records)
     var decoded = try decoder.decode(Page.self, from: encoder.encode(page, in: .records), links: links)
     #expect(decoded.labels.isEmpty)
 
-    let added = Label(id: UUID(), name: "c")
+    let added = Label(name: "c")
     decoded._labels.values.append(added)
     #expect(decoded._labels.ids == items.map(\.id) + [added.id])
     #expect(encoder.changes(for: decoded, from: links).saves.count == 1)
@@ -72,7 +70,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func newRecordWritesOrderedLinks() throws {
     let items = labels("a", "b", "c")
-    let page = Page(id: UUID(), title: "Notes", labels: items)
+    let page = Page(title: "Notes", labels: items)
     let links = try decodedLinks(encoder.links(for: page, in: .records))
 
     #expect(links.map(\.source) == Array(repeating: "Page.labels", count: 3))
@@ -84,7 +82,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func toManyLinksHaveOneIDPerTarget() throws {
     let items = labels("a", "b")
-    let page = Page(id: UUID(), title: "Notes", labels: items)
+    let page = Page(title: "Notes", labels: items)
     let records = encoder.links(for: page, in: .records)
     #expect(Set(records.map(\.recordID)).count == 2)
 
@@ -101,7 +99,7 @@ private func savedPage(_ items: [Label]) throws -> (page: Page, links: [CKRecord
 
 @Test func appendingWritesOneLinkAfterTheRest() throws {
     var (page, links) = try savedPage(labels("a", "b"))
-    page._labels.values.append(Label(id: UUID(), name: "c"))
+    page._labels.values.append(Label(name: "c"))
 
     let changes = encoder.changes(for: page, from: links)
     let saves = try decodedLinks(changes.saves)

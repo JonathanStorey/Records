@@ -56,16 +56,16 @@ public struct ReferenceState {
 /// values are equal when they point at the same target, whether or not it is loaded.
 public struct ToOne<Target: Record> {
     /// The target the reference points at now.
-    public internal(set) var id: UUID?
+    public internal(set) var id: Target.ID?
     /// The target's ID as a list, empty when there is none, matching `ToMany`.
-    public var ids: [UUID] { id.map { [$0] } ?? [] }
+    public var ids: [Target.ID] { id.map { [$0] } ?? [] }
     /// The loaded target as a list, empty when it isn't loaded, matching `ToMany`.
     public var loadedRecords: [any Record] { value.map { [$0] } ?? [] }
     /// The loaded target. A class, so a record can refer to its own type.
     private var box: Box?
 
     /// A reference to `id` that holds only the ID.
-    public init(id: UUID?) {
+    public init(id: Target.ID?) {
         self.id = id
     }
 
@@ -91,9 +91,9 @@ public struct ToOne<Target: Record> {
     /// least 1 and `graph` holds the target, reads it with `depth - 1`, so its own references
     /// hold records `depth - 1` levels further.
     public mutating func load(_ targets: [ReferenceTarget], from graph: RecordGraph, depth: Int = 1) throws {
-        id = targets.first?.id
+        id = targets.first.map { Target.ID($0.id) }
         guard depth > 0, let id else { box = nil; return }
-        box = try graph.record(Target.self, id: id, depth: depth - 1).map(Box.init)
+        box = try graph.record(Target.self, id: id.uuid, depth: depth - 1).map(Box.init)
     }
 
 
@@ -127,14 +127,14 @@ extension ToOne: @unchecked Sendable where Target: Sendable {}
 /// Each target appears once: a repeated ID keeps its first position. Two values are equal when
 /// they point at the same targets in the same order.
 public struct ToMany<Target: Record> {
-    private var storedIDs: [UUID] = []
+    private var storedIDs: [Target.ID] = []
     /// The loaded targets by ID. A class, so a record can refer to its own type.
     private var box: Box?
     /// Whether the property sorts its records, so its links carry no order keys.
     public let isSorted: Bool
 
     /// A reference to `ids` that holds only the IDs. A sorted reference writes no order keys.
-    public init(ids: [UUID], sorted: Bool = false) {
+    public init(ids: [Target.ID], sorted: Bool = false) {
         isSorted = sorted
         self.ids = ids
     }
@@ -150,10 +150,10 @@ public struct ToMany<Target: Record> {
     public var loadedRecords: [any Record] { values }
 
     /// The targets the reference points at now, in order.
-    public internal(set) var ids: [UUID] {
+    public internal(set) var ids: [Target.ID] {
         get { storedIDs }
         set {
-            var seen = Set<UUID>()
+            var seen = Set<Target.ID>()
             storedIDs = newValue.filter { seen.insert($0).inserted }
         }
     }
@@ -178,12 +178,12 @@ public struct ToMany<Target: Record> {
     /// is at least 1, reads each target `graph` holds with `depth - 1`, so its own references
     /// hold records `depth - 1` levels further.
     public mutating func load(_ targets: [ReferenceTarget], from graph: RecordGraph, depth: Int = 1) throws {
-        ids = targets.map(\.id)
+        ids = targets.map { Target.ID($0.id) }
 
-        var values: [UUID: Target] = [:]
+        var values: [Target.ID: Target] = [:]
         if depth > 0 {
             for id in storedIDs {
-                values[id] = try graph.record(Target.self, id: id, depth: depth - 1)
+                values[id] = try graph.record(Target.self, id: id.uuid, depth: depth - 1)
             }
         }
         box = values.isEmpty ? nil : Box(values)
@@ -191,8 +191,8 @@ public struct ToMany<Target: Record> {
 
 
     private final class Box {
-        let values: [UUID: Target]
-        init(_ values: [UUID: Target]) { self.values = values }
+        let values: [Target.ID: Target]
+        init(_ values: [Target.ID: Target]) { self.values = values }
     }
 }
 
@@ -239,19 +239,19 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
     public internal(set) var storage: ToMany<Target>
 
     /// Used by the code `@Reference` generates.
-    public init(owner: any Record.Type, id: UUID, property: String, storage: ToMany<Target>) {
+    public init<Owner: Record>(owner: Owner.Type, id: Owner.ID, property: String, storage: ToMany<Target>) {
         ownerType = owner
-        ownerID = id
+        ownerID = id.uuid
         self.property = property
         self.storage = storage
     }
 
     /// Every target's ID, in order, loaded or not.
-    public var ids: [UUID] { storage.ids }
+    public var ids: [Target.ID] { storage.ids }
 
     public var startIndex: Int { 0 }
     public var endIndex: Int { storage.ids.count }
-    public subscript(position: Int) -> UUID { storage.ids[position] }
+    public subscript(position: Int) -> Target.ID { storage.ids[position] }
 
     /// Adds `record` after the other targets. A target already held keeps its place.
     @MainActor
@@ -270,14 +270,14 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
     /// Takes the target with `id` out, whether or not its record is loaded. The target itself is
     /// kept.
     @MainActor
-    public mutating func remove(_ id: UUID, in context: RecordContext) {
+    public mutating func remove(_ id: Target.ID, in context: RecordContext) {
         remove([id], in: context)
     }
 
     /// Takes the targets with `ids` out. See `remove(_:in:)`.
     @MainActor
-    public mutating func remove(_ ids: [UUID], in context: RecordContext) {
-        context.remove(ids, from: property, of: ownerType, id: ownerID)
+    public mutating func remove(_ ids: [Target.ID], in context: RecordContext) {
+        context.remove(ids.map(\.uuid), from: property, of: ownerType, id: ownerID)
         storage.ids.removeAll { ids.contains($0) }
     }
 
@@ -315,15 +315,15 @@ public struct ReferenceID<Target: Record>: Equatable {
     public internal(set) var storage: ToOne<Target>
 
     /// Used by the code `@Reference` generates.
-    public init(owner: any Record.Type, id: UUID, property: String, storage: ToOne<Target>) {
+    public init<Owner: Record>(owner: Owner.Type, id: Owner.ID, property: String, storage: ToOne<Target>) {
         ownerType = owner
-        ownerID = id
+        ownerID = id.uuid
         self.property = property
         self.storage = storage
     }
 
     /// The target's ID, loaded or not, or `nil` when there is none.
-    public var id: UUID? { storage.id }
+    public var id: Target.ID? { storage.id }
 
     /// Points the reference at `record`, replacing any target it had.
     @MainActor
@@ -336,7 +336,7 @@ public struct ReferenceID<Target: Record>: Equatable {
     @MainActor
     public mutating func clear(in context: RecordContext) {
         guard let id = storage.id else { return }
-        context.remove([id], from: property, of: ownerType, id: ownerID)
+        context.remove([id.uuid], from: property, of: ownerType, id: ownerID)
         storage.value = nil
     }
 

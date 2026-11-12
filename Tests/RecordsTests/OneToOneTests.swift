@@ -4,41 +4,35 @@ import Testing
 
 @Record
 struct User: Equatable {
-    var id: UUID
     var name: String
     @Reference var profile: Profile?
 }
 
 @Record
 struct Profile: Equatable {
-    var id: UUID
     var bio: String
-    @Reference(from: \User.profile, deleteSelf: true) var userID: UUID?
+    @Reference(from: \User.profile, deleteSelf: true) var userID: User.ID?
 }
 
 @Record
 struct Account: Equatable {
-    var id: UUID
     @Reference var settings: Settings?
 }
 
 @Record
 struct Settings: Equatable {
-    var id: UUID
-    @Reference(from: \Account.settings) var accountID: UUID?
+    @Reference(from: \Account.settings) var accountID: Account.ID?
 }
 
 /// A one-way to-one: the crest has no `from:` side.
 @Record
 struct Team: Equatable {
-    var id: UUID
     @Reference var crest: Crest?
 }
 
 @Record
 struct Crest: Equatable {
-    var id: UUID
-    @Reference(from: \Team.crest, deleteSelf: true) var teamID: UUID?
+    @Reference(from: \Team.crest, deleteSelf: true) var teamID: Team.ID?
 }
 
 private let encoder = CKRecordEncoder()
@@ -49,11 +43,11 @@ private func link(_ record: CKRecord) throws -> RecordLink {
 }
 
 private func makeUser(with profile: Profile?) -> User {
-    User(id: UUID(), name: "Ada", profile: profile)
+    User(name: "Ada", profile: profile)
 }
 
 private func makeProfile() -> Profile {
-    Profile(id: UUID(), bio: "Engineer", userID: nil)
+    Profile(bio: "Engineer", userID: nil)
 }
 
 // MARK: - Links
@@ -75,7 +69,7 @@ private func makeProfile() -> Profile {
 
 @Test func fromSideWritesNoLinks() {
     let owner = makeUser(with: nil)
-    let profile = Profile(id: UUID(), bio: "Engineer", userID: owner.id)
+    let profile = Profile(bio: "Engineer", userID: owner.id)
     #expect(profile.userID == owner.id)
     #expect(encoder.links(for: profile, in: .records).isEmpty)
 }
@@ -131,8 +125,8 @@ private func makeProfile() -> Profile {
 }
 
 @Test func idFormsDecodeOnBothSides() throws {
-    let settings = Settings(id: UUID(), accountID: nil)
-    let account = Account(id: UUID(), settings: settings)
+    let settings = Settings(accountID: nil)
+    let account = Account(settings: settings)
     let links = encoder.links(for: account, in: .records)
     #expect(try links.map { try link($0).source } == ["Account.settings"])
     #expect(signatures(of: account) == ["Account.settings:Settings <-> Settings.accountID:Account"])
@@ -174,8 +168,8 @@ private func makeProfile() -> Profile {
 }
 
 @Test func recordOwnerWithIDFromSide() throws {
-    let crest = Crest(id: UUID(), teamID: nil)
-    let team = Team(id: UUID(), crest: crest)
+    let crest = Crest(teamID: nil)
+    let team = Team(crest: crest)
     let teamLinks = encoder.links(for: team, in: .records)
     #expect(try teamLinks.map { try link($0).source } == ["Team.crest"])
     #expect(signatures(of: team) == ["Team.crest:Crest <-> Crest.teamID:Team"])

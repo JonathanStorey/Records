@@ -6,7 +6,6 @@ import Testing
 
 @Record
 struct Gig: Equatable {
-    var id: UUID
     var title: String
     @Location var venue: Coordinate?
     @Location @Encrypted var home: Coordinate?
@@ -15,7 +14,7 @@ struct Gig: Equatable {
 private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 30)
 
 @Test func aCoordinateIsStoredAsAnArchivedCLLocation() throws {
-    let gig = Gig(id: UUID(), title: "Proms", venue: hall, home: nil)
+    let gig = Gig(title: "Proms", venue: hall, home: nil)
     let record = CKRecordEncoder().encode(gig, in: .records)
     let archive = try #require(record.encryptedValues["venue"] as? Data)
     let stored = try #require(try NSKeyedUnarchiver.unarchivedObject(ofClass: CLLocation.self, from: archive))
@@ -25,14 +24,14 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 }
 
 @Test func aLocationStoredAsACLLocationStillReads() throws {
-    let record = CKRecordEncoder().encode(Gig(id: UUID(), title: "Proms", venue: nil, home: nil), in: .records)
+    let record = CKRecordEncoder().encode(Gig(title: "Proms", venue: nil, home: nil), in: .records)
     record.encryptedValues["venue"] = hall.location
     #expect(try CKRecordDecoder().decode(Gig.self, from: record).venue == hall)
     #expect(try Gig(from: CKRecordDecoder().decode(record, of: Gig.self)).venue == hall)
 }
 
 @Test func aCoordinateRoundTrips() throws {
-    let gig = Gig(id: UUID(), title: "Proms", venue: hall, home: Coordinate(latitude: 40.7, longitude: -74))
+    let gig = Gig(title: "Proms", venue: hall, home: Coordinate(latitude: 40.7, longitude: -74))
     let decoded = try CKRecordDecoder().decode(Gig.self, from: CKRecordEncoder().encode(gig, in: .records))
     #expect(decoded.venue == hall)
     #expect(decoded.home == Coordinate(latitude: 40.7, longitude: -74))
@@ -41,7 +40,7 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 }
 
 @Test func aLocationIsAlwaysEncrypted() throws {
-    let gig = Gig(id: UUID(), title: "Proms", venue: hall, home: hall)
+    let gig = Gig(title: "Proms", venue: hall, home: hall)
     let record = CKRecordEncoder().encode(gig, in: .records)
     #expect(record["venue"] == nil)
     #expect(record.encryptedValues["venue"] is Data)
@@ -51,7 +50,7 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 }
 
 @Test func theFullLocationKeepsEveryDetail() throws {
-    var gig = Gig(id: UUID(), title: "Proms", venue: nil, home: nil)
+    var gig = Gig(title: "Proms", venue: nil, home: nil)
     let taken = Date(timeIntervalSince1970: 1_700_000_000)
     gig.$venue = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: hall.latitude, longitude: hall.longitude),
@@ -68,7 +67,7 @@ private let hall = Coordinate(latitude: 51.5009, longitude: -0.1773, altitude: 3
 }
 
 @Test func settingEitherFormSetsTheLocation() throws {
-    let record = CKRecordEncoder().encode(Gig(id: UUID(), title: "Proms", venue: hall, home: nil), in: .records)
+    let record = CKRecordEncoder().encode(Gig(title: "Proms", venue: hall, home: nil), in: .records)
     var gig = try CKRecordDecoder().decode(Gig.self, from: record)
 
     gig.venue = Coordinate(latitude: 48.86, longitude: 2.35)
