@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// The ID of a record of type `R`, written `Album.ID`. `@Record` gives a struct one by default,
 /// as `var id = Album.ID()`.
@@ -6,16 +7,15 @@ import Foundation
 /// It is a UUID, so it is the record's name in CloudKit, but its type names its record, so an
 /// album's ID can't be passed where a track's is expected.
 ///
-/// A new ID is a version 7 UUID that leads with the time it was made, counted the way `Date`
-/// counts, from the start of 2001. IDs made in order sort in that order, even within the same
-/// instant, and `date` reads the time back.
+/// A new ID is a version 7 UUID that holds the exact `Date` it was made, so IDs sort in the order
+/// they were made, even within the same instant.
 public struct RecordID<R>: RawRepresentable, Hashable, Comparable, Sendable, Codable, CustomStringConvertible {
     /// The UUID.
     public let rawValue: UUID
 
     /// A new ID, made now.
     public init() {
-        rawValue = Self.clock.next()
+        rawValue = TimestampClock.shared.next()
     }
 
     /// The ID `uuid`, such as one from another system.
@@ -29,15 +29,6 @@ public struct RecordID<R>: RawRepresentable, Hashable, Comparable, Sendable, Cod
 
     /// The UUID.
     public var uuid: UUID { rawValue }
-
-    /// When the ID was made, or `nil` for an ID `init()` didn't make.
-    public var date: Date? {
-        let bytes = rawValue.uuid
-        guard bytes.6 >> 4 == 7 else { return nil }
-        let milliseconds = [bytes.0, bytes.1, bytes.2, bytes.3, bytes.4, bytes.5].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
-        let time = milliseconds << 12 | UInt64(bytes.6 & 0x0F) << 8 | UInt64(bytes.7)
-        return Date(timeIntervalSinceReferenceDate: Double(time) / Self.ticksPerSecond)
-    }
 
     public var description: String { rawValue.uuidString }
 
@@ -54,39 +45,99 @@ public struct RecordID<R>: RawRepresentable, Hashable, Comparable, Sendable, Cod
         var container = encoder.singleValueContainer()
         try container.encode(rawValue)
     }
-
-    /// The time field's resolution: 1/4096 of a millisecond, which RFC 9562 allows in place of the
-    /// 12 random bits after the version.
-    private static var ticksPerSecond: Double { 1000 * 4096 }
-
-    /// Every type's IDs share one clock, so no two are ever made with the same time.
-    private static var clock: RecordIDClock { RecordIDClock.shared }
 }
 
-/// Makes version 7 UUIDs whose 60 bits of time always increase.
-private final class RecordIDClock: @unchecked Sendable {
-    static let shared = RecordIDClock()
-    private let lock = NSLock()
-    private var last: UInt64 = 0
+// MARK: - Timestamp
 
-    func next() -> UUID {
-        let now = UInt64(max(0, Date().timeIntervalSinceReferenceDate) * 1000 * 4096)
-        let time = lock.withLock {
-            // Two IDs in the same tick, or a clock set back, still sort in the order made.
-            last = max(now, last + 1)
-            return last
+/// Makes the version 7 UUIDs behind new IDs, from swift-identification's `UUID.timestamp`.
+///
+/// The 122 bits other than the version and variant hold, in order:
+/// - 48 bits: Unix milliseconds, as RFC 9562 requires, so any v7 tool reads the right time.
+/// - 14 bits: which tick of `Date`'s own precision, 2⁻²³ seconds, the date falls on within that
+///   millisecond, so the exact `Date` comes back.
+/// - 60 bits: random.
+///
+/// Each UUID's date is later than the last one's: a date that repeats, or a clock that steps back,
+/// advances by one step of `Date`'s precision. So IDs always sort in the order they were made.
+final class TimestampClock: Sendable {
+    static let shared = TimestampClock()
+
+    /// The last date stored, in seconds since 2001, always a whole number of ticks.
+    private let last = Mutex<Double?>(nil)
+
+    func next(_ date: Date = .now) -> UUID {
+        let stored = last.withLock { last in
+            var stored = Self.wholeTicks(date.timeIntervalSinceReferenceDate)
+            if let previous = last, stored <= previous {
+                // One step is the spacing of `Double` values, but never finer than one tick.
+                stored = previous + max(previous.ulp, Self.tick)
+            }
+            last = stored
+            return stored
         }
-        var random = SystemRandomNumberGenerator()
-        let tail = random.next() as UInt64
+        return Self.uuid(timestamp: Self.timestamp(stored))
+    }
+
+    /// The date stored in `uuid`, or `nil` when another generator made it.
+    static func date(of uuid: UUID) -> Date? {
+        let value = withUnsafeBytes(of: uuid.uuid) { $0.reduce(UInt128(0)) { $0 << 8 | UInt128($1) } }
+        guard value >> 76 & 0xF == 7, value >> 62 & 0b11 == 0b10 else { return nil }
+        let payload = value >> 80 << 74 | (value >> 64 & 0xFFF) << 62 | value & mask(62)
+        let field = payload >> (payloadBits - timestampBits)
+        let milliseconds = Int128(field >> tickIndexBits)
+        let tickIndex = Int128(field & mask(tickIndexBits))
+        guard firstTick(ofMillisecond: milliseconds) + tickIndex < firstTick(ofMillisecond: milliseconds + 1) else { return nil }
+        let ticks = firstTick(ofMillisecond: milliseconds) + tickIndex - referenceOffsetTicks
+        return Date(timeIntervalSinceReferenceDate: Double(ticks) * tick)
+    }
+
+    // MARK: Layout
+
+    /// One tick, 2⁻²³ seconds: the spacing of `Double` values for dates from 2018 to 2035.
+    private static let tick = 0x1p-23
+    private static let ticksPerSecondShift = 23
+    /// Ticks between 1970 and 2001, the `Date` reference date.
+    private static let referenceOffsetTicks = Int128(978_307_200) << ticksPerSecondShift
+    private static let maxMilliseconds = Int128(1) << 48 - 1
+    private static let tickIndexBits = 14
+    private static let timestampBits = 48 + tickIndexBits
+    private static let payloadBits = 122
+
+    private static func mask(_ bits: Int) -> UInt128 {
+        (1 << bits) - 1
+    }
+
+    /// `seconds` rounded down to a whole tick, within the range the timestamp holds.
+    private static func wholeTicks(_ seconds: Double) -> Double {
+        let earliest = -Double(referenceOffsetTicks >> ticksPerSecondShift)
+        let latest = Double(maxMilliseconds) / 1000 + earliest - 1
+        return (min(max(seconds, earliest), latest) / tick).rounded(.down) * tick
+    }
+
+    /// The first tick at or after the start of a Unix millisecond.
+    private static func firstTick(ofMillisecond milliseconds: Int128) -> Int128 {
+        ((milliseconds << ticksPerSecondShift) + 999) / 1000
+    }
+
+    /// The 62-bit timestamp of a date that is a whole number of ticks since 2001: Unix
+    /// milliseconds, then the tick's index within that millisecond, at most 8389, so 14 bits.
+    private static func timestamp(_ seconds: Double) -> UInt64 {
+        let ticks = Int128(seconds / tick) + referenceOffsetTicks
+        let milliseconds = (ticks * 1000) >> ticksPerSecondShift
+        let tickIndex = ticks - firstTick(ofMillisecond: milliseconds)
+        return UInt64(milliseconds) << tickIndexBits | UInt64(tickIndex)
+    }
+
+    /// A version 7 UUID holding `timestamp` and random bits.
+    private static func uuid(timestamp: UInt64) -> UUID {
+        var generator = SystemRandomNumberGenerator()
+        let randomBits = payloadBits - timestampBits
+        let payload = UInt128(timestamp) << randomBits | UInt128(generator.next() as UInt64) & mask(randomBits)
+        let value = payload >> 74 << 80 | 0x7 << 76 | (payload >> 62 & 0xFFF) << 64 | 0b10 << 62 | payload & mask(62)
+        let byte = { (index: Int) in UInt8(truncatingIfNeeded: value >> (120 - 8 * index)) }
         return UUID(uuid: (
-            UInt8(truncatingIfNeeded: time >> 52), UInt8(truncatingIfNeeded: time >> 44),
-            UInt8(truncatingIfNeeded: time >> 36), UInt8(truncatingIfNeeded: time >> 28),
-            UInt8(truncatingIfNeeded: time >> 20), UInt8(truncatingIfNeeded: time >> 12),
-            0x70 | UInt8(truncatingIfNeeded: time >> 8) & 0x0F, UInt8(truncatingIfNeeded: time),
-            0x80 | UInt8(truncatingIfNeeded: tail >> 56) & 0x3F, UInt8(truncatingIfNeeded: tail >> 48),
-            UInt8(truncatingIfNeeded: tail >> 40), UInt8(truncatingIfNeeded: tail >> 32),
-            UInt8(truncatingIfNeeded: tail >> 24), UInt8(truncatingIfNeeded: tail >> 16),
-            UInt8(truncatingIfNeeded: tail >> 8), UInt8(truncatingIfNeeded: tail)
+            byte(0), byte(1), byte(2), byte(3), byte(4), byte(5), byte(6), byte(7),
+            byte(8), byte(9), byte(10), byte(11), byte(12), byte(13), byte(14), byte(15)
         ))
     }
 }

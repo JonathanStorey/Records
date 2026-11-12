@@ -20,10 +20,9 @@ device and sync them through CloudKit with `CKSyncEngine`. Swift macros generate
 ## Defining records
 
 Mark a struct with `@Record`. Every stored property becomes a field of the same name. `@Record`
-adds `var id = Tag.ID()`, which becomes the record name. A new ID is a version 7 UUID that leads
-with the time it was made, counted from 2001 as `Date` counts, so IDs sort in the order records
-were made and `tag.id.date` reads the time back. Its type names its record, so an album's ID can't
-be passed where a track's is expected. Declare `var id: Tag.ID` yourself to supply IDs.
+adds `var id = Tag.ID()`, which becomes the record name. A new ID is a version 7 UUID that holds
+the exact time it was made, so IDs sort in the order records were made. Its type names its record,
+so an album's ID can't be passed where a track's is expected. Declare `var id: Tag.ID` yourself to supply IDs.
 
 ```swift
 import Records
