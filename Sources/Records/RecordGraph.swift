@@ -127,7 +127,7 @@ public struct RecordGraph {
             // The `@Reference(from:)` side: this record is the link's target, and its type names
             // the owner's property as an inverse.
             if link.targetName == name,
-               let inverse = R.schema.references.first(where: { $0.inverseOf == property && $0.target.recordType == link.sourceType }),
+               let inverse = R.schema.reference(from: String(link.sourceType), property),
                let sourceID = UUID(uuidString: link.sourceName) {
                 byProperty[inverse.property, default: []].append((ReferenceTarget(id: sourceID), link))
             }

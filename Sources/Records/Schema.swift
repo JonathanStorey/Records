@@ -19,7 +19,12 @@ public struct RecordSchema: Sendable {
     /// The `@Reference(from:)` side of `target` that names `property` of this type, such as
     /// `User.profile`'s `Profile.user`, or `nil` when the relationship is one-way.
     func inverse(of property: String, in target: any Record.Type) -> ReferenceSchema? {
-        target.schema.references.first { $0.inverseOf == property && $0.target.recordType == recordType }
+        target.schema.reference(from: recordType, property)
+    }
+
+    /// This type's `@Reference(from:)` side that names `property` of `ownerType`.
+    func reference(from ownerType: CKRecord.RecordType, _ property: String) -> ReferenceSchema? {
+        references.first { $0.inverseOf == property && $0.target.recordType == ownerType }
     }
 }
 
