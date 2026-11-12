@@ -55,8 +55,8 @@ public struct CKRecordDecoder: Sendable {
         }
         var row = RecordRow([
             "_name": .text(record.recordID.recordName),
-            "_createdAt": record.creationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
-            "_modifiedAt": record.modificationDate.map { .real($0.timeIntervalSince1970) } ?? .null,
+            "_createdAt": record.creationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null,
+            "_modifiedAt": record.modificationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null,
             "_systemFields": RecordRow.systemFields(of: record),
         ])
         for field in R.schema.fields {

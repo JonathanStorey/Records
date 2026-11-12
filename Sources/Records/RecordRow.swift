@@ -33,7 +33,7 @@ public struct RecordRow: Equatable {
 
     private func date(_ column: String) -> Date? {
         guard case .real(let seconds) = values[column] else { return nil }
-        return Date(timeIntervalSince1970: seconds)
+        return Date(timeIntervalSinceReferenceDate: seconds)
     }
 
     /// The record the server last returned, rebuilt from the archived system fields, so it

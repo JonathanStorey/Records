@@ -174,7 +174,7 @@ public final class RecordContext {
     public func save() throws {
         guard hasChanges else { return }
         let changes = differences.values.sorted(by: RecordDifference.isOlder)
-        let now = Date().timeIntervalSince1970
+        let now = Date().timeIntervalSinceReferenceDate
         let database = self.database
         try database.transaction {
             var deleted: [(RecordKey, [String: [String: SQLValue]])] = []

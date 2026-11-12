@@ -111,12 +111,12 @@ private let two: Grade? = .two
     #expect(translate(#Predicate { $0.name.contains("a") }) == nil)
 }
 
-@Test func datesUseLooseBounds() throws {
+@Test func datesCompareExactly() throws {
     let result = try #require(translate(#Predicate { $0.checkedAt > start }))
-    #expect(result.sql == #"("Gauge"."checkedAt" >= ?)"#)
-    #expect(result.values == [.real(start.timeIntervalSince1970)])
-    #expect(!result.isExact)
-    #expect(translate(#Predicate { $0.checkedAt != start }) == nil)
+    #expect(result.sql == #"("Gauge"."checkedAt" > ?)"#)
+    #expect(result.values == [.real(start.timeIntervalSinceReferenceDate)])
+    #expect(result.isExact)
+    #expect(translate(#Predicate { $0.checkedAt != start }) != nil)
 }
 
 @Test func integerPropertiesCompareWithEachOther() throws {
