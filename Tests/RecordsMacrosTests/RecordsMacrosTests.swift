@@ -1845,8 +1845,8 @@ final class RecordMacroTests: XCTestCase {
                 static let schema = Records.RecordSchema(
                     recordType: "Gig",
                     fields: [
-                        Records.FieldSchema(name: "venue", key: "venue", isOptional: true, isEncrypted: true, kind: .archived),
-                        Records.FieldSchema(name: "home", key: "home", isOptional: true, isEncrypted: true, kind: .archived),
+                        Records.FieldSchema(name: "venue", key: "venue", isOptional: true, isEncrypted: true, kind: Records.LocationField.coding.kind),
+                        Records.FieldSchema(name: "home", key: "home", isOptional: true, isEncrypted: true, kind: Records.LocationField.coding.kind),
                     ],
                     references: []
                 )
@@ -1855,21 +1855,21 @@ final class RecordMacroTests: XCTestCase {
                 }
                 init(record: CKRecord) throws {
                     self.id = try CKRecordDecoder.decodeID(from: record)
-                    self._venue = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("venue", from: record.encryptedValues))
-                    self._home = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("home", from: record.encryptedValues))
+                    self._venue = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("venue", from: record.encryptedValues))
+                    self._home = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("home", from: record.encryptedValues))
                 }
                 func encodeFields(into record: CKRecord) {
-                    record.encryptedValues["venue"] = self._venue.location
-                    record.encryptedValues["home"] = self._home.location
+                    record.encryptedValues["venue"] = Records.LocationField.coding.value(self._venue.location)
+                    record.encryptedValues["home"] = Records.LocationField.coding.value(self._home.location)
                 }
                 init(from row: Records.RecordRow) throws {
                     self.id = try row.id
-                    self._venue = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("venue", from: row))
-                    self._home = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent("home", from: row))
+                    self._venue = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("venue", from: row))
+                    self._home = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("home", from: row))
                 }
                 func encodeFields(into row: inout Records.RecordRow) {
-                    Records.FieldCoding((Records.LocationField.Stored).self).encode(self._venue.location, into: &row, forKey: "venue")
-                    Records.FieldCoding((Records.LocationField.Stored).self).encode(self._home.location, into: &row, forKey: "home")
+                    Records.LocationField.coding.encode(self._venue.location, into: &row, forKey: "venue")
+                    Records.LocationField.coding.encode(self._home.location, into: &row, forKey: "home")
                 }
             }
             """,

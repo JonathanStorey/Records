@@ -26,6 +26,10 @@ extension FieldKind {
         case .date:
             return (value as? Date).map { .real($0.timeIntervalSince1970) } ?? .null
         case .bytes:
+            if let location = value as? CLLocation {
+                // A `@Location` stored as a `CLLocation` rather than its archive.
+                return LocationField.coding.value(location).flatMap { $0 as? Data }.map(SQLValue.blob) ?? .null
+            }
             return (value as? Data).map(SQLValue.blob) ?? .null
         case .archived:
             let data = try? NSKeyedArchiver.archivedData(withRootObject: value, requiringSecureCoding: true)

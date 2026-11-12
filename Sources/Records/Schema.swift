@@ -60,7 +60,7 @@ public enum FieldKind: String, Hashable, Sendable {
     case date
     /// `BLOB`, from `Data`, including Codable values stored as JSON.
     case bytes
-    /// `BLOB` of a keyed archive, from a list or a `CLLocation`.
+    /// `BLOB` of a keyed archive, from a list or a `CLLocation` field.
     case archived
 
     /// The kind of a value CloudKit stores as is.

@@ -61,7 +61,7 @@ public struct RecordMacro: ExtensionMacro {
             }
             let source = field.isEncrypted ? "record.encryptedValues" : "record"
             if field.isLocation {
-                lines.append("        self._\(field.key) = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent(\"\(field.fieldKey)\", from: \(source)))")
+                lines.append("        self._\(field.key) = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent(\"\(field.fieldKey)\", from: \(source)))")
                 continue
             }
             let read: String
@@ -189,7 +189,7 @@ public struct RecordMacro: ExtensionMacro {
                 continue
             }
             if field.isLocation {
-                lines.append("        self._\(field.key) = try Records.LocationField(saved: Records.FieldCoding((Records.LocationField.Stored).self).decodeIfPresent(\"\(field.fieldKey)\", from: row))")
+                lines.append("        self._\(field.key) = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent(\"\(field.fieldKey)\", from: row))")
                 continue
             }
             let read: String
@@ -216,9 +216,9 @@ public struct RecordMacro: ExtensionMacro {
             "    \(access)func encodeFields(into row: inout Records.RecordRow) {",
         ]
         for field in fields where !field.isAsset {
-            let type = field.isLocation ? "Records.LocationField.Stored" : (field.wrappedType ?? field.type)
+            let coding = field.isLocation ? "Records.LocationField.coding" : "Records.FieldCoding((\(field.wrappedType ?? field.type)).self)"
             let value = field.isLocation ? "self._\(field.key).location" : "self.\(field.name)"
-            lines.append("        Records.FieldCoding((\(type)).self).encode(\(value), into: &row, forKey: \"\(field.fieldKey)\")")
+            lines.append("        \(coding).encode(\(value), into: &row, forKey: \"\(field.fieldKey)\")")
         }
         lines.append("    }")
         return lines
@@ -243,7 +243,7 @@ public struct RecordMacro: ExtensionMacro {
         } else {
             lines.append("            fields: [")
             for field in stored {
-                let kind = field.isLocation ? ".archived" : "Records.FieldCoding((\(field.wrappedType ?? field.type)).self).kind"
+                let kind = field.isLocation ? "Records.LocationField.coding.kind" : "Records.FieldCoding((\(field.wrappedType ?? field.type)).self).kind"
                 lines.append("                Records.FieldSchema(name: \"\(field.key)\", key: \"\(field.fieldKey)\", isOptional: \(field.wrappedType != nil), isEncrypted: \(field.isEncrypted), kind: \(kind)),")
             }
             lines.append("            ],")
@@ -447,16 +447,16 @@ public struct RecordMacro: ExtensionMacro {
         /// Whether it is marked `@Asset`, so it is stored on its own link.
         let isAsset: Bool
 
-        /// Whether it is marked `@Location`, so it is stored as an encrypted `CLLocation`.
+        /// Whether it is marked `@Location`, so it is stored as an encrypted archive of its `CLLocation`.
         let isLocation: Bool
 
         /// Where the generated code writes the field.
         var destination: String { isEncrypted ? "record.encryptedValues" : "record" }
 
-        /// What the generated code writes: the `CLLocation` for a `@Location`, otherwise the value.
+        /// What the generated code writes: the archived `CLLocation` for a `@Location`, otherwise the value.
         /// An `@Asset` is written to its link instead.
         var written: String {
-            if isLocation { return "self._\(key).location" }
+            if isLocation { return "Records.LocationField.coding.value(self._\(key).location)" }
             // `nil` clears the field.
             return "Records.FieldCoding((\(wrappedType ?? type)).self).value(self.\(name))"
         }
