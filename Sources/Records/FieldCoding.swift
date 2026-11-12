@@ -8,8 +8,8 @@ import Foundation
 /// A value CloudKit stores directly, such as a `String`, `Int`, `Date`, `Data`, `CLLocation`, or
 /// an array of them, is stored as is. An enum whose raw value CloudKit stores is stored as its raw
 /// value. A `UUID`, a `URL`, a `LosslessStringConvertible` value, and a type whose raw value is a
-/// `UUID` are stored as strings. Any other `Codable` value is stored as JSON `Data`. A type that is
-/// none of these is a compile error.
+/// `UUID` are stored as strings, and an array of them as an array of strings. Any other `Codable`
+/// value is stored as JSON `Data`. A type that is none of these is a compile error.
 ///
 /// A type can match more than one rule: `String` is Codable, and so is `enum Mood: String, Codable`.
 /// Each such pair has its own initializer, which Swift prefers because it is more specific, so the
@@ -80,6 +80,55 @@ public struct FieldCoding<Value> {
     /// A Codable type whose raw value is a `UUID`. Stored as the UUID's string.
     public init(_ type: Value.Type) where Value: RawRepresentable & Codable, Value.RawValue == UUID {
         self.init(string: \.rawValue.uuidString) { UUID(uuidString: $0).flatMap(Value.init(rawValue:)) }
+    }
+
+    /// An array of values that convert to and from strings. Stored as an array of strings.
+    public init<Element>(_ type: Value.Type) where Value == [Element], Element: LosslessStringConvertible {
+        self.init(elements: FieldCoding<Element>(Element.self))
+    }
+
+    /// An array of Codable values that convert to and from strings. Stored as an array of strings.
+    public init<Element>(_ type: Value.Type) where Value == [Element], Element: LosslessStringConvertible & Codable {
+        self.init(elements: FieldCoding<Element>(Element.self))
+    }
+
+    /// An array of values CloudKit stores directly that also convert to and from strings, such as
+    /// `[Int]`. Stored directly.
+    public init<Element>(_ type: Value.Type) where Value == [Element], Element: LosslessStringConvertible & Codable & CKRecordValueProtocol {
+        self.init(kind: .direct(Value.self), write: { $0 }, read: { $0 as? Value })
+    }
+
+    /// An array of `UUID`s. Stored as an array of strings.
+    public init(_ type: Value.Type) where Value == [UUID] {
+        self.init(elements: FieldCoding<UUID>(UUID.self))
+    }
+
+    /// An array of `URL`s. Stored as an array of strings.
+    public init(_ type: Value.Type) where Value == [URL] {
+        self.init(elements: FieldCoding<URL>(URL.self))
+    }
+
+    /// An array of a type whose raw value is a `UUID`. Stored as an array of strings.
+    public init<Element>(_ type: Value.Type) where Value == [Element], Element: RawRepresentable, Element.RawValue == UUID {
+        self.init(elements: FieldCoding<Element>(Element.self))
+    }
+
+    /// An array of a Codable type whose raw value is a `UUID`. Stored as an array of strings.
+    public init<Element>(_ type: Value.Type) where Value == [Element], Element: RawRepresentable & Codable, Element.RawValue == UUID {
+        self.init(elements: FieldCoding<Element>(Element.self))
+    }
+
+    /// An array of values each stored as a string by `elements`. Reads only when every string does.
+    private init<Element>(elements: FieldCoding<Element>) where Value == [Element] {
+        self.init(
+            kind: .archived,
+            write: { $0.compactMap { elements.write($0) as? String } },
+            read: { stored in
+                guard let strings = stored as? [String] else { return nil }
+                let values = strings.compactMap { elements.read($0) }
+                return values.count == strings.count ? values : nil
+            }
+        )
     }
 
     /// A value stored as a string.

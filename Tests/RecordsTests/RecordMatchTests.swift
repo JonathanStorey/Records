@@ -23,7 +23,9 @@ import Testing
 
 @Test func stringStoredFieldsMatch() throws {
     try expectMatch(ticket())
-    try expectMatch(Ticket(id: UUID(), holder: UUID(), seat: nil, version: Version(major: 0, minor: 0), link: nil, count: 0))
+    try expectMatch(Ticket(id: UUID(), holder: UUID(), seat: nil, version: Version(major: 0, minor: 0), link: nil, count: 0,
+        holders: [], seats: [], versions: [], links: [], counts: []
+    ))
 }
 
 @Test func encryptedFieldsMatch() throws {
