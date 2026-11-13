@@ -37,7 +37,7 @@ public struct Coordinate: Hashable, Codable, Sendable {
 ///
 /// The property reads it as a `Coordinate`. `$name` reads and sets the `CLLocation` itself, keeping
 /// every detail, including its timestamp, accuracies, course, and speed.
-public struct LocationField: @unchecked Sendable {
+public struct LocationField: Sendable {
     /// The type CloudKit stores, so generated code needn't import CoreLocation.
     public typealias Stored = CLLocation
 
