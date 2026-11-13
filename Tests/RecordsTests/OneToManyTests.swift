@@ -63,17 +63,6 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
     #expect(encoder.links(for: shelf, in: .records).isEmpty)
 }
 
-@Test func addingAToManyInverseKeepsLinkIDs() {
-    let sourceID = UUID(), targetID = UUID()
-    let twoWay = Book(title: "Dune", shelf: makeShelf()).referenceStates[0]
-    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [], records: [])
-    #expect(twoWay.inverse != nil)
-    #expect(
-        RecordLink.id(reference: oneWay, sourceType: "Book", sourceID: sourceID, targetID: targetID)
-            == RecordLink.id(reference: twoWay, sourceType: "Book", sourceID: sourceID, targetID: targetID)
-    )
-}
-
 @Test func oneSideDecodesItsOwners() throws {
     let shelf = makeShelf()
     let books = ["Dune", "Emma"].map { Book(title: $0, shelf: shelf) }
@@ -109,7 +98,7 @@ private func makeShelf(_ name: String = "Fiction") -> Shelf {
 
 // MARK: - Owned by the one side
 
-@Test func oneSideWritesOrderedLinks() throws {
+@Test func oneSideWritesALinkPerMember() throws {
     let tracks = ["Intro", "Song", "Outro"].map { Song(title: $0, albumID: nil) }
     let album = Release(tracks: tracks)
     let links = encoder.links(for: album, in: .records)

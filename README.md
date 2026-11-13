@@ -438,7 +438,7 @@ change in the context:
 
 ```swift
 var album = try context.record(id: albumID, for: Album.self)!
-album.$tracks.insert(track, in: context)          // album.tracks ends with track
+album.$tracks.insert(track, in: context)          // album.tracks now holds track
 album.$tracks.remove(old.id, in: context)         // by ID, loaded or not
 album.$artist.set(nova, in: context)
 album.$artist.clear(in: context)
@@ -458,7 +458,7 @@ inserting the album never writes it.
 The same changes work without the record, by the owner's reference key path and ID:
 
 ```swift
-context.insert(track, into: \Album.tracks, of: album.id)       // added after the other tracks
+context.insert(track, into: \Album.tracks, of: album.id)       // adds the track
 context.insert([intro, outro], into: \Album.tracks, of: album.id)
 context.remove(track.id, from: \Album.tracks, of: album.id)    // the track itself is kept
 
@@ -678,7 +678,8 @@ for `from:` properties, the ones that point at it. It skips links it can't read.
 
 ## What loading returns
 
-Loading stops one level deep, so a fetch never grows into the whole graph.
+Loading stops one level deep. The targets are records, and their own references hold only IDs, so
+a fetch never grows into the whole graph, and cycles are safe.
 
 ```swift
 let album = try decoder.decode(Album.self, from: record, links: links, targets: targets)
@@ -704,33 +705,20 @@ album.$cover.id                              // nil only when the album truly ha
 ```
 
 `$name` is a `ReferenceIDs` for a to-many reference and a `ReferenceID` for a to-one reference.
-`from:` sides don't need either, because they hold IDs and are always complete.
-
-Decoding loads one level. The targets are records, and their own references hold only IDs. To
-show a track's tags, decode the track. Loading one level keeps what's read in proportion to what
-was asked for, and makes cycles safe: a mentor who mentors their mentor holds that mentor's ID.
+`from:` sides don't need either, because they hold IDs and are always complete. To show a
+track's tags, load the track.
 
 ## Not built yet
 
-- Saving to and loading from the container. The tables exist, and the store will keep the last
-  synced copy of each record, so it finds the fields and links that changed by comparing against
-  it, and uploads only those.
-- `CKSyncEngine` sync.
+- `CKSyncEngine` sync. The store keeps the last synced copy of each record, so sync can upload only
+  the fields and links that changed.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store
   enforces it.
 
 ## Requirements
 
-| Platform | Minimum |
-| --- | --- |
-| iOS / iPadOS / Mac Catalyst | 17 |
-| macOS | 14 |
-| tvOS | 17 |
-| watchOS | 10 |
-| visionOS | 1 |
-
-Swift 6 toolchain (Xcode 16 or later). The floor is set by `CKSyncEngine`. Macros alone would allow
-lower versions.
+iOS, iPadOS and Mac Catalyst 18, macOS 15, tvOS 18, watchOS 11, and visionOS 2, with a Swift 6
+toolchain (Xcode 16 or later).
 
 ## Layout
 
