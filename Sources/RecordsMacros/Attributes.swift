@@ -26,7 +26,7 @@ public struct MarkerMacro: PeerMacro {
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
         guard declaration.is(VariableDeclSyntax.self) else {
-            let name = node.attributeName.trimmedDescription.replacingOccurrences(of: "Records.", with: "")
+            let name = node.attributeName.trimmedDescription.split(separator: ".").last ?? ""
             throw MacroExpansionErrorMessage("@\(name) can only be applied to a property")
         }
         return []
