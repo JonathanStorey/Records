@@ -27,7 +27,7 @@ struct LinkChanges {
 extension CKRecordEncoder {
     /// What saving `record` writes and deletes, given the links it was loaded or last saved with.
     func changes<R: Record>(for record: R, from existing: [CKRecord] = []) -> LinkChanges {
-        LinkChanges(links(for: record, in: .records, existing: existing), from: existing)
+        LinkChanges(links(for: record, in: .records), from: existing)
     }
 }
 

@@ -444,7 +444,7 @@ final class RecordMacroTests: XCTestCase {
                         Records.FieldSchema(name: "title", key: "title", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((String).self).kind),
                     ],
                     references: [
-                        Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false, isSorted: false),
+                        Records.ReferenceSchema(property: "author", target: Person.self, isToMany: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -463,7 +463,7 @@ final class RecordMacroTests: XCTestCase {
                         "author": (self._author.ids.map(\\.uuid), self._author.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "author":
                         try self._author.load(targets, from: graph, depth: depth)
@@ -615,7 +615,7 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Note",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true, isSorted: false),
+                        Records.ReferenceSchema(property: "tags", target: Tag.self, isToMany: true),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -632,7 +632,7 @@ final class RecordMacroTests: XCTestCase {
                         "tags": (self._tags.ids.map(\\.uuid), self._tags.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "tags":
                         try self._tags.load(targets, from: graph, depth: depth)
@@ -798,7 +798,7 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "User",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false, isSorted: false),
+                        Records.ReferenceSchema(property: "profile", target: Profile.self, isToMany: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -815,7 +815,7 @@ final class RecordMacroTests: XCTestCase {
                         "profile": (self._profile.ids.map(\\.uuid), self._profile.loadedRecords),
                     ])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "profile":
                         try self._profile.load(targets, from: graph, depth: depth)
@@ -878,8 +878,8 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Profile",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, isSorted: false, inverseOf: "profile", deleteSelf: true),
-                        Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, isSorted: false, inverseOf: "settingsID", deleteSelf: false),
+                        Records.ReferenceSchema(property: "userID", target: User.self, isToMany: false, inverseOf: "profile", deleteSelf: true),
+                        Records.ReferenceSchema(property: "accountID", target: Account.self, isToMany: false, inverseOf: "settingsID", deleteSelf: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -895,7 +895,7 @@ final class RecordMacroTests: XCTestCase {
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "userID":
                         try self._userID.load(targets, from: graph, depth: 0)
@@ -1032,8 +1032,8 @@ final class RecordMacroTests: XCTestCase {
                     recordType: "Shelf",
                     fields: [],
                     references: [
-                        Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, isSorted: false, inverseOf: "shelf", deleteSelf: false),
-                        Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, isSorted: false, inverseOf: "shelf", deleteSelf: false),
+                        Records.ReferenceSchema(property: "bookIDs", target: Book.self, isToMany: true, inverseOf: "shelf", deleteSelf: false),
+                        Records.ReferenceSchema(property: "crateIDs", target: Crate.self, isToMany: true, inverseOf: "shelf", deleteSelf: false),
                     ]
                 )
                 static var keyPaths: [PartialKeyPath<Self>: String] {
@@ -1049,7 +1049,7 @@ final class RecordMacroTests: XCTestCase {
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [:])
                 }
-                mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {
+                mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
                     switch property {
                     case "bookIDs":
                         try self._bookIDs.load(targets, from: graph, depth: 0)
@@ -1912,7 +1912,7 @@ final class RecordMacroTests: XCTestCase {
                 var discs: [Disc] {
                     @storageRestrictions(initializes: _discs)
                     init(initialValue) {
-                        _discs = Records.ToMany(initialValue, sorted: true)
+                        _discs = Records.ToMany(initialValue)
                     }
                     get {
                         _discs.values.sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
@@ -1951,7 +1951,7 @@ final class RecordMacroTests: XCTestCase {
                 var discs: [Disc] {
                     @storageRestrictions(initializes: _discs)
                     init(initialValue) {
-                        _discs = Records.ToMany(initialValue, sorted: true)
+                        _discs = Records.ToMany(initialValue)
                     }
                     get {
                         _discs.values.sorted(using: [SortDescriptor(\\Disc.year)])

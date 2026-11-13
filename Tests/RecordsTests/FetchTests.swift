@@ -139,7 +139,7 @@ private func save(_ records: [some Record], in context: RecordContext) throws {
 
     let pages = try context.fetch(RecordDescriptor<Page>(sortBy: [SortDescriptor(\.title)]))
     let ids = pages.map { page in page.referenceStates.first { $0.property == "labels" }?.ids ?? [] }
-    #expect(ids == [[labels[2].uuid, labels[0].uuid], [labels[1].uuid]])
+    #expect(ids == [[labels[0].uuid, labels[2].uuid], [labels[1].uuid]])
 
     // The `from:` side reads the same links from the other end.
     let writer = Writer(name: "Herbert", bookIDs: [])

@@ -440,14 +440,7 @@ public final class RecordContext {
         let existing = draft(id: id, for: RecordLink.self, in: zone, savedFirst: false)
         if existing?.sourceName == ownerID.uuidString, existing?.targetName == target.id.uuidString { return }
 
-        let source = RecordLink.source(type: Owner.recordType, property: reference.property)
-        let order = reference.isToMany && !reference.isSorted
-            ? OrderKey.between(lastOrder(of: source, ownerType: Owner.recordType, ownerID: ownerID), nil)
-            : nil
-        let link = RecordLink(
-            reference: reference, sourceType: Owner.recordType, sourceID: ownerID,
-            target: ReferenceTarget(id: target.uuid, order: order)
-        )
+        let link = RecordLink(reference: reference, sourceType: Owner.recordType, sourceID: ownerID, targetID: target.uuid)
         edit(id: directEdit(of: link), of: link, in: zone, with: link)
     }
 
@@ -459,23 +452,6 @@ public final class RecordContext {
               link.sourceName == ownerID.uuidString, link.targetName == targetID.uuidString
         else { return }
         edit(id: directEdit(of: link), of: link, in: zone, with: nil)
-    }
-
-    /// The last order key among the links of `source` from the record with `ownerID`, saved or
-    /// pending.
-    private func lastOrder(of source: String, ownerType: CKRecord.RecordType, ownerID: UUID) -> String? {
-        let key = RecordKey(recordType: ownerType, name: ownerID.uuidString, zone: zone)
-        let saved = ((try? database.currentLinks(of: key)) ?? [:]).values.compactMap { row -> String? in
-            guard row["source"] == .text(source), case .text(let order) = row["order"] else { return nil }
-            return order
-        }
-        let pending = differences.values.compactMap { difference -> String? in
-            guard difference.zone == zone, let link = difference.edit as? RecordLink,
-                  link.source == source, link.sourceName == ownerID.uuidString
-            else { return nil }
-            return link.order
-        }
-        return (saved + pending).max(by: OrderKey.precedes)
     }
 
     // MARK: - Reading
@@ -621,19 +597,6 @@ public final class RecordContext {
         guard let row else { return false }
         return values.allSatisfy { row[$0.key] == $0.value }
     }
-
-    /// The saved order key of each link target in `links`, by `source|targetName`, so a target
-    /// that keeps its place keeps its key.
-    nonisolated static func orders(of links: [String: [String: SQLValue]]) -> [String: String] {
-        Dictionary(
-            links.values.compactMap { row -> (String, String)? in
-                guard case .text(let source) = row["source"], case .text(let target) = row["targetName"],
-                      case .text(let order) = row["order"] else { return nil }
-                return (RecordLink.orderKey(source: source, targetName: target), order)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-    }
 }
 
 /// One record's identity in the database: its type, name, and zone.
@@ -736,16 +699,11 @@ extension RecordDifference {
     /// `base`'s column values, by field key.
     var originalValues: [String: SQLValue]? { base.map { Self.columns(of: $0) } }
 
-    /// The edit's links by name, given the saved order key of each target by
-    /// `source|targetName`.
-    func links(_ orders: [String: String]) -> [(String, [String: SQLValue])] {
-        Self.linkRows(of: record, orders: orders)
-    }
+    /// The edit's links by name.
+    var links: [(String, [String: SQLValue])] { Self.linkRows(of: record) }
 
-    /// `base`'s links, the same way, or `nil` when there is no base.
-    func originalLinks(_ orders: [String: String]) -> [(String, [String: SQLValue])]? {
-        base.map { Self.linkRows(of: $0, orders: orders) }
-    }
+    /// `base`'s links by name, or `nil` when there is no base.
+    var originalLinks: [(String, [String: SQLValue])]? { base.map { Self.linkRows(of: $0) } }
 
     /// `draft` laid over `saved`: each field and owned link the draft changed from `original`
     /// replaces the saved one. The `from:` sides, which the record doesn't own, come from
@@ -758,10 +716,9 @@ extension RecordDifference {
             row[field] = value
         }
 
-        var links = Dictionary(linkRows(of: saved, orders: [:]), uniquingKeysWith: { first, _ in first })
-        let orders = RecordContext.orders(of: links)
-        let originalLinks = Dictionary(linkRows(of: original, orders: orders), uniquingKeysWith: { first, _ in first })
-        let draftLinks = linkRows(of: draft, orders: orders)
+        var links = Dictionary(linkRows(of: saved), uniquingKeysWith: { first, _ in first })
+        let originalLinks = Dictionary(linkRows(of: original), uniquingKeysWith: { first, _ in first })
+        let draftLinks = linkRows(of: draft)
         let kept = Set(draftLinks.map(\.0))
         for name in originalLinks.keys where !kept.contains(name) {
             links[name] = nil
@@ -786,7 +743,7 @@ extension RecordDifference {
             // A `from:` side holds only IDs, as an `Owner.ID?` or an `[Owner.ID]`.
             let value = saved[keyPath: keyPath]
             let ids = (value as? [any AnyRecordID])?.map(\.uuid) ?? (value as? any AnyRecordID).map { [$0.uuid] } ?? []
-            try? merged.loadReference(property, to: ids.map { ReferenceTarget(id: $0) }, from: graph, depth: 0)
+            try? merged.loadReference(property, to: ids, from: graph, depth: 0)
         }
         return merged
     }
@@ -795,8 +752,8 @@ extension RecordDifference {
         record.columnValues()
     }
 
-    private static func linkRows<R: Record>(of record: R, orders: [String: String]) -> [(String, [String: SQLValue])] {
-        record.links(orders: orders).map { link in
+    private static func linkRows<R: Record>(of record: R) -> [(String, [String: SQLValue])] {
+        record.links().map { link in
             (link.id.uuidString, link.columnValues())
         }
     }

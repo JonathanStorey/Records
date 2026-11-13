@@ -172,7 +172,7 @@ Three rules cover every relationship:
    loading every owner as a record would have no limit. To show an owner's fields, fetch it by
    ID, or make the other side the owner.
 3. **A to-one reference is optional and a to-many reference is a non-optional array.** A to-many
-   owner keeps its order. A `from:` array lists its owners in the order their links were created.
+   reference and a `from:` array are sorted by ID, which is the order the records were made.
 
 A `from:` side names the owner's property with a key path. That makes the relationship two-way,
 and determines its shape:
@@ -185,9 +185,9 @@ and determines its shape:
 | to-many | to-many | many-to-many |
 | either | none | one-way: many-to-one or many-to-many |
 
-### Sorting instead of ordering
+### Sorting by fields
 
-A to-many owner keeps the order you give it. To sort by the targets' fields instead, pass `sort:`
+A to-many reference is sorted by ID. To sort by the targets' fields instead, pass `sort:`
 with the same parameters as SwiftData's `@Query`:
 
 ```swift
@@ -197,8 +197,8 @@ with the same parameters as SwiftData's `@Query`:
 @Reference(sort: [SortDescriptor(\Track.disc), SortDescriptor(\Track.number)]) var all: [Track]
 ```
 
-A sorted reference sorts each time it's read, and its links carry no order keys, so reordering it
-never writes anything. `$tags.ids` lists the IDs unsorted, because sorting needs the records.
+A sorted reference sorts each time it's read. `$tags.ids` stays sorted by ID, because sorting by
+fields needs the records.
 
 ## Every relationship, by example
 
@@ -278,7 +278,7 @@ doesn't know who favorited it.
 
 ### One-way to-many
 
-A track has ordered tags. Many tracks can share a tag, so this is many-to-many. The tag doesn't
+A track has tags. Many tracks can share a tag, so this is many-to-many. The tag doesn't
 list its tracks. `Track.featuring: [Artist]` works the same way.
 
 ```swift
@@ -329,8 +329,8 @@ album writes one link and never touches the artist. The artist lists its albums 
 
 ### One-to-many, owned by the one side
 
-An album has ordered tracks, and a track is on one album. The album owns the links, so it keeps
-the order, and `deleteSelf: true` deletes the tracks with their album. Adding a track to a second
+An album has tracks, and a track is on one album. The album owns the links, and
+`deleteSelf: true` deletes the tracks with their album. Adding a track to a second
 album moves it there, because a track's link is keyed by the track alone.
 
 ```swift
@@ -340,8 +340,8 @@ album moves it there, because a track's link is keyed by the track alone.
 
 ### Many-to-many
 
-A playlist has ordered tracks, and a track can be on many playlists. The playlist owns the links
-and keeps their order. The track lists its playlists by ID.
+A playlist has tracks, and a track can be on many playlists. The playlist owns the links. The
+track lists its playlists by ID.
 
 ```swift
 @Reference var tracks: [Track]                              // on Playlist
@@ -353,13 +353,12 @@ later keeps every existing link.
 
 ## Choosing the owner
 
-The owner is the side your code edits, and the side whose order matters.
+The owner is the side your code edits.
 
 - **Put the owner on the side you display with the other's fields.** An album shows its tracks and
   its artist's name, so the album owns both.
-- **For one-to-many, choose by order and deletion.** Owned by the one side, the list is ordered by
-  hand and can delete its members. Owned by the many side, adding a member never touches the one
-  side, and the list is ordered by creation.
+- **For one-to-many, choose by deletion.** Owned by the one side, the list can delete its members.
+  Owned by the many side, adding a member never touches the one side.
 - **`deleteSelf` always flows from the owner to the `from:` side**, and only onto a to-one `from:`
   side. To delete tracks with their album, the album must own the tracks.
 - **Only one `from:` side can name a given owner property.**
@@ -659,13 +658,12 @@ let album = Album(
 )
 
 let record = encoder.encode(album, in: zone)                      // the album's fields
-let links = encoder.links(for: album, in: zone, existing: saved)  // every link it has now
+let links = encoder.links(for: album, in: zone)                   // every link it has now
 ```
 
-Pass the links the record already has as `existing`, and each track keeps its order key wherever it
-still sorts in place, so reordering tracks changes only the links of the tracks that moved.
-Pointing a to-one reference somewhere else keeps its link's ID and changes its target. Comparing
-the result with `existing` gives the links to write and the ones to delete. A record's links cover
+Each link's ID comes from what it joins, so the same link always has the same ID. Pointing a
+to-one reference somewhere else keeps its link's ID and changes its target. Comparing the result
+with the links already saved gives the links to write and the ones to delete. A record's links cover
 only its own references, so a record loaded inside another, such as `album.tracks[0]`, is saved
 on its own.
 

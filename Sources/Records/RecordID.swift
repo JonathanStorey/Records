@@ -32,9 +32,11 @@ public struct RecordID<R>: RawRepresentable, Hashable, Comparable, Sendable, Cod
 
     public var description: String { rawValue.uuidString }
 
-    /// In the order the IDs were made, which is the order of their strings.
+    /// In the order the IDs were made: byte by byte, which is also the order of their strings.
     public static func < (lhs: Self, rhs: Self) -> Bool {
-        lhs.rawValue.uuidString < rhs.rawValue.uuidString
+        withUnsafeBytes(of: lhs.rawValue.uuid) { a in
+            withUnsafeBytes(of: rhs.rawValue.uuid) { b in a.lexicographicallyPrecedes(b) }
+        }
     }
 
     public init(from decoder: any Decoder) throws {

@@ -27,8 +27,7 @@ public struct CKRecordDecoder: Sendable {
     ///
     /// `links` may hold any `RecordLink` records, such as every link in the zone. Only the ones
     /// whose source or, for `@Reference(from:)` properties, target is `record` are used, and links
-    /// that can't be read are skipped. To-many targets are ordered by their order keys, then by
-    /// when the link was created, then by the link's name.
+    /// that can't be read are skipped. To-many targets are sorted by ID, the order they were made.
     ///
     /// A reference that holds records is filled from the matching records in `targets`, `depth`
     /// levels deep. With the default of 1, the targets are records and their own references
