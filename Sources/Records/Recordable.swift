@@ -2,35 +2,28 @@ import SwiftUI
 
 // MARK: - Environment
 
-private struct RecordContextKey: EnvironmentKey {
-    static var defaultValue: RecordContext? { nil }
-}
-
 extension EnvironmentValues {
+    /// The context, or `nil` where none is set. SwiftUI reads environment values when it
+    /// pleases, so `@Recordable` reads this one and stops only when it uses a missing context.
+    @Entry var recordContextIfSet: RecordContext? = nil
+
     /// The context that `@Recordable` properties edit records in, set with `.recordContext(_:)`.
     /// Reading it where none is set stops with a message, since that is a programmer error.
     public var recordContext: RecordContext {
         get {
-            guard let context = self[RecordContextKey.self] else {
+            guard let context = recordContextIfSet else {
                 preconditionFailure("No RecordContext in the environment. Set one with .recordContext(_:).")
             }
             return context
         }
-        set { self[RecordContextKey.self] = newValue }
-    }
-
-    /// The context, or `nil` where none is set. SwiftUI reads environment values when it
-    /// pleases, so `@Recordable` reads this one and stops only when it uses a missing context.
-    var setRecordContext: RecordContext? {
-        get { self[RecordContextKey.self] }
-        set { self[RecordContextKey.self] = newValue }
+        set { recordContextIfSet = newValue }
     }
 }
 
 extension View {
     /// Sets the context that `@Recordable` properties in this view and its children edit records in.
     public func recordContext(_ context: RecordContext) -> some View {
-        environment(\.setRecordContext, context)
+        environment(\.recordContextIfSet, context)
     }
 }
 
@@ -72,7 +65,7 @@ extension View {
 @MainActor
 @propertyWrapper
 public struct Recordable<Value> {
-    @Environment(\.setRecordContext) private var setContext
+    @Environment(\.recordContextIfSet) private var contextIfSet
     /// The ID of this wrapper's edit, which names its pending change in the context.
     @State public private(set) var id = UUID()
     /// When this wrapper last edited its record. Setting it redraws the view.
@@ -114,10 +107,10 @@ public struct Recordable<Value> {
 
     /// The environment's context. A missing one is a programmer error.
     private var context: RecordContext {
-        guard let setContext else {
+        guard let contextIfSet else {
             preconditionFailure("No RecordContext in the environment. Set one with .recordContext(_:).")
         }
-        return setContext
+        return contextIfSet
     }
 
     /// A binding to the record, so `$album.title` binds to one field.

@@ -19,7 +19,7 @@ public enum CKRecordDecodingError: Error, Equatable {
 public struct CKRecordDecoder: Sendable {
     public init() {}
 
-    public func decode<R: Record>(_ type: R.Type, from record: CKRecord) throws -> R {
+    public func decode<R: Record>(_ type: R.Type, from record: CKRecord) throws(CKRecordDecodingError) -> R {
         try R(from: decode(record, of: R.self))
     }
 
@@ -45,7 +45,7 @@ public struct CKRecordDecoder: Sendable {
     /// `record` as `R`'s database row: each field's column value, with the record's name, the
     /// server's dates, and its archived system fields, so the next upload updates it. Sync
     /// writes it to the database.
-    public func decode<R: Record>(_ record: CKRecord, of type: R.Type) throws -> RecordRow {
+    public func decode<R: Record>(_ record: CKRecord, of type: R.Type) throws(CKRecordDecodingError) -> RecordRow {
         guard record.recordType == R.recordType else {
             throw CKRecordDecodingError.recordTypeMismatch(expected: R.recordType, found: record.recordType)
         }
