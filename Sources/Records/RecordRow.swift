@@ -6,6 +6,7 @@ import Foundation
 ///
 /// `@Record` reads one in `init(from:)` and writes one in `encodeFields(into:)`, so the database
 /// builds records without going through a `CKRecord`. Only Records makes rows.
+@_documentation(visibility: internal)
 public struct RecordRow: Equatable {
     /// Every column's value, by column name.
     var values: [String: SQLValue]

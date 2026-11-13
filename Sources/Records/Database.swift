@@ -3,6 +3,10 @@ import SQLite3
 
 /// The container's SQLite connection. Every call runs under one lock, and a transaction holds
 /// it throughout, so calls never overlap or land inside another caller's transaction.
+///
+/// The lock is recursive because a transaction's body calls back into the database. That is
+/// also why it isn't a `Mutex`, which can't be taken twice on one thread, and why the class
+/// is `@unchecked Sendable`: the lock guards `handle` and `statements`.
 final class Database: @unchecked Sendable {
     /// The columns Records keeps on every record table. Field names can't start with an
     /// underscore, so these never collide with a field.

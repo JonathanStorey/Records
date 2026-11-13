@@ -151,7 +151,7 @@ extension Recordable {
     }
 }
 
-extension Recordable: @preconcurrency DynamicProperty {}
+extension Recordable: DynamicProperty {}
 
 extension Recordable: @preconcurrency Identifiable {}
 

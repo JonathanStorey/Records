@@ -6,6 +6,7 @@ import CloudKit
 /// A record reads its references from the links that name it: the ones it owns, and the ones
 /// that point at it for its `@Reference(from:)` sides. A reference that holds records finds its
 /// targets' rows here.
+@_documentation(visibility: internal)
 public struct RecordGraph {
     /// Each record's row, by `key(_:_:)`.
     private var rows: [String: RecordRow] = [:]
