@@ -16,7 +16,7 @@ public struct RecordRow: Equatable {
 
     /// The record's `id`, from its name. Used by the code `@Record` generates.
     public var id: UUID {
-        get throws {
+        get throws(CKRecordDecodingError) {
             let name = if case .text(let name) = values["_name"] { name } else { "" }
             guard let id = UUID(uuidString: name) else {
                 throw CKRecordDecodingError.invalidRecordName(name)

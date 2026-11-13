@@ -68,11 +68,7 @@ public final class RecordContainer: Sendable {
     let database: Database
     /// The zone contexts start in, and the zone `@Recordable` edits in when it isn't given one.
     public let defaultZone: Zone
-    /// Created the first time `mainContext` is read, and only read and written on the main actor.
-    nonisolated(unsafe) private var mainContextStorage: RecordContext?
-    /// Every context made from this container, held weakly so a context goes when nothing else
-    /// uses it. Only read and written on the main actor.
-    nonisolated(unsafe) private var contexts: [WeakContext] = []
+    private let contexts = Contexts()
 
     /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
     /// database in that group's shared folder, so the app's extensions and widgets can open it
@@ -111,23 +107,23 @@ public final class RecordContainer: Sendable {
     /// The container keeps its main context, and the context keeps the database, so a context
     /// stays safe to use even after its container is released.
     @MainActor public var mainContext: RecordContext {
-        if let context = mainContextStorage { return context }
+        if let context = contexts.main { return context }
         let context = RecordContext(container: self)
-        mainContextStorage = context
+        contexts.main = context
         return context
     }
 
     /// Keeps `context` in the list that `didSave(from:)` refreshes.
     @MainActor func add(_ context: RecordContext) {
-        contexts.removeAll { $0.context == nil }
-        contexts.append(WeakContext(context: context))
+        contexts.all.removeAll { $0.context == nil }
+        contexts.all.append(WeakContext(context: context))
     }
 
     /// Rebases every other context after `context` saved, so their pending edits sit on the
     /// records as now saved and their views redraw.
     @MainActor func didSave(from context: RecordContext) {
-        contexts.removeAll { $0.context == nil }
-        for other in contexts.compactMap(\.context) where other !== context {
+        contexts.all.removeAll { $0.context == nil }
+        for other in contexts.all.compactMap(\.context) where other !== context {
             other.rebase()
         }
     }
@@ -176,6 +172,18 @@ public final class RecordContainer: Sendable {
             }
         }
     }
+}
+
+/// The contexts a container refers to, on the main actor.
+@MainActor
+private final class Contexts {
+    /// Created the first time `mainContext` is read.
+    var main: RecordContext?
+    /// Every context made from the container, held weakly so a context goes when nothing else
+    /// uses it.
+    var all: [WeakContext] = []
+
+    nonisolated init() {}
 }
 
 /// A context the container refers to without keeping it.

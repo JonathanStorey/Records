@@ -82,7 +82,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.title: "title", \\Note.isPinned: "isPinned", \\Note.rating: "rating", \\Note.tags: "tags"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
                     self.isPinned = try Records.FieldCoding((Bool).self).decode("isPinned", from: row)
@@ -130,7 +130,7 @@ final class RecordMacroTests: XCTestCase {
                 public static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\LegacyFolder.id: "_name", \\LegacyFolder.default: "default"]
                 }
-                public init(from row: Records.RecordRow) throws {
+                public init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.`default` = try Records.FieldCoding((Bool).self).decode("default", from: row)
                 }
@@ -174,7 +174,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Box.id: "_name", \\Box.value: "value"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.value = try Records.FieldCoding((Value).self).decodeIfPresent("value", from: row)
                 }
@@ -286,7 +286,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.title: "title"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
                 }
@@ -387,7 +387,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Article.id: "_name", \\Article.title: "title", \\Article.author: "author"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
                     self._author = Records.ToOne(id: nil)
@@ -526,7 +526,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.tags: "tags"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self._tags = Records.ToMany(ids: [])
                 }
@@ -687,7 +687,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\User.id: "_name", \\User.profile: "profile"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self._profile = Records.ToOne(id: nil)
                 }
@@ -764,7 +764,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Profile.id: "_name", \\Profile.userID: "userID", \\Profile.accountID: "accountID"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self._userID = Records.ToOne(id: nil)
                     self._accountID = Records.ToOne(id: nil)
@@ -890,7 +890,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Shelf.id: "_name", \\Shelf.bookIDs: "bookIDs", \\Shelf.crateIDs: "crateIDs"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self._bookIDs = Records.ToMany(ids: [])
                     self._crateIDs = Records.ToMany(ids: [])
@@ -1057,7 +1057,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.first: "first", \\Note.last: "last", \\Note.rating: "rating"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.first = try Records.FieldCoding((String).self).decode("first", from: row)
                     self.last = try Records.FieldCoding((String).self).decode("last", from: row)
@@ -1111,7 +1111,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Account.id: "_name", \\Account.name: "name", \\Account.note: "note", \\Account.pin: "pin"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.name = try Records.FieldCoding((String).self).decode("name", from: row)
                     self.note = try Records.FieldCoding((String).self).decodeIfPresent("note", from: row)
@@ -1258,7 +1258,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Poster.id: "_name"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self._image = Records.AssetField(id: nil, file: nil)
                     self._thumbnail = Records.AssetField(id: nil, file: nil)
@@ -1413,7 +1413,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Gig.id: "_name"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self._venue = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("venue", from: row))
                     self._home = try Records.LocationField(saved: Records.LocationField.coding.decodeIfPresent("home", from: row))
@@ -1487,7 +1487,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Memo.id: "_name"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self._createdAt.load(row.createdAt)
                     self._modifiedAt.load(row.modifiedAt)
@@ -1563,7 +1563,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Album.id: "_name", \\Album.year: "released"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.year = try Records.FieldCoding((Int).self).decode("released", from: row)
                 }
@@ -1917,7 +1917,7 @@ final class RecordMacroTests: XCTestCase {
                 static var keyPaths: [PartialKeyPath<Self>: String] {
                     [\\Note.id: "_name", \\Note.title: "title", \\Note.rating: "rating"]
                 }
-                init(from row: Records.RecordRow) throws {
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
                     self.id = Records.RecordID(rawValue: try row.id)
                     self.title = try Records.FieldCoding((String).self).decode("title", from: row)
                     self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)

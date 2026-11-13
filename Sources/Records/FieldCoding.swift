@@ -148,7 +148,7 @@ public struct FieldCoding<Value> {
     }
 
     /// The value of the column `key`.
-    public func decode(_ key: String, from row: RecordRow) throws -> Value {
+    public func decode(_ key: String, from row: RecordRow) throws(CKRecordDecodingError) -> Value {
         guard let value = try decodeIfPresent(key, from: row) else {
             throw CKRecordDecodingError.missingField(key)
         }
@@ -156,7 +156,7 @@ public struct FieldCoding<Value> {
     }
 
     /// The value of the column `key`, or `nil` when it is `NULL`.
-    public func decodeIfPresent(_ key: String, from row: RecordRow) throws -> Value? {
+    public func decodeIfPresent(_ key: String, from row: RecordRow) throws(CKRecordDecodingError) -> Value? {
         guard let stored = row.values[key], stored != .null else { return nil }
         guard let value = kind.recordValue(stored).flatMap({ read($0) }) else {
             throw CKRecordDecodingError.typeMismatch(field: key)

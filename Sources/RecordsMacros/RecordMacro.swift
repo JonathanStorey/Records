@@ -156,7 +156,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
         timestamps: [(storage: String, kind: TimestampedMacro.Kind)], access: String
     ) -> [String] {
         var lines = [
-            "    \(access)init(from row: Records.RecordRow) throws {",
+            "    \(access)init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {",
             "        self.id = Records.RecordID(rawValue: try row.id)",
         ]
         for field in fields {
