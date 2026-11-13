@@ -46,7 +46,7 @@ private func zone() -> CKRecordZone.ID {
     let record = CKRecordEncoder().encode(note, in: .records)
 
     #expect(record.recordType == "Note")
-    #expect(record.recordID.recordName == id.uuid.uuidString)
+    #expect(record.recordID.recordName == id.rawValue.uuidString)
     #expect(record.recordID.zoneID == zone())
     #expect(record["title"] as? String == "Groceries")
     #expect(record["isPinned"] as? Bool == true)
@@ -115,7 +115,7 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
 @Test func decodesARecordBuiltByHand() throws {
     let id = UUID()
     let note = try CKRecordDecoder().decode(Note.self, from: noteRecord(name: id.uuidString))
-    #expect(note.id.uuid == id)
+    #expect(note.id.rawValue == id)
     #expect(note.title == "A")
     #expect(note.rating == nil)
 }

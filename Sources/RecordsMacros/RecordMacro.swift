@@ -157,7 +157,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
     ) -> [String] {
         var lines = [
             "    \(access)init(from row: Records.RecordRow) throws {",
-            "        self.id = Records.RecordID(try row.id)",
+            "        self.id = Records.RecordID(rawValue: try row.id)",
         ]
         for field in fields {
             if field.isAsset {

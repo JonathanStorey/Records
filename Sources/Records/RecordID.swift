@@ -18,17 +18,10 @@ public struct RecordID<R>: RawRepresentable, Hashable, Comparable, Sendable, Cod
         rawValue = TimestampClock.shared.next()
     }
 
-    /// The ID `uuid`, such as one from another system.
-    public init(_ uuid: UUID) {
-        rawValue = uuid
-    }
-
+    /// The ID `rawValue`, such as a UUID from another system.
     public init(rawValue: UUID) {
         self.rawValue = rawValue
     }
-
-    /// The UUID.
-    public var uuid: UUID { rawValue }
 
     public var description: String { rawValue.uuidString }
 
@@ -148,12 +141,7 @@ final class TimestampClock: Sendable {
     }
 }
 
-/// A record ID of any type, for code that handles records of any type.
-protocol AnyRecordID {
-    var uuid: UUID { get }
-}
-
-extension RecordID: AnyRecordID {
+extension RecordID {
     /// The UUID as a string, which is the record's name.
     var uuidString: String { rawValue.uuidString }
 }

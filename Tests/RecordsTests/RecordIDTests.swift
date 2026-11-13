@@ -6,7 +6,7 @@ import Testing
 private let sampleDate = Date(timeIntervalSinceReferenceDate: 783_000_000.123_456_789)
 
 @Test func aNewIDIsAVersion7UUID() {
-    let bytes = Memo.ID().uuid.uuid
+    let bytes = Memo.ID().rawValue.uuid
     #expect(bytes.6 >> 4 == 7)
     #expect(bytes.8 >> 6 == 0b10)
 }
@@ -60,7 +60,7 @@ func anIDHoldsItsExactDate(_ date: Date) {
 @Test func anIDEncodesAsItsUUID() throws {
     let id = Memo.ID()
     let data = try JSONEncoder().encode(id)
-    #expect(try JSONDecoder().decode(UUID.self, from: data) == id.uuid)
+    #expect(try JSONDecoder().decode(UUID.self, from: data) == id.rawValue)
     #expect(try JSONDecoder().decode(Memo.ID.self, from: data) == id)
 }
 

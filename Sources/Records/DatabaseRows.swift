@@ -67,13 +67,22 @@ extension Database {
     /// The record's own saved links, and the saved links that point at it for its `from:` sides,
     /// by link name.
     func savedLinks(touching key: RecordKey) throws -> [String: [String: SQLValue]] {
+        try links(in: key.zone, where: "(\"sourceName\" = ? OR \"targetName\" = ?)", [.text(key.name), .text(key.name)])
+    }
+
+    /// Whether a current link from `source` points at `targetName`.
+    func isLinked(source: String, targetName: String, zone: Zone) throws -> Bool {
+        try !links(in: zone, where: "\"source\" = ? AND \"targetName\" = ?", [.text(source), .text(targetName)]).isEmpty
+    }
+
+    /// The current, undeleted links in `zone` that meet `condition`, by link name.
+    func links(in zone: Zone, where condition: String, _ values: [SQLValue]) throws -> [String: [String: SQLValue]] {
         let rows = try self.rows(
             """
             SELECT * FROM \(quoted(RecordLink.recordType)) \
-            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "_isCurrent" = 1 AND "_deleted" = 0 \
-            AND ("sourceName" = ? OR "targetName" = ?)
+            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "_isCurrent" = 1 AND "_deleted" = 0 AND \(condition)
             """,
-            key.values + [.text(key.name)]
+            [.text(zone.name), .text(zone.ownerName)] + values
         )
         return Dictionary(
             rows.compactMap { row in
@@ -84,29 +93,13 @@ extension Database {
         )
     }
 
-    /// Whether a current link from `source` points at `targetName`.
-    func isLinked(source: String, targetName: String, zone: Zone) throws -> Bool {
-        try !self.rows(
-            """
-            SELECT 1 FROM \(quoted(RecordLink.recordType)) \
-            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "source" = ? AND "targetName" = ? \
-            AND "_isCurrent" = 1 AND "_deleted" = 0 LIMIT 1
-            """,
-            [.text(zone.name), .text(zone.ownerName), .text(source), .text(targetName)]
-        ).isEmpty
-    }
-
     /// Writes one edit: the record's row and its links. With a base, only the fields and links
     /// the edit changed from it are written, so the saved record keeps anything changed
     /// elsewhere since that the edit didn't touch.
     func write(_ change: RecordDifference, now: Double) throws {
         let key = change.key
         let savedLinks = try currentLinks(of: key)
-        guard !change.isDelete else {
-            try remove(key, now: now)
-            try writeLinks([], of: key, saved: savedLinks, removing: nil, now: now)
-            return
-        }
+        guard !change.isDelete else { return try delete(key, links: savedLinks, now: now) }
         // A record removed or deleted since it was edited comes back whole.
         let savedRow = try currentRow(of: key)
         let hasOriginal = savedRow != nil && savedRow?["_deleted"] != .integer(1) && change.base != nil
@@ -126,6 +119,12 @@ extension Database {
         )
     }
 
+    /// Deletes `key`'s record and `links`, the links it owns.
+    func delete(_ key: RecordKey, links: [String: [String: SQLValue]], now: Double) throws {
+        try remove(key, now: now)
+        try writeLinks([], of: key, saved: links, removing: nil, now: now)
+    }
+
     /// Writes an edited record. A new one is inserted with every field. An existing one has the
     /// fields that differ updated, and a deleted one comes back with every field. Before a synced
     /// row first changes, it is copied to its base row, and once it matches its base again the
@@ -135,7 +134,7 @@ extension Database {
         now: Double
     ) throws {
         guard let saved = try currentRow(of: key) else {
-            try insertRow(schema.recordType, key: key, fields: values, now: now)
+            try insertRow(key, fields: values, now: now)
             return
         }
         // A deleted row comes back whole. Otherwise only the edited fields count, or every field
@@ -156,14 +155,8 @@ extension Database {
     ) throws {
         for (name, values) in links where !RecordContext.matches(saved[name], values) {
             let linkKey = RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone)
-            if try currentRow(of: linkKey) == nil {
-                try insertRow(RecordLink.recordType, key: linkKey, fields: values, now: now)
-            } else {
-                // A one-to-many target moves to its new source, so its link may belong to another record.
-                try keepBase(of: linkKey)
-                try updateRow(linkKey, fields: values, now: now)
-                try dropBaseIfUnchanged(linkKey, schema: RecordLink.schema)
-            }
+            // A one-to-many target moves to its new source, so its link may belong to another record.
+            try writeRecord(RecordLink.schema, key: linkKey, values: values, edited: nil, now: now)
         }
         let kept = Set(links.map(\.0))
         for name in saved.keys where removing?.contains(name) ?? !kept.contains(name) {
@@ -186,14 +179,12 @@ extension Database {
         }
     }
 
-    func insertRow(
-        _ recordType: CKRecord.RecordType, key: RecordKey, fields: [String: SQLValue], now: Double
-    ) throws {
+    func insertRow(_ key: RecordKey, fields: [String: SQLValue], now: Double) throws {
         let names = Array(fields.keys)
         let columns = ["_name", "_isCurrent", "_zoneName", "_zoneOwner", "_createdAt", "_modifiedAt"] + names
         let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
         try run(
-            "INSERT INTO \(quoted(recordType)) (\(columns.map(quoted).joined(separator: ", "))) VALUES (\(placeholders))",
+            "INSERT INTO \(quoted(key.recordType)) (\(columns.map(quoted).joined(separator: ", "))) VALUES (\(placeholders))",
             [.text(key.name), .integer(1), .text(key.zone.name), .text(key.zone.ownerName), .real(now), .real(now)]
                 + names.map { fields[$0]! }
         )
@@ -248,20 +239,9 @@ extension Database {
     /// The current, undeleted links `key`'s record owns, by link name.
     func currentLinks(of key: RecordKey) throws -> [String: [String: SQLValue]] {
         let prefix = key.recordType + "."
-        let rows = try self.rows(
-            """
-            SELECT * FROM \(quoted(RecordLink.recordType)) \
-            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "sourceName" = ? AND "_isCurrent" = 1 AND "_deleted" = 0 \
-            AND substr("source", 1, ?) = ?
-            """,
-            key.values + [.integer(Int64(prefix.count)), .text(prefix)]
-        )
-        return Dictionary(
-            rows.compactMap { row in
-                guard case .text(let name) = row["_name"] else { return nil }
-                return (name, row)
-            },
-            uniquingKeysWith: { first, _ in first }
+        return try links(
+            in: key.zone, where: "\"sourceName\" = ? AND substr(\"source\", 1, ?) = ?",
+            [.text(key.name), .integer(Int64(prefix.count)), .text(prefix)]
         )
     }
 }

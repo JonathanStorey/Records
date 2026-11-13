@@ -42,9 +42,9 @@ public struct RecordGraph {
         add(link)
     }
 
-    /// A graph of `records` and `links` as CloudKit returns them. Each record is read as the
-    /// type `root` reaches it through, and records of other types are left out. Links that can't
-    /// be read are skipped.
+    /// A graph of `records` and `links` as CloudKit returns them. Each record is read as `root`
+    /// or the type one of its references points at, and records of other types are left out.
+    /// Links that can't be read are skipped.
     init(records: [CKRecord], links: [CKRecord], reachableFrom root: any Record.Type) throws {
         let decoder = CKRecordDecoder()
         for record in links where record.recordType == RecordLink.recordType {
@@ -55,28 +55,14 @@ public struct RecordGraph {
                 assetFiles[assetID] = file
             }
         }
-        let types = Self.types(reachableFrom: root)
+        var types: [CKRecord.RecordType: any Record.Type] = [root.recordType: root]
+        for reference in root.schema.references {
+            types[reference.target.recordType] = reference.target
+        }
         for record in records {
             guard let type = types[record.recordType] else { continue }
-            self[record.recordType, record.recordID.recordName] = try Self.row(of: record, as: type)
+            self[record.recordType, record.recordID.recordName] = try decoder.decode(record, of: type)
         }
-    }
-
-    private static func row<T: Record>(of record: CKRecord, as type: T.Type) throws -> RecordRow {
-        try CKRecordDecoder().decode(record, of: T.self)
-    }
-
-    /// `root` and every type its references reach, by record type.
-    private static func types(reachableFrom root: any Record.Type) -> [CKRecord.RecordType: any Record.Type] {
-        var types: [CKRecord.RecordType: any Record.Type] = [root.recordType: root]
-        var queue: [any Record.Type] = [root]
-        while let type = queue.popLast() {
-            for reference in type.schema.references where types[reference.target.recordType] == nil {
-                types[reference.target.recordType] = reference.target
-                queue.append(reference.target)
-            }
-        }
-        return types
     }
 
     private static func key(_ recordType: CKRecord.RecordType, _ name: String) -> String {

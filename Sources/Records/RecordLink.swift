@@ -3,7 +3,7 @@ import CryptoKit
 
 /// The shape of a relationship, from both sides' cardinality. Derived from the schema, never
 /// stored.
-enum Relationship: String, Sendable, CaseIterable {
+enum Relationship: Sendable {
     case oneToOne
     case oneToMany
     case manyToOne
@@ -105,7 +105,7 @@ extension RecordLink {
     /// The link a `@Reference` writes to the target with `targetID`.
     init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, targetID: UUID) {
         self.init(
-            id: RecordID(Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: targetID)),
+            id: RecordID(rawValue: Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: targetID)),
             source: Self.source(type: sourceType, property: reference.property),
             sourceName: sourceID.uuidString,
             targetName: targetID.uuidString
@@ -131,7 +131,7 @@ extension RecordLink {
     init(asset: AssetState, assetID: UUID, sourceType: CKRecord.RecordType, sourceID: UUID) {
         let source = Self.source(type: sourceType, property: asset.property)
         self.init(
-            id: RecordID(Self.id(source: source, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: "")),
+            id: RecordID(rawValue: Self.id(source: source, kind: .manyToOne, sourceName: sourceID.uuidString, targetName: "")),
             source: source,
             sourceName: sourceID.uuidString,
             targetName: nil,

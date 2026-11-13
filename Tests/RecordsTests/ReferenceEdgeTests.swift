@@ -70,7 +70,7 @@ private func label(_ name: String) -> Label {
     let records = [a, b].map { encoder.encode($0, in: .records) }
 
     let graph = try RecordGraph(records: records, links: links, reachableFrom: Employee.self)
-    let decoded = try #require(try graph.record(Employee.self, id: aID.uuid, depth: 3))
+    let decoded = try #require(try graph.record(Employee.self, id: aID.rawValue, depth: 3))
     #expect(decoded.manager?.name == "B")
     #expect(decoded.manager?.manager?.name == "A")
     #expect(decoded.manager?.manager?.manager?.name == "B")
