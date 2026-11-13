@@ -103,12 +103,19 @@ struct Ticket: Equatable {
     var version: Version
     var link: URL?
     var count: Int
+    var holders: [UUID]
+    var seats: [SeatCode]
+    var versions: [Version]
+    var links: [URL]
+    var counts: [Int]
 }
 
 func ticket(holder: UUID = UUID()) -> Ticket {
     Ticket(
         holder: holder, seat: SeatCode(rawValue: UUID()), version: Version(major: 2, minor: 1),
-        link: URL(string: "https://example.com/a?b=c"), count: 3
+        link: URL(string: "https://example.com/a?b=c"), count: 3,
+        holders: [holder, UUID()], seats: [SeatCode(rawValue: UUID())], versions: [Version(major: 1, minor: 0), Version(major: 2, minor: 5)],
+        links: [URL(string: "https://example.com")!], counts: [1, 2]
     )
 }
 
@@ -120,6 +127,19 @@ func ticket(holder: UUID = UUID()) -> Ticket {
     #expect(record["version"] as? String == "2.1")
     #expect(record["link"] as? String == "https://example.com/a?b=c")
     #expect(record["count"] as? Int == 3)
+    #expect(record["holders"] as? [String] == original.holders.map(\.uuidString))
+    #expect(record["seats"] as? [String] == original.seats.map(\.rawValue.uuidString))
+    #expect(record["versions"] as? [String] == ["1.0", "2.5"])
+    #expect(record["links"] as? [String] == ["https://example.com"])
+    #expect(record["counts"] as? [Int] == [1, 2])
+}
+
+@Test func anUnreadableStringInAnArrayIsATypeMismatch() {
+    let record = CKRecordEncoder().encode(ticket(), in: .records)
+    record["holders"] = [UUID().uuidString, "not a uuid"]
+    #expect(throws: CKRecordDecodingError.typeMismatch(field: "holders")) {
+        try CKRecordDecoder().decode(Ticket.self, from: record)
+    }
 }
 
 @Test func anUnreadableStringIsATypeMismatch() {
