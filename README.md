@@ -141,8 +141,7 @@ Records keeps no schema versions, because CloudKit's schema only grows. Change a
 A record can also conform to `Codable`. Declare it on the struct itself, and `@Record` writes
 `encode(to:)` and `init(from:)`, keyed by each property's Swift name:
 
-- A reference encodes its target IDs, so a decoded record holds IDs only, as after a load with
-  depth 0.
+- A reference encodes its target IDs, so a decoded record holds IDs only.
 - An `@Asset` encodes its ID. The data stays in its file, which a decoded record finds again on the
   same device.
 - A `@Location` encodes its coordinate.
@@ -707,20 +706,9 @@ album.$cover.id                              // nil only when the album truly ha
 `$name` is a `ReferenceIDs` for a to-many reference and a `ReferenceID` for a to-one reference.
 `from:` sides don't need either, because they hold IDs and are always complete.
 
-To load further, pass `depth:`. Each level multiplies what's loaded, so ask for depth only where a
-screen shows it.
-
-```swift
-let album = try decoder.decode(Album.self, from: record, links: links, targets: targets, depth: 2)
-album.tracks[0].tags.map(\.name)   // ["energetic", "live"]: level two holds records too
-
-let bare = try decoder.decode(Album.self, from: record, links: links, depth: 0)
-bare.tracks                        // []: depth 0 loads no records
-bare.$tracks.ids   // but every ID is there
-```
-
-Depth also makes cycles safe. A mentor who mentors their mentor loads back and forth until the
-depth runs out, then holds only an ID.
+Decoding loads one level. The targets are records, and their own references hold only IDs. To
+show a track's tags, decode the track. Loading one level keeps what's read in proportion to what
+was asked for, and makes cycles safe: a mentor who mentors their mentor holds that mentor's ID.
 
 ## Not built yet
 

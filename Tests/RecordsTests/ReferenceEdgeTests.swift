@@ -60,8 +60,8 @@ private func label(_ name: String) -> Label {
 
 // MARK: - Cycles
 
-@Test func decodingACycleStopsAtItsDepth() throws {
-    let encoder = CKRecordEncoder(), decoder = CKRecordDecoder()
+@Test func loadingACycleStopsAtItsDepth() throws {
+    let encoder = CKRecordEncoder()
     let (aID, bID) = (Employee.ID(), Employee.ID())
     let a = Employee(name: "A", manager: Employee(name: "B", manager: nil, id: bID), id: aID)
     var b = Employee(name: "B", manager: nil, id: bID)
@@ -69,7 +69,8 @@ private func label(_ name: String) -> Label {
     let links = encoder.links(for: a, in: .records) + encoder.links(for: b, in: .records)
     let records = [a, b].map { encoder.encode($0, in: .records) }
 
-    let decoded = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 3)
+    let graph = try RecordGraph(records: records, links: links, reachableFrom: Employee.self)
+    let decoded = try #require(try graph.record(Employee.self, id: aID.uuid, depth: 3))
     #expect(decoded.manager?.name == "B")
     #expect(decoded.manager?.manager?.name == "A")
     #expect(decoded.manager?.manager?.manager?.name == "B")

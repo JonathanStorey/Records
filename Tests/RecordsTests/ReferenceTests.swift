@@ -119,24 +119,17 @@ private func savedArticle(
 
 // MARK: - Decoding with links
 
-@Test func depthSetsHowManyLevelsHoldRecords() throws {
+@Test func decodingLoadsOneLevel() throws {
     let top = Employee(name: "Linus", manager: nil)
     let boss = Employee(name: "Grace", manager: top)
     let employee = Employee(name: "Ada", manager: boss)
     let links = [employee, boss].flatMap { encoder.links(for: $0, in: .records) }
     let records = [employee, boss, top].map { encoder.encode($0, in: .records) }
 
-    let bare = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 0)
-    #expect(bare.manager == nil)
-    #expect(bare.$manager.id == boss.id)
-
     let one = try decoder.decode(Employee.self, from: records[0], links: links, targets: records)
     #expect(one.manager?.name == "Grace")
     #expect(one.manager?.manager == nil)
     #expect(one.manager?.$manager.id == top.id)
-
-    let two = try decoder.decode(Employee.self, from: records[0], links: links, targets: records, depth: 2)
-    #expect(two.manager?.manager?.name == "Linus")
 }
 
 @Test func decodingFillsReferencesFromLinks() throws {
