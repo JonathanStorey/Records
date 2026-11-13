@@ -9,7 +9,6 @@ enum Grade: Int, Codable {
 
 @Record
 struct Gauge: Equatable {
-    var id: UUID
     var name: String
     var level: Double
     var steps: Int
@@ -28,7 +27,7 @@ private func gauge(
     isOn: Bool = false, mood: Mood = .calm, rating: Grade? = nil, nickname: String? = nil
 ) -> Gauge {
     Gauge(
-        id: UUID(), name: name, level: level, steps: steps, limit: limit, checkedAt: checkedAt,
+        name: name, level: level, steps: steps, limit: limit, checkedAt: checkedAt,
         isOn: isOn, mood: mood, rating: rating, nickname: nickname
     )
 }
@@ -93,7 +92,7 @@ private let two: Grade? = .two
 }
 
 @Test func theIDIsTheRecordName() throws {
-    let id = UUID()
+    let id = Gauge.ID()
     let result = try #require(translate(#Predicate { $0.id == id }))
     #expect(result.sql == #"("Gauge"."_name" IS ?)"#)
     #expect(result.values == [.text(id.uuidString)])

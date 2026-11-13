@@ -11,19 +11,19 @@ private func context() throws -> RecordContext {
 
 @MainActor
 private func savedPage(_ labels: [Label], in context: RecordContext) throws -> Page {
-    let page = Page(id: UUID(), title: "Notes", labels: labels)
+    let page = Page(title: "Notes", labels: labels)
     context.insert(page)
     try context.save()
     return page
 }
 
 @MainActor
-private func labelIDs(of page: Page, in context: RecordContext) throws -> [UUID] {
+private func labelIDs(of page: Page, in context: RecordContext) throws -> [Label.ID] {
     try #require(try context.record(id: page.id, for: Page.self)).$labels.ids
 }
 
 private func labels(_ names: String...) -> [Label] {
-    names.map { Label(id: UUID(), name: $0) }
+    names.map { Label(name: $0) }
 }
 
 @MainActor
@@ -46,7 +46,7 @@ private func labels(_ names: String...) -> [Label] {
     let page = try savedPage([], in: context)
     let modified = try context.database.currentRow(of: RecordKey(recordType: "Page", name: page.id.uuidString, zone: context.zone))?["_modifiedAt"]
 
-    context.insert(Label(id: UUID(), name: "a"), into: \Page.labels, of: page.id)
+    context.insert(Label(name: "a"), into: \Page.labels, of: page.id)
     try context.save()
 
     let row = try context.database.currentRow(of: RecordKey(recordType: "Page", name: page.id.uuidString, zone: context.zone))
@@ -67,12 +67,12 @@ private func labels(_ names: String...) -> [Label] {
 @MainActor
 @Test func insertNeverOverwritesASavedTarget() throws {
     let context = try context()
-    let label = Label(id: UUID(), name: "a")
+    let label = Label(name: "a")
     let page = try savedPage([], in: context)
     context.insert(label)
     try context.save()
 
-    context.insert(Label(id: label.id, name: "stale"), into: \Page.labels, of: page.id)
+    context.insert(Label(name: "stale", id: label.id), into: \Page.labels, of: page.id)
     try context.save()
 
     #expect(try context.record(id: label.id, for: Label.self)?.name == "a")
@@ -86,7 +86,7 @@ private func labels(_ names: String...) -> [Label] {
     let page = try savedPage(items, in: context)
 
     context.remove(items[0].id, from: \Page.labels, of: page.id)
-    context.remove([items[2].id, UUID()], from: \Page.labels, of: page.id)
+    context.remove([items[2].id, Label.ID()], from: \Page.labels, of: page.id)
     try context.save()
 
     #expect(try labelIDs(of: page, in: context) == [items[1].id])
@@ -97,7 +97,7 @@ private func labels(_ names: String...) -> [Label] {
 @Test func removingAPendingInsertLeavesNothing() throws {
     let context = try context()
     let page = try savedPage([], in: context)
-    let label = Label(id: UUID(), name: "a")
+    let label = Label(name: "a")
 
     context.insert(label, into: \Page.labels, of: page.id)
     context.remove(label.id, from: \Page.labels, of: page.id)
@@ -110,7 +110,7 @@ private func labels(_ names: String...) -> [Label] {
 @Test func aLinkSurvivesANewOwnerSavedWithIt() throws {
     let context = try context()
     let items = labels("a", "b")
-    let page = Page(id: UUID(), title: "Notes", labels: [items[0]])
+    let page = Page(title: "Notes", labels: [items[0]])
 
     context.insert(items[1], into: \Page.labels, of: page.id)
     context.insert(page)
@@ -122,8 +122,8 @@ private func labels(_ names: String...) -> [Label] {
 @MainActor
 @Test func toOneInsertReplacesTheTarget() throws {
     let context = try context()
-    let shelves = (0..<2).map { Shelf(id: UUID(), name: "\($0)", bookIDs: []) }
-    let book = Book(id: UUID(), title: "Dune", shelf: shelves[0])
+    let shelves = (0..<2).map { Shelf(name: "\($0)", bookIDs: []) }
+    let book = Book(title: "Dune", shelf: shelves[0])
     context.insert(book)
     context.insert(shelves[1])
     try context.save()
@@ -139,12 +139,12 @@ private func labels(_ names: String...) -> [Label] {
 @MainActor
 @Test func toOneRemoveClearsOnlyItsOwnTarget() throws {
     let context = try context()
-    let shelf = Shelf(id: UUID(), name: "Fiction", bookIDs: [])
-    let book = Book(id: UUID(), title: "Dune", shelf: shelf)
+    let shelf = Shelf(name: "Fiction", bookIDs: [])
+    let book = Book(title: "Dune", shelf: shelf)
     context.insert(book)
     try context.save()
 
-    context.remove(UUID(), from: \Book.shelf, of: book.id)
+    context.remove(Shelf.ID(), from: \Book.shelf, of: book.id)
     #expect(!context.hasChanges)
 
     context.remove(shelf.id, from: \Book.shelf, of: book.id)
@@ -156,8 +156,8 @@ private func labels(_ names: String...) -> [Label] {
 @MainActor
 @Test func aOneToManyInsertMovesTheTarget() throws {
     let context = try context()
-    let song = Song(id: UUID(), title: "Intro", albumID: nil)
-    let first = Release(id: UUID(), tracks: [song]), second = Release(id: UUID(), tracks: [])
+    let song = Song(title: "Intro", albumID: nil)
+    let first = Release(tracks: [song]), second = Release(tracks: [])
     context.insert(first)
     context.insert(second)
     try context.save()
@@ -207,8 +207,8 @@ private func labels(_ names: String...) -> [Label] {
 @MainActor
 @Test func theToOneHandleSetsAndClears() throws {
     let context = try context()
-    let shelves = (0..<2).map { Shelf(id: UUID(), name: "\($0)", bookIDs: []) }
-    var book = Book(id: UUID(), title: "Dune", shelf: shelves[0])
+    let shelves = (0..<2).map { Shelf(name: "\($0)", bookIDs: []) }
+    var book = Book(title: "Dune", shelf: shelves[0])
     context.insert(book)
     try context.save()
 

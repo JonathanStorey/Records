@@ -28,19 +28,19 @@ private func expectMatches<R: Record>(
 @MainActor
 @Test func filtersOnAToOneIDReference() throws {
     let context = try context(for: Account.self, Settings.self)
-    let settings = (0..<3).map { _ in Settings(id: UUID(), accountID: nil) }
+    let settings = (0..<3).map { _ in Settings(accountID: nil) }
     let accounts = [
-        Account(id: UUID(), settings: settings[0]),
-        Account(id: UUID(), settings: settings[1]),
-        Account(id: UUID(), settings: nil),
+        Account(settings: settings[0]),
+        Account(settings: settings[1]),
+        Account(settings: nil),
     ]
     for account in accounts { context.insert(account) }
     context.insert(settings[2])
     try context.save()
 
     let owner = accounts[0].id
-    let either: [UUID?] = [accounts[0].id, accounts[2].id]
-    let missing = UUID()
+    let either: [Account.ID?] = [accounts[0].id, accounts[2].id]
+    let missing = Account.ID()
     try expectMatches([
         #Predicate<Settings> { $0.accountID == owner },
         #Predicate<Settings> { $0.accountID != owner },
@@ -57,17 +57,17 @@ private func expectMatches<R: Record>(
 @MainActor
 @Test func filtersOnToManyIDReferences() throws {
     let context = try context(for: Book.self, Shelf.self)
-    let shelves = (0..<3).map { Shelf(id: UUID(), name: "\($0)", bookIDs: []) }
+    let shelves = (0..<3).map { Shelf(name: "\($0)", bookIDs: []) }
     for shelf in shelves { context.insert(shelf) }
     let books = [
-        Book(id: UUID(), title: "x", shelf: shelves[0]),
-        Book(id: UUID(), title: "y", shelf: shelves[0]),
-        Book(id: UUID(), title: "z", shelf: shelves[1]),
+        Book(title: "x", shelf: shelves[0]),
+        Book(title: "y", shelf: shelves[0]),
+        Book(title: "z", shelf: shelves[1]),
     ]
     for book in books { context.insert(book) }
     try context.save()
 
-    let first = books[0].id, second = books[1].id, third = books[2].id, missing = UUID()
+    let first = books[0].id, second = books[1].id, third = books[2].id, missing = Book.ID()
     try expectMatches([
         #Predicate<Shelf> { $0.bookIDs.contains(first) },
         #Predicate<Shelf> { $0.bookIDs.contains(third) },
@@ -80,8 +80,8 @@ private func expectMatches<R: Record>(
 @MainActor
 @Test func filtersOnTheFromSideOfAToManyOwner() throws {
     let context = try context(for: Release.self, Song.self)
-    let songs = (0..<3).map { Song(id: UUID(), title: "\($0)", albumID: nil) }
-    let release = Release(id: UUID(), tracks: [songs[0], songs[1]])
+    let songs = (0..<3).map { Song(title: "\($0)", albumID: nil) }
+    let release = Release(tracks: [songs[0], songs[1]])
     context.insert(release)
     context.insert(songs[2])
     try context.save()
@@ -96,8 +96,8 @@ private func expectMatches<R: Record>(
 @MainActor
 @Test func idFiltersSeeChangesOnlyAfterSave() throws {
     let context = try context(for: Account.self, Settings.self)
-    let settings = Settings(id: UUID(), accountID: nil)
-    var account = Account(id: UUID(), settings: settings)
+    let settings = Settings(accountID: nil)
+    var account = Account(settings: settings)
     context.insert(account)
     try context.save()
 
@@ -116,7 +116,7 @@ private func expectMatches<R: Record>(
 }
 
 @Test func anIDFilterIsALinkCondition() throws {
-    let id = UUID()
+    let id = Account.ID()
     let result = try #require(PredicateTranslator(for: Settings.self).translate(#Predicate<Settings> { $0.accountID == id }))
     #expect(result.filter.sql.hasPrefix("EXISTS (SELECT 1 FROM \"RecordLink\" AS \"l1\""))
     #expect(result.filter.values.contains(.text("Account.settings")))

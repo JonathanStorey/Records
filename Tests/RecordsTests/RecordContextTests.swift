@@ -11,7 +11,7 @@ private func makeContext(for types: any Record.Type...) throws -> RecordContext 
 
 /// The current row of `id` in `table`, in `zone` when one is given.
 @MainActor
-private func currentRow(_ table: String, _ id: UUID, in context: RecordContext, zone: Zone? = nil) throws -> [String: SQLValue] {
+private func currentRow<R>(_ table: String, _ id: RecordID<R>, in context: RecordContext, zone: Zone? = nil) throws -> [String: SQLValue] {
     var sql = "SELECT * FROM \"\(table)\" WHERE \"_name\" = ? AND \"_isCurrent\" = 1"
     var values: [SQLValue] = [.text(id.uuidString)]
     if let zone {
@@ -23,7 +23,7 @@ private func currentRow(_ table: String, _ id: UUID, in context: RecordContext, 
 }
 
 @MainActor
-private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String: SQLValue]] {
+private func linkRows<R>(of id: RecordID<R>, in context: RecordContext) throws -> [[String: SQLValue]] {
     try context.database.rows(
         "SELECT * FROM \"RecordLink\" WHERE \"sourceName\" = ? ORDER BY \"order\"", [.text(id.uuidString)]
     )
@@ -35,7 +35,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @Test func saveWritesTheFields() throws {
     let context = try makeContext(for: Venue.self)
     let venue = Venue(
-        id: UUID(), name: "Hall", mood: .calm, rating: .two,
+        name: "Hall", mood: .calm, rating: .two,
         address: Address(street: "1 Main", city: "Springfield"), previous: nil, moods: [.calm]
     )
     context.insert(venue)
@@ -53,7 +53,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @MainActor
 @Test func savedRecordsWaitToUpload() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [])
+    let page = Page(title: "Notes", labels: [])
     context.insert(page)
     try context.save()
 
@@ -70,11 +70,11 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @MainActor
 @Test func saveUsesTheContextsZone() throws {
     let context = try makeContext(for: Page.self)
-    let first = Page(id: UUID(), title: "One", labels: [])
+    let first = Page(title: "One", labels: [])
     context.insert(first)
     try context.save()
     context.zone = "Work"
-    let second = Page(id: UUID(), title: "Two", labels: [])
+    let second = Page(title: "Two", labels: [])
     context.insert(second)
     try context.save()
 
@@ -93,7 +93,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
     var pages: [Page] = []
     for zone in zones {
         container.mainContext.zone = zone
-        let page = Page(id: UUID(), title: zone.name, labels: [Label(id: UUID(), name: "tag")])
+        let page = Page(title: zone.name, labels: [Label(name: "tag")])
         container.mainContext.insert(page)
         try container.mainContext.save()
         pages.append(page)
@@ -118,7 +118,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @MainActor
 @Test func sameIDCanBeSavedToTwoZones() throws {
     let context = try makeContext(for: Page.self)
-    var page = Page(id: UUID(), title: "One", labels: [Label(id: UUID(), name: "tag")])
+    var page = Page(title: "One", labels: [Label(name: "tag")])
     context.insert(page)
     try context.save()
     context.zone = "Work"
@@ -138,7 +138,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @Test func encryptedAndArchivedFieldsAreStored() throws {
     let context = try makeContext(for: Novel.self)
     let novel = Novel(
-        id: UUID(), title: "Notes", subtitle: nil, tags: ["a", "b"], year: 1843, note: "secret",
+        title: "Notes", subtitle: nil, tags: ["a", "b"], year: 1843, note: "secret",
         cover: nil, shop: Coordinate(latitude: 51.5, longitude: -0.12), sequel: nil, writers: [], editor: nil
     )
     context.insert(novel)
@@ -159,8 +159,8 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @MainActor
 @Test func saveWritesOrderedLinks() throws {
     let context = try makeContext(for: Page.self)
-    let items = ["a", "b", "c"].map { Label(id: UUID(), name: $0) }
-    let page = Page(id: UUID(), title: "Notes", labels: items)
+    let items = ["a", "b", "c"].map { Label(name: $0) }
+    let page = Page(title: "Notes", labels: items)
     context.insert(page)
     try context.save()
 
@@ -175,7 +175,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @Test func saveWritesAnAssetLink() throws {
     let context = try makeContext(for: Novel.self)
     let novel = Novel(
-        id: UUID(), title: "Notes", subtitle: nil, tags: [], year: 1843, note: nil,
+        title: "Notes", subtitle: nil, tags: [], year: 1843, note: nil,
         cover: Data("cover".utf8), shop: nil, sequel: nil, writers: [], editor: nil
     )
     context.insert(novel)
@@ -192,8 +192,8 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @MainActor
 @Test func savingAgainUpdatesTheRecord() throws {
     let context = try makeContext(for: Page.self)
-    let a = Label(id: UUID(), name: "a"), b = Label(id: UUID(), name: "b")
-    var page = Page(id: UUID(), title: "Draft", labels: [a, b])
+    let a = Label(name: "a"), b = Label(name: "b")
+    var page = Page(title: "Draft", labels: [a, b])
     context.insert(page)
     try context.save()
     let created = try currentRow("Page", page.id, in: context)["_createdAt"]
@@ -219,8 +219,8 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @MainActor
 @Test func savingASyncedRecordKeepsItsBase() throws {
     let context = try makeContext(for: Page.self)
-    let a = Label(id: UUID(), name: "a"), b = Label(id: UUID(), name: "b")
-    var page = Page(id: UUID(), title: "Synced", labels: [a, b])
+    let a = Label(name: "a"), b = Label(name: "b")
+    var page = Page(title: "Synced", labels: [a, b])
     context.insert(page)
     try context.save()
     // Stand in for a sync, which stores each row's system fields.
@@ -259,8 +259,8 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 @MainActor
 @Test func savingRestoresARemovedLink() throws {
     let context = try makeContext(for: Page.self)
-    let a = Label(id: UUID(), name: "a")
-    var page = Page(id: UUID(), title: "Notes", labels: [a])
+    let a = Label(name: "a")
+    var page = Page(title: "Notes", labels: [a])
     context.insert(page)
     try context.save()
     try context.database.run("UPDATE \"RecordLink\" SET \"_systemFields\" = x'00'", [])
@@ -304,7 +304,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
         context = container.mainContext
     }
     #expect(released == nil)
-    context.insert(Venue(id: UUID(), name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: []))
+    context.insert(Venue(name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: []))
     try context.save()
     #expect(try context.database.rows("SELECT * FROM \"Venue\"").count == 1)
 }
@@ -313,7 +313,7 @@ private func linkRows(of id: UUID, in context: RecordContext) throws -> [[String
 // MARK: - Staging
 
 private func makeVenue() -> Venue {
-    Venue(id: UUID(), name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: [])
+    Venue(name: "Hall", mood: .calm, rating: nil, address: Address(street: "", city: ""), previous: nil, moods: [])
 }
 
 @MainActor
@@ -351,7 +351,7 @@ private func makeVenue() -> Venue {
 @MainActor
 @Test func savingAnUnchangedRecordWritesNothing() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [Label(id: UUID(), name: "a")])
+    let page = Page(title: "Notes", labels: [Label(name: "a")])
     context.insert(page)
     try context.save()
     try context.database.run("UPDATE \"Page\" SET \"_systemFields\" = x'00', \"_modifiedAt\" = 0", [])
@@ -387,8 +387,8 @@ private func makeVenue() -> Venue {
 @MainActor
 @Test func saveWritesEveryStagedRecord() throws {
     let context = try makeContext(for: Page.self)
-    let label = Label(id: UUID(), name: "a")
-    let page = Page(id: UUID(), title: "Notes", labels: [label])
+    let label = Label(name: "a")
+    let page = Page(title: "Notes", labels: [label])
     context.insert(page)
     context.insert(label)
     try context.save()
@@ -421,7 +421,7 @@ private func makeVenue() -> Venue {
 @MainActor
 @Test func deletingAnUnsyncedRecordRemovesIt() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [Label(id: UUID(), name: "a")])
+    let page = Page(title: "Notes", labels: [Label(name: "a")])
     context.insert(page)
     try context.save()
     context.delete(page)
@@ -433,7 +433,7 @@ private func makeVenue() -> Venue {
 @MainActor
 @Test func deletingASyncedRecordMarksIt() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [Label(id: UUID(), name: "a")])
+    let page = Page(title: "Notes", labels: [Label(name: "a")])
     context.insert(page)
     try context.save()
     try context.database.run("UPDATE \"Page\" SET \"_systemFields\" = x'00'", [])
@@ -449,7 +449,7 @@ private func makeVenue() -> Venue {
 @MainActor
 @Test func insertingADeletedRecordRestoresIt() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [])
+    let page = Page(title: "Notes", labels: [])
     context.insert(page)
     try context.save()
     try context.database.run("UPDATE \"Page\" SET \"_systemFields\" = x'00'", [])
@@ -465,7 +465,7 @@ private func makeVenue() -> Venue {
 @MainActor
 @Test func deletingAStagedRecordWritesNothing() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [Label(id: UUID(), name: "a")])
+    let page = Page(title: "Notes", labels: [Label(name: "a")])
     context.insert(page)
     context.delete(page)
     try context.save()
@@ -478,8 +478,8 @@ private func makeVenue() -> Venue {
 @MainActor
 @Test func reorderingRewritesOnlyMovedLinks() throws {
     let context = try makeContext(for: Page.self)
-    let labels = ["a", "b", "c"].map { Label(id: UUID(), name: $0) }
-    var page = Page(id: UUID(), title: "Notes", labels: labels)
+    let labels = ["a", "b", "c"].map { Label(name: $0) }
+    var page = Page(title: "Notes", labels: labels)
     context.insert(page)
     try context.save()
     let before = try linkRows(of: page.id, in: context)
@@ -512,14 +512,14 @@ private func insertedTitles(_ context: RecordContext) -> [String] {
 @MainActor
 @Test func insertingAgainReplacesTheChange() throws {
     let context = try makeContext(for: Page.self)
-    var first = Page(id: UUID(), title: "Draft", labels: [])
-    let second = Page(id: UUID(), title: "Other", labels: [])
+    var first = Page(title: "Draft", labels: [])
+    let second = Page(title: "Other", labels: [])
     context.insert(first)
     context.insert(second)
     first.title = "Final"
     context.insert(first)
 
-    #expect(context.changes == [.insert(first.id), .insert(second.id)])
+    #expect(context.changes == [.insert(first.uuid), .insert(second.uuid)])
     #expect(insertedTitles(context) == ["Final", "Other"])
 }
 
@@ -527,16 +527,16 @@ private func insertedTitles(_ context: RecordContext) -> [String] {
 @MainActor
 @Test func changesBelongToTheirZone() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [])
+    let page = Page(title: "Notes", labels: [])
     context.insert(page)
     context.zone = "Work"
     context.insert(page)
-    let work = Page(id: UUID(), title: "Plan", labels: [])
+    let work = Page(title: "Plan", labels: [])
     context.insert(work)
 
-    #expect(context.changes == [.insert(page.id), .insert(work.id)])
+    #expect(context.changes == [.insert(page.uuid), .insert(work.uuid)])
     context.zone = .records
-    #expect(context.changes == [.insert(page.id)])
+    #expect(context.changes == [.insert(page.uuid)])
 
     try context.save()
     #expect(!context.hasChanges)
@@ -547,7 +547,7 @@ private func insertedTitles(_ context: RecordContext) -> [String] {
 @MainActor
 @Test func deleteAppearsInChanges() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [])
+    let page = Page(title: "Notes", labels: [])
     context.insert(page)
     context.delete(page)
     // Never saved, so nothing is left to write.
@@ -556,7 +556,7 @@ private func insertedTitles(_ context: RecordContext) -> [String] {
     context.insert(page)
     try context.save()
     context.delete(page)
-    #expect(context.changes == [.delete(page.id)])
+    #expect(context.changes == [.delete(page.uuid)])
     #expect(context.differences.count == 1)
 }
 
@@ -584,7 +584,7 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @Test func recordReadsEncryptedAndArchivedFields() throws {
     let context = try makeContext(for: Novel.self)
     let novel = Novel(
-        id: UUID(), title: "Dune", subtitle: nil, tags: ["sf", "classic"], year: 1965, note: "secret",
+        title: "Dune", subtitle: nil, tags: ["sf", "classic"], year: 1965, note: "secret",
         cover: nil, shop: Coordinate(latitude: 51.5, longitude: -0.12), sequel: nil, writers: [], editor: nil
     )
     context.insert(novel)
@@ -601,13 +601,13 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @MainActor
 @Test func recordFillsReferenceIDsInOrder() throws {
     let context = try makeContext(for: Page.self)
-    let labels = ["a", "b", "c"].map { Label(id: UUID(), name: $0) }
-    let page = Page(id: UUID(), title: "Notes", labels: [labels[2], labels[0], labels[1]])
+    let labels = ["a", "b", "c"].map { Label(name: $0) }
+    let page = Page(title: "Notes", labels: [labels[2], labels[0], labels[1]])
     context.insert(page)
     try context.save()
 
     let loaded = try #require(try context.record(id: page.id, for: Page.self))
-    #expect(referenceIDs(loaded, "labels") == [labels[2].id, labels[0].id, labels[1].id])
+    #expect(referenceIDs(loaded, "labels") == [labels[2].uuid, labels[0].uuid, labels[1].uuid])
 }
 
 /// A record reads as saved until `save()`.
@@ -637,7 +637,7 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @MainActor
 @Test func recordIsNilWhenMissingDeletedOrInAnotherZone() throws {
     let context = try makeContext(for: Page.self)
-    let page = Page(id: UUID(), title: "Notes", labels: [])
+    let page = Page(title: "Notes", labels: [])
     #expect(try context.record(id: page.id, for: Page.self) == nil)
     context.insert(page)
     try context.save()
@@ -658,7 +658,7 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @MainActor
 @Test func recordFindsTheTypeFromTheID() throws {
     let context = try makeContext(for: Page.self, Venue.self)
-    let label = Label(id: UUID(), name: "a")
+    let label = Label(name: "a")
     let venue = makeVenue()
     context.insert(label)
     context.insert(venue)
@@ -677,8 +677,8 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @Test func saveInsertsNewTargets() throws {
     let context = try makeContext(for: Page.self)
     context.zone = "Work"
-    let labels = ["a", "b"].map { Label(id: UUID(), name: $0) }
-    context.insert(Page(id: UUID(), title: "Notes", labels: labels))
+    let labels = ["a", "b"].map { Label(name: $0) }
+    context.insert(Page(title: "Notes", labels: labels))
     #expect(context.changes.count == 1)
     try context.save()
 
@@ -691,12 +691,12 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @MainActor
 @Test func saveLeavesExistingTargetsAlone() throws {
     let context = try makeContext(for: Page.self)
-    let label = Label(id: UUID(), name: "Current")
+    let label = Label(name: "Current")
     context.insert(label)
     try context.save()
 
-    let stale = Label(id: label.id, name: "Stale")
-    context.insert(Page(id: UUID(), title: "Notes", labels: [stale]))
+    let stale = Label(name: "Stale", id: label.id)
+    context.insert(Page(title: "Notes", labels: [stale]))
     try context.save()
     #expect(try currentRow("Label", label.id, in: context)["name"] == .text("Current"))
 }
@@ -705,9 +705,9 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @MainActor
 @Test func stagedTargetsWinOverLoadedCopies() throws {
     let context = try makeContext(for: Page.self)
-    let label = Label(id: UUID(), name: "Loaded")
-    context.insert(Page(id: UUID(), title: "Notes", labels: [label]))
-    context.insert(Label(id: label.id, name: "Staged"))
+    let label = Label(name: "Loaded")
+    context.insert(Page(title: "Notes", labels: [label]))
+    context.insert(Label(name: "Staged", id: label.id))
     try context.save()
     #expect(try currentRow("Label", label.id, in: context)["name"] == .text("Staged"))
 }
@@ -716,14 +716,14 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @MainActor
 @Test func saveDoesNotRestoreDeletedTargets() throws {
     let context = try makeContext(for: Page.self)
-    let label = Label(id: UUID(), name: "a")
+    let label = Label(name: "a")
     context.insert(label)
     try context.save()
     try context.database.run("UPDATE \"Label\" SET \"_systemFields\" = x'00'", [])
     context.delete(label)
     try context.save()
 
-    context.insert(Page(id: UUID(), title: "Notes", labels: [label]))
+    context.insert(Page(title: "Notes", labels: [label]))
     try context.save()
     #expect(try currentRow("Label", label.id, in: context)["_deleted"] == .integer(1))
 }
@@ -732,13 +732,13 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 @MainActor
 @Test func saveInsertsNewTargetsAtEveryLevel() throws {
     let context = try makeContext(for: Novel.self)
-    let writer = Writer(id: UUID(), name: "Herbert", bookIDs: [])
+    let writer = Writer(name: "Herbert", bookIDs: [])
     let sequel = Novel(
-        id: UUID(), title: "Dune Messiah", subtitle: nil, tags: [], year: 1969, note: nil,
+        title: "Dune Messiah", subtitle: nil, tags: [], year: 1969, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [writer], editor: nil
     )
     let novel = Novel(
-        id: UUID(), title: "Dune", subtitle: nil, tags: [], year: 1965, note: nil,
+        title: "Dune", subtitle: nil, tags: [], year: 1965, note: nil,
         cover: nil, shop: nil, sequel: sequel, writers: [], editor: nil
     )
     context.insert(novel)

@@ -9,7 +9,7 @@ private func gauges() -> [Gauge] {
     let grades: [Grade?] = [nil, .one, .two, nil, .three, .one, nil, .two]
     return (0..<8).map { index in
         Gauge(
-            id: UUID(), name: "Gauge \(index)", level: Double((index * 5) % 8) / 2, steps: (index * 3) % 8,
+            name: "Gauge \(index)", level: Double((index * 5) % 8) / 2, steps: (index * 3) % 8,
             limit: 4, checkedAt: base.addingTimeInterval(Double((index * 7) % 8)), isOn: index.isMultiple(of: 2),
             mood: index < 4 ? .calm : .energetic, rating: grades[index], nickname: nil
         )
@@ -37,7 +37,7 @@ private func orderBy(_ sortBy: [SortDescriptor<Gauge>]) -> String? {
     let context = try RecordContainer(for: [Note.self], url: nil).mainContext
     let ratings: [Int?] = [3, nil, 1, nil, 2]
     for (index, rating) in ratings.enumerated() {
-        context.insert(Note(id: UUID(), title: "\(index)", isPinned: false, rating: rating, tags: [], created: base))
+        context.insert(Note(title: "\(index)", isPinned: false, rating: rating, tags: [], created: base))
     }
     try context.save()
     let forward = try context.fetch(RecordDescriptor<Note>(sortBy: [SortDescriptor(\.rating)], fetchLimit: 5))
@@ -53,7 +53,7 @@ private func orderBy(_ sortBy: [SortDescriptor<Gauge>]) -> String? {
 }
 
 /// What `fetch` returns, worked out in Swift from every saved record.
-private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]) throws -> [UUID] {
+private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]) throws -> [Gauge.ID] {
     var result = try records.filter { try descriptor.predicate?.evaluate($0) ?? true }
     result.sort(using: descriptor.sortBy)
     let start = min(descriptor.fetchOffset ?? 0, result.count)
@@ -111,7 +111,7 @@ private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]
     let first = try #require(records.min { $0.steps < $1.steps })
     context.delete(first)
     var newcomer = records[1]
-    newcomer.id = UUID()
+    newcomer.id = Gauge.ID()
     newcomer.steps = -1
     context.insert(newcomer)
     records.removeAll { $0.id == first.id }
@@ -131,15 +131,15 @@ private func expected(_ descriptor: RecordDescriptor<Gauge>, in records: [Gauge]
 @MainActor
 @Test func linksLoadForTheRecordsInTheLimit() throws {
     let context = try RecordContainer(for: [Page.self, Novel.self], url: nil).mainContext
-    let labels = (0..<5).map { Label(id: UUID(), name: "\($0)") }
+    let labels = (0..<5).map { Label(name: "\($0)") }
     for index in 0..<5 {
-        context.insert(Page(id: UUID(), title: "\(index)", labels: [labels[index]]))
+        context.insert(Page(title: "\(index)", labels: [labels[index]]))
     }
     try context.save()
     let pages = try context.fetch(RecordDescriptor<Page>(fetchLimit: 2, fetchOffset: 1))
     #expect(pages.count == 2)
     for page in pages {
         let ids = page.referenceStates.first { $0.property == "labels" }?.ids ?? []
-        #expect(ids == [labels[try #require(Int(page.title))].id])
+        #expect(ids == [labels[try #require(Int(page.title))].uuid])
     }
 }

@@ -5,7 +5,6 @@ import Testing
 
 @Record("Gadget")
 struct GadgetV1 {
-    var id: UUID
     var name: String
     var color: String?
 }
@@ -13,27 +12,23 @@ struct GadgetV1 {
 /// The same record type after `color` was removed and `size` added.
 @Record("Gadget")
 struct GadgetV2 {
-    var id: UUID
     var name: String
     var size: Int?
 }
 
 @Record
 struct Underscored {
-    var id: UUID
     var _hidden: Int
 }
 
 @Record("RecordLink")
 struct FakeLink {
-    var id: UUID
 }
 
 /// Names `Account.settings`, which points at `Settings`, not here.
 @Record
 struct Imposter {
-    var id: UUID
-    @Reference(from: \Account.settings) var accountID: UUID?
+    @Reference(from: \Account.settings) var accountID: Account.ID?
 }
 
 private func temporaryFile() -> URL {

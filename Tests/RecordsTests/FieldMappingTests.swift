@@ -18,7 +18,6 @@ struct Address: Codable, Equatable {
 
 @Record
 struct Venue: Equatable {
-    var id: UUID
     @Renamed("title") var name: String
     var mood: Mood
     var rating: Rating?
@@ -29,7 +28,7 @@ struct Venue: Equatable {
 
 private func venue() -> Venue {
     Venue(
-        id: UUID(), name: "Hall", mood: .energetic, rating: .three,
+        name: "Hall", mood: .energetic, rating: .three,
         address: Address(street: "1 Main", city: "Springfield"), previous: nil, moods: [.calm, .energetic]
     )
 }
@@ -99,7 +98,6 @@ struct Version: LosslessStringConvertible, Codable, Equatable {
 
 @Record
 struct Ticket: Equatable {
-    var id: UUID
     var holder: UUID
     var seat: SeatCode?
     var version: Version
@@ -114,7 +112,7 @@ struct Ticket: Equatable {
 
 func ticket(holder: UUID = UUID()) -> Ticket {
     Ticket(
-        id: UUID(), holder: holder, seat: SeatCode(rawValue: UUID()), version: Version(major: 2, minor: 1),
+        holder: holder, seat: SeatCode(rawValue: UUID()), version: Version(major: 2, minor: 1),
         link: URL(string: "https://example.com/a?b=c"), count: 3,
         holders: [holder, UUID()], seats: [SeatCode(rawValue: UUID())], versions: [Version(major: 1, minor: 0), Version(major: 2, minor: 5)],
         links: [URL(string: "https://example.com")!], counts: [1, 2]

@@ -6,21 +6,18 @@ import Testing
 
 @Record
 struct Musician: Codable, Equatable {
-    var id: UUID
     var name: String
     var isActive: Bool
 }
 
 @Record
 struct Cut: Codable, Equatable {
-    var id: UUID
     var title: String
     var seconds: Int
 }
 
 @Record
 struct LP: Codable, Equatable {
-    var id: UUID
     var title: String
     var year: Int
     @Reference var musician: Musician?
@@ -29,7 +26,6 @@ struct LP: Codable, Equatable {
 
 @Record
 struct Review: Codable, Equatable {
-    var id: UUID
     var stars: Int
     @Reference var lp: LP?
 }
@@ -41,24 +37,24 @@ private struct Library {
     let reviews: [Review]
 
     init() {
-        let nova = Musician(id: UUID(), name: "Nova", isActive: true)
-        let echo = Musician(id: UUID(), name: "Echo", isActive: false)
-        let cafe = Musician(id: UUID(), name: "Cafe\u{301}", isActive: true)
+        let nova = Musician(name: "Nova", isActive: true)
+        let echo = Musician(name: "Echo", isActive: false)
+        let cafe = Musician(name: "Cafe\u{301}", isActive: true)
         musicians = [nova, echo, cafe]
-        let cut = { (title: String, seconds: Int) in Cut(id: UUID(), title: title, seconds: seconds) }
+        let cut = { (title: String, seconds: Int) in Cut(title: title, seconds: seconds) }
         lps = [
-            LP(id: UUID(), title: "A", year: 1999, musician: nova, cuts: [cut("Bloom", 200), cut("Drift", 350)]),
-            LP(id: UUID(), title: "B", year: 2004, musician: echo, cuts: [cut("Ash", 100)]),
-            LP(id: UUID(), title: "C", year: 2010, musician: nil, cuts: []),
-            LP(id: UUID(), title: "D", year: 2015, musician: nova, cuts: [cut("Tide", 450)]),
-            LP(id: UUID(), title: "E", year: 2020, musician: cafe, cuts: [cut("Bloom", 250)]),
+            LP(title: "A", year: 1999, musician: nova, cuts: [cut("Bloom", 200), cut("Drift", 350)]),
+            LP(title: "B", year: 2004, musician: echo, cuts: [cut("Ash", 100)]),
+            LP(title: "C", year: 2010, musician: nil, cuts: []),
+            LP(title: "D", year: 2015, musician: nova, cuts: [cut("Tide", 450)]),
+            LP(title: "E", year: 2020, musician: cafe, cuts: [cut("Bloom", 250)]),
         ]
         reviews = [
-            Review(id: UUID(), stars: 5, lp: lps[0]),
-            Review(id: UUID(), stars: 3, lp: lps[1]),
-            Review(id: UUID(), stars: 4, lp: nil),
-            Review(id: UUID(), stars: 2, lp: lps[2]),
-            Review(id: UUID(), stars: 1, lp: lps[4]),
+            Review(stars: 5, lp: lps[0]),
+            Review(stars: 3, lp: lps[1]),
+            Review(stars: 4, lp: nil),
+            Review(stars: 2, lp: lps[2]),
+            Review(stars: 1, lp: lps[4]),
         ]
     }
 
@@ -150,11 +146,11 @@ private let reviewPredicates: [Predicate<Review>] = [
     let context = try library.save()
     let lps = try context.fetch(RecordDescriptor<LP>(predicate: #Predicate { $0.musician?.name.contains("ov") == true }))
     let fetched = Set(lps.map(\.id))
-    let expected: Set<UUID> = [library.lps[0].id, library.lps[3].id]
+    let expected: Set<LP.ID> = [library.lps[0].id, library.lps[3].id]
     #expect(fetched == expected)
     for lp in lps {
         #expect(lp.musician == nil)
-        #expect(lp.referenceStates.first { $0.property == "musician" }?.ids == [library.musicians[0].id])
+        #expect(lp.referenceStates.first { $0.property == "musician" }?.ids == [library.musicians[0].uuid])
     }
 }
 
@@ -186,9 +182,9 @@ private let reviewPredicates: [Predicate<Review>] = [
     echo.name = "Nova"
     context.insert(echo)
     context.delete(library.lps[0])
-    let newcomer = LP(id: UUID(), title: "F", year: 2024, musician: echo, cuts: [])
+    let newcomer = LP(title: "F", year: 2024, musician: echo, cuts: [])
     context.insert(newcomer)
-    context.insert(Review(id: UUID(), stars: 4, lp: newcomer))
+    context.insert(Review(stars: 4, lp: newcomer))
 
     #expect(Set(try context.fetch(RecordDescriptor(predicate: nova)).map(\.stars)) == before)
     #expect(Set(try context.fetch(RecordDescriptor(predicate: noLP)).map(\.stars)) == beforeNoLP)

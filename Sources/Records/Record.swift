@@ -3,8 +3,9 @@ import CloudKit
 /// A value type that Records stores as a `CKRecord`.
 ///
 /// Adopt it with the `@Record` macro rather than by hand. The `id` becomes the record name,
-/// so it is never written as a field.
-public protocol Record: Identifiable where ID == UUID {
+/// so it is never written as a field. Its type, such as `Note.ID`, names its record, so one
+/// record's ID can't stand in for another's.
+public protocol Record: Identifiable where ID == RecordID<Self> {
     /// The CloudKit record type. `@Record` sets it to the type's name, or to the name it is given.
     static var recordType: CKRecord.RecordType { get }
 
@@ -54,12 +55,17 @@ extension Record {
 ///
 /// ```swift
 /// @Record struct Note {
-///     var id: UUID
 ///     var title: String
 /// }
+///
+/// let note = Note(title: "Groceries")
 /// ```
 ///
+/// A struct that declares no `id` gets `var id = Note.ID()`, so each new note has its own ID,
+/// which sorts in the order the notes were made. Declare `var id: Note.ID` to supply IDs yourself.
+///
 /// Generic types must pass a name with `@Record("Name")`.
+@attached(member, names: named(id))
 @attached(extension, conformances: Record, names: named(recordType), named(schema), named(keyPaths), named(encodeFields), named(referenceStates), named(loadReference), named(assetStates), named(loadAsset), named(_RecordCodingKeys), named(encode(to:)), named(init(from:)))
 public macro Record() = #externalMacro(module: "RecordsMacros", type: "RecordMacro")
 
@@ -68,6 +74,7 @@ public macro Record() = #externalMacro(module: "RecordsMacros", type: "RecordMac
 /// ```swift
 /// @Record("Box") struct Box<Value: CKRecordValueProtocol> { ... }
 /// ```
+@attached(member, names: named(id))
 @attached(extension, conformances: Record, names: named(recordType), named(schema), named(keyPaths), named(encodeFields), named(referenceStates), named(loadReference), named(assetStates), named(loadAsset), named(_RecordCodingKeys), named(encode(to:)), named(init(from:)))
 public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacros", type: "RecordMacro")
 
@@ -124,22 +131,22 @@ public macro Reference<Element: Record, Value: Comparable>(sort keyPath: KeyPath
 /// ```swift
 /// // One-to-one
 /// @Reference var profile: Profile?                                      // on User
-/// @Reference(from: \User.profile, deleteSelf: true) var userID: UUID?  // on Profile
+/// @Reference(from: \User.profile, deleteSelf: true) var userID: User.ID? // on Profile
 ///
 /// // One-to-many, owned by the many side: links are written per book, unordered
 /// @Reference var shelf: Shelf?                                       // on Book
-/// @Reference(from: \Book.shelf) var bookIDs: [UUID]                  // on Shelf
+/// @Reference(from: \Book.shelf) var bookIDs: [Book.ID]               // on Shelf
 ///
 /// // One-to-many, owned by the one side: ordered, and tracks are deleted with their album
 /// @Reference var tracks: [Track]                                     // on Album
-/// @Reference(from: \Album.tracks, deleteSelf: true) var albumID: UUID? // on Track
+/// @Reference(from: \Album.tracks, deleteSelf: true) var albumID: Album.ID? // on Track
 ///
 /// // Many-to-many: the note orders its tags, and each tag lists its notes
 /// @Reference var tags: [Tag]                                         // on Note
-/// @Reference(from: \Note.tags) var noteIDs: [UUID]                   // on Tag
+/// @Reference(from: \Note.tags) var noteIDs: [Note.ID]                // on Tag
 /// ```
 ///
-/// This side always holds IDs, `UUID?` or `[UUID]`. The owner holds records, because its code
+/// This side always holds the owner's IDs, such as `User.ID?` or `[Book.ID]`. The owner holds records, because its code
 /// chose them. This side is a back-pointer: anything can point at a record, so loading every
 /// owner would have no limit. To show an owner's fields, fetch it by ID, or make this side the
 /// owner instead.
@@ -158,7 +165,6 @@ public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, 
 ///
 /// ```swift
 /// @Record struct Account {
-///     var id: UUID
 ///     var name: String
 ///     @Encrypted var note: String
 /// }
@@ -175,7 +181,6 @@ public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "Encryp
 ///
 /// ```swift
 /// @Record struct Album {
-///     var id: UUID
 ///     @Asset var cover: Data?
 /// }
 ///

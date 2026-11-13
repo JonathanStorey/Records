@@ -7,60 +7,60 @@ import Testing
 // MARK: - Every route to CloudKit matches
 
 @Test func plainFieldsMatch() throws {
-    try expectMatch(Note(id: UUID(), title: "Hello", isPinned: true, rating: 4, tags: ["a", "b"], created: Date(timeIntervalSince1970: 1000)))
-    try expectMatch(Note(id: UUID(), title: "Empty", isPinned: false, rating: nil, tags: [], created: Date(timeIntervalSince1970: 0)))
-    try expectMatch(LegacyFolder(id: UUID(), name: "Inbox"))
-    try expectMatch(Box(id: UUID(), value: 3))
-    try expectMatch(Box(id: UUID(), value: ["x", "y"]))
+    try expectMatch(Note(title: "Hello", isPinned: true, rating: 4, tags: ["a", "b"], created: Date(timeIntervalSince1970: 1000)))
+    try expectMatch(Note(title: "Empty", isPinned: false, rating: nil, tags: [], created: Date(timeIntervalSince1970: 0)))
+    try expectMatch(LegacyFolder(name: "Inbox"))
+    try expectMatch(Box(value: 3))
+    try expectMatch(Box(value: ["x", "y"]))
 }
 
 @Test func mappedFieldsMatch() throws {
     try expectMatch(Venue(
-        id: UUID(), name: "Hall", mood: .energetic, rating: .three,
+        name: "Hall", mood: .energetic, rating: .three,
         address: Address(street: "1 Main", city: "Springfield"), previous: nil, moods: [.calm, .energetic]
     ))
 }
 
 @Test func stringStoredFieldsMatch() throws {
     try expectMatch(ticket())
-    try expectMatch(Ticket(id: UUID(), holder: UUID(), seat: nil, version: Version(major: 0, minor: 0), link: nil, count: 0,
+    try expectMatch(Ticket(holder: UUID(), seat: nil, version: Version(major: 0, minor: 0), link: nil, count: 0,
         holders: [], seats: [], versions: [], links: [], counts: []
     ))
 }
 
 @Test func encryptedFieldsMatch() throws {
-    try expectMatch(Vault(id: UUID(), name: "Home", secret: "s3cret", pin: 1234, codes: ["a", "b"]))
-    try expectMatch(Vault(id: UUID(), name: "Empty", secret: "", pin: nil, codes: []))
+    try expectMatch(Vault(name: "Home", secret: "s3cret", pin: 1234, codes: ["a", "b"]))
+    try expectMatch(Vault(name: "Empty", secret: "", pin: nil, codes: []))
 }
 
 @Test func locationsMatchInEveryDetail() throws {
-    var gig = Gig(id: UUID(), title: "Proms", venue: nil, home: Coordinate(latitude: 40.7, longitude: -74))
+    var gig = Gig(title: "Proms", venue: nil, home: Coordinate(latitude: 40.7, longitude: -74))
     gig.$venue = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5009, longitude: -0.1773), altitude: 30,
         horizontalAccuracy: 5, verticalAccuracy: 3, course: 90, courseAccuracy: 1,
         speed: 2, speedAccuracy: 0.5, timestamp: Date(timeIntervalSince1970: 1000)
     )
     try expectMatch(gig)
-    try expectMatch(Gig(id: UUID(), title: "Nowhere", venue: nil, home: nil))
+    try expectMatch(Gig(title: "Nowhere", venue: nil, home: nil))
 }
 
 @Test func assetsMatch() throws {
-    try expectMatch(Poster(id: UUID(), title: "Tour", image: Data("not really a png".utf8)))
-    try expectMatch(Poster(id: UUID(), title: "Blank", image: nil))
+    try expectMatch(Poster(title: "Tour", image: Data("not really a png".utf8)))
+    try expectMatch(Poster(title: "Blank", image: nil))
 }
 
 @Test func referencesAndTimestampsMatch() throws {
-    try expectMatch(Employee(id: UUID(), name: "Ada", manager: Employee(id: UUID(), name: "Grace", manager: nil)))
-    try expectMatch(Writer(id: UUID(), name: "Grace", bookIDs: [UUID(), UUID()]))
-    try expectMatch(Memo(id: UUID(), text: "Call back"))
+    try expectMatch(Employee(name: "Ada", manager: Employee(name: "Grace", manager: nil)))
+    try expectMatch(Writer(name: "Grace", bookIDs: [Novel.ID(), Novel.ID()]))
+    try expectMatch(Memo(text: "Call back"))
 }
 
 @Test func everyKindMatchesInOneRecord() throws {
     var novel = Novel(
-        id: UUID(), title: "Notes", subtitle: nil, tags: ["math", "machines"], year: 1843,
+        title: "Notes", subtitle: nil, tags: ["math", "machines"], year: 1843,
         note: "draft", cover: Data("cover".utf8), shop: nil,
-        sequel: nil, writers: [Writer(id: UUID(), name: "Ada", bookIDs: []), Writer(id: UUID(), name: "Grace", bookIDs: [])],
-        editor: Writer(id: UUID(), name: "Charles", bookIDs: [])
+        sequel: nil, writers: [Writer(name: "Ada", bookIDs: []), Writer(name: "Grace", bookIDs: [])],
+        editor: Writer(name: "Charles", bookIDs: [])
     )
     novel.$shop = CLLocation(
         coordinate: CLLocationCoordinate2D(latitude: 51.5, longitude: -0.12), altitude: 12,

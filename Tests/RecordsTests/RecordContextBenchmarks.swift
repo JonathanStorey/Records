@@ -24,7 +24,7 @@ struct RecordContextBenchmarks {
     func venues() -> [Venue] {
         (0..<Self.count).map { index in
             Venue(
-                id: UUID(), name: "Venue \(index)", mood: .calm, rating: .three,
+                name: "Venue \(index)", mood: .calm, rating: .three,
                 address: Address(street: "\(index) Main", city: "Springfield"), previous: nil, moods: [.calm]
             )
         }
@@ -90,8 +90,8 @@ struct RecordContextBenchmarks {
 
     @Test func saveARecordWithManyLinks() throws {
         let context = try RecordContainer(for: [Page.self], url: nil).mainContext
-        let labels = (0..<Self.count).map { Label(id: UUID(), name: "\($0)") }
-        var page = Page(id: UUID(), title: "Notes", labels: labels)
+        let labels = (0..<Self.count).map { Label(name: "\($0)") }
+        var page = Page(title: "Notes", labels: labels)
         let time = try measure("save a record with \(Self.count) new linked records") {
             context.insert(page)
             try context.save()
@@ -149,7 +149,7 @@ struct RecordContextBenchmarks {
         let context = try RecordContainer(for: [Gauge.self], url: nil).mainContext
         for index in 0..<Self.count {
             context.insert(Gauge(
-                id: UUID(), name: "\(index)", level: Double(index), steps: (index * 7919) % Self.count, limit: 0,
+                name: "\(index)", level: Double(index), steps: (index * 7919) % Self.count, limit: 0,
                 checkedAt: .now, isOn: index.isMultiple(of: 2), mood: .calm, rating: nil, nickname: nil
             ))
         }
@@ -171,9 +171,9 @@ struct RecordContextBenchmarks {
 
     @Test func fetchThroughAReference() throws {
         let context = try RecordContainer(for: [LP.self], url: nil).mainContext
-        let musicians = (0..<10).map { Musician(id: UUID(), name: "Musician \($0)", isActive: true) }
+        let musicians = (0..<10).map { Musician(name: "Musician \($0)", isActive: true) }
         for index in 0..<Self.count {
-            context.insert(LP(id: UUID(), title: "\(index)", year: 2000, musician: musicians[index % 10], cuts: []))
+            context.insert(LP(title: "\(index)", year: 2000, musician: musicians[index % 10], cuts: []))
         }
         try context.save()
 
@@ -193,9 +193,9 @@ struct RecordContextBenchmarks {
 
     @Test func fetchRecordsWithLinks() throws {
         let context = try RecordContainer(for: [Page.self], url: nil).mainContext
-        let labels = (0..<10).map { Label(id: UUID(), name: "\($0)") }
+        let labels = (0..<10).map { Label(name: "\($0)") }
         for index in 0..<Self.count {
-            context.insert(Page(id: UUID(), title: "\(index)", labels: labels))
+            context.insert(Page(title: "\(index)", labels: labels))
         }
         try context.save()
         let time = try measure("fetch \(Self.count) records with 10 links each") {

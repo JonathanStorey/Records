@@ -19,12 +19,12 @@ func row<R: Record>(of record: R) -> RecordRow {
 }
 
 private let venue = Venue(
-    id: UUID(), name: "Hall", mood: .energetic, rating: .three,
+    name: "Hall", mood: .energetic, rating: .three,
     address: Address(street: "1 Main", city: "Springfield"), previous: nil, moods: [.calm, .energetic]
 )
 
 private let novel = Novel(
-    id: UUID(), title: "Notes", subtitle: nil, tags: ["math", "machines"], year: 1843,
+    title: "Notes", subtitle: nil, tags: ["math", "machines"], year: 1843,
     note: "draft", cover: nil, shop: Coordinate(latitude: 51.5, longitude: -0.12),
     sequel: nil, writers: [], editor: nil
 )
@@ -39,7 +39,7 @@ private let novel = Novel(
 }
 
 @Test func timestampsReadTheirColumns() throws {
-    var row = row(of: Memo(id: UUID(), text: "Call back"))
+    var row = row(of: Memo(text: "Call back"))
     row.values["_createdAt"] = .real(100)
     row.values["_modifiedAt"] = .real(200)
     let memo = try Memo(from: row)
@@ -50,7 +50,7 @@ private let novel = Novel(
 @MainActor
 @Test func savingFillsTheDates() throws {
     let context = try RecordContainer(for: [Memo.self], url: nil).mainContext
-    let memo = Memo(id: UUID(), text: "Call back")
+    let memo = Memo(text: "Call back")
     context.insert(memo)
     try context.save()
     let saved = try #require(try context.record(id: memo.id, for: Memo.self))

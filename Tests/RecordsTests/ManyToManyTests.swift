@@ -6,16 +6,14 @@ import Testing
 
 @Record
 struct Post: Equatable {
-    var id: UUID
     var title: String
     @Reference var topics: [Topic]
 }
 
 @Record
 struct Topic: Equatable {
-    var id: UUID
     var name: String
-    @Reference(from: \Post.topics) var postIDs: [UUID]
+    @Reference(from: \Post.topics) var postIDs: [Post.ID]
 }
 
 private let encoder = CKRecordEncoder()
@@ -26,14 +24,14 @@ private func link(_ record: CKRecord) throws -> RecordLink {
 }
 
 private struct Fixture {
-    let swift = Topic(id: UUID(), name: "Swift", postIDs: [])
-    let ios = Topic(id: UUID(), name: "iOS", postIDs: [])
+    let swift = Topic(name: "Swift", postIDs: [])
+    let ios = Topic(name: "iOS", postIDs: [])
     let first: Post
     let second: Post
 
     init() {
-        first = Post(id: UUID(), title: "Macros", topics: [swift, ios])
-        second = Post(id: UUID(), title: "Testing", topics: [swift])
+        first = Post(title: "Macros", topics: [swift, ios])
+        second = Post(title: "Testing", topics: [swift])
     }
 
     var links: [CKRecord] {

@@ -29,8 +29,8 @@ public struct RecordGraph {
 
     /// Adds `link` under each record it names, once.
     mutating func add(_ link: RecordLink, createdAt: Date? = nil) {
-        guard linkIDs.insert(link.id).inserted else { return }
-        created[link.id] = createdAt
+        guard linkIDs.insert(link.uuid).inserted else { return }
+        created[link.uuid] = createdAt
         linksByName[link.sourceName, default: []].append(link)
         if let target = link.targetName, target != link.sourceName {
             linksByName[target, default: []].append(link)
@@ -47,7 +47,7 @@ public struct RecordGraph {
 
     /// `other`'s link named by `link`, with its creation date.
     mutating func add(_ link: RecordLink, from other: RecordGraph) {
-        add(link, createdAt: other.created[link.id])
+        add(link, createdAt: other.created[link.uuid])
     }
 
     /// A graph of `records` and `links` as CloudKit returns them. Each record is read as the
@@ -144,7 +144,7 @@ public struct RecordGraph {
     private func precedes(_ a: (target: ReferenceTarget, link: RecordLink), _ b: (target: ReferenceTarget, link: RecordLink)) -> Bool {
         let (orderA, orderB) = (a.target.order ?? "", b.target.order ?? "")
         if orderA != orderB { return OrderKey.precedes(orderA, orderB) }
-        let (dateA, dateB) = (created[a.link.id] ?? .distantPast, created[b.link.id] ?? .distantPast)
+        let (dateA, dateB) = (created[a.link.uuid] ?? .distantPast, created[b.link.uuid] ?? .distantPast)
         if dateA != dateB { return dateA < dateB }
         return a.link.id.uuidString < b.link.id.uuidString
     }

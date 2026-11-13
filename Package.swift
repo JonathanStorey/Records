@@ -7,14 +7,14 @@ import PackageDescription
 
 let package = Package(
     name: "Records",
-    // CKSyncEngine is the floor: iOS 17, macOS 14, tvOS 17, watchOS 10, visionOS 1.
+    // Record IDs use `Mutex` and `Int128`: iOS 18, macOS 15, tvOS 18, watchOS 11, visionOS 2.
     platforms: [
-        .iOS(.v17),
-        .macOS(.v14),
-        .macCatalyst(.v17),
-        .tvOS(.v17),
-        .watchOS(.v10),
-        .visionOS(.v1),
+        .iOS(.v18),
+        .macOS(.v15),
+        .macCatalyst(.v18),
+        .tvOS(.v18),
+        .watchOS(.v11),
+        .visionOS(.v2),
     ],
     products: [
         .library(name: "Records", targets: ["Records"]),

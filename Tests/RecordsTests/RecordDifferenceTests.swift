@@ -13,7 +13,7 @@ private func twoContexts() throws -> (RecordContext, RecordContext) {
 
 private func novel(_ title: String, year: Int) -> Novel {
     Novel(
-        id: UUID(), title: title, subtitle: nil, tags: [], year: year, note: nil,
+        title: title, subtitle: nil, tags: [], year: year, note: nil,
         cover: nil, shop: nil, sequel: nil, writers: [], editor: nil
     )
 }
@@ -88,8 +88,8 @@ private func novel(_ title: String, year: Int) -> Novel {
 @MainActor
 @Test func savingAStaleDraftKeepsLinksItDidNotEdit() throws {
     let (here, elsewhere) = try twoContexts()
-    let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]])
+    let labels = ["x", "y", "z", "w"].map { Label(name: $0) }
+    let saved = Page(title: "Page", labels: [labels[0], labels[1]])
     here.insert(saved)
     try here.save()
 
@@ -106,7 +106,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     try here.save()
     let page = try #require(try here.record(id: saved.id, for: Page.self))
     let ids = Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
-    #expect(ids == [labels[0].id, labels[2].id, labels[3].id])
+    #expect(ids == [labels[0].uuid, labels[2].uuid, labels[3].uuid])
 }
 
 @MainActor
@@ -142,7 +142,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     here.insert(kept)
     here.delete(gone)
     here.insert(added)
-    #expect(here.changes == [.update(kept.id), .delete(gone.id), .insert(added.id)])
+    #expect(here.changes == [.update(kept.uuid), .delete(gone.uuid), .insert(added.uuid)])
 }
 
 /// Inserting a record again replaces the same edit, which keeps the base it started from.
@@ -163,18 +163,18 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(here.differences.count == 1)
     #expect((difference.edit as? Novel)?.year == 1973)
     #expect((difference.base as? Novel)?.year == 1971)
-    #expect(difference.change == .update(saved.id))
+    #expect(difference.change == .update(saved.uuid))
 
     here.delete(draft)
     #expect(here.differences.count == 1)
-    #expect(here.changes == [.delete(saved.id)])
+    #expect(here.changes == [.delete(saved.uuid)])
 }
 
 @MainActor
 @Test func aPageDeletedElsewhereComesBackWithItsLinks() throws {
     let (here, elsewhere) = try twoContexts()
-    let labels = ["x", "y"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: labels)
+    let labels = ["x", "y"].map { Label(name: $0) }
+    let saved = Page(title: "Page", labels: labels)
     here.insert(saved)
     try here.save()
 
@@ -187,7 +187,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     try here.save()
     let page = try #require(try here.record(id: saved.id, for: Page.self))
     #expect(page.title == "Renamed")
-    #expect(page.referenceStates.first { $0.property == "labels" }?.ids == labels.map(\.id))
+    #expect(page.referenceStates.first { $0.property == "labels" }?.ids == labels.map(\.uuid))
 }
 
 // MARK: - Reading saved records
@@ -248,8 +248,8 @@ private func novel(_ title: String, year: Int) -> Novel {
 @MainActor
 @Test func aStaleDraftSavesWithLinksChangedElsewhere() throws {
     let (here, elsewhere) = try twoContexts()
-    let labels = ["x", "y", "z", "w"].map { Label(id: UUID(), name: $0) }
-    let saved = Page(id: UUID(), title: "Page", labels: [labels[0], labels[1]])
+    let labels = ["x", "y", "z", "w"].map { Label(name: $0) }
+    let saved = Page(title: "Page", labels: [labels[0], labels[1]])
     here.insert(saved)
     try here.save()
 
@@ -266,11 +266,11 @@ private func novel(_ title: String, year: Int) -> Novel {
         let page = try #require(try here.record(id: saved.id, for: Page.self))
         return Set(page.referenceStates.first { $0.property == "labels" }?.ids ?? [])
     }
-    #expect(try labelIDs() == [labels[0].id, labels[3].id])
+    #expect(try labelIDs() == [labels[0].uuid, labels[3].uuid])
     #expect(here.hasChanges)
 
     try here.save()
-    #expect(try labelIDs() == [labels[0].id, labels[2].id, labels[3].id])
+    #expect(try labelIDs() == [labels[0].uuid, labels[2].uuid, labels[3].uuid])
 }
 
 /// An edit laid over a record keeps that record's other fields and its `from:` sides.
@@ -287,8 +287,8 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(value.title == "Blue (Remastered)")
     #expect(value.year == 1972)
 
-    let writer = Writer(id: UUID(), name: "Ada", bookIDs: [])
-    let savedWriter = Writer(id: writer.id, name: "Ada", bookIDs: [original.id])
+    let writer = Writer(name: "Ada", bookIDs: [])
+    let savedWriter = Writer(name: "Ada", bookIDs: [original.id], id: writer.id)
     var editedWriter = writer
     editedWriter.name = "Ada L."
     let writerDifference = RecordDifference(id: UUID(), zone: .records, base: writer, edit: editedWriter, modified: .now)
@@ -301,12 +301,12 @@ private func novel(_ title: String, year: Int) -> Novel {
 @Test func theChangeFollowsTheBaseAndEdit() {
     let record = novel("Blue", year: 1971)
     var difference = RecordDifference(id: UUID(), zone: .records, base: nil, edit: record, modified: .now)
-    #expect(difference.change == .insert(record.id))
+    #expect(difference.change == .insert(record.uuid))
     difference.base = record
-    #expect(difference.change == .update(record.id))
+    #expect(difference.change == .update(record.uuid))
     difference.edit = nil
-    #expect(difference.change == .delete(record.id))
-    #expect(difference.change.id == record.id)
+    #expect(difference.change == .delete(record.uuid))
+    #expect(difference.change.id == record.uuid)
 }
 
 /// Rebasing keeps the fields the edit changed and takes the rest from the new base. A base
@@ -326,7 +326,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect((difference.base as? Novel)?.title == "Blue (Remastered)")
 
     difference.rebase(onto: nil)
-    #expect(difference.change == .insert(original.id))
+    #expect(difference.change == .insert(original.uuid))
     #expect((difference.edit as? Novel)?.year == 1972)
 }
 

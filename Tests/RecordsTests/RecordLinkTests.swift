@@ -5,27 +5,22 @@ import Testing
 // Record types that only name the targets below.
 @Record("Profile")
 struct LinkedProfile {
-    var id: UUID
 }
 
 @Record("Folder")
 struct LinkedFolder {
-    var id: UUID
 }
 
 @Record("Note")
 struct LinkedNote {
-    var id: UUID
 }
 
 @Record("Tag")
 struct LinkedTag {
-    var id: UUID
 }
 
 @Record("Person")
 struct LinkedPerson {
-    var id: UUID
 }
 
 /// A `@Reference` as its declarations describe it. `inverse` is the target's `from:` side.
@@ -96,7 +91,7 @@ private func link(
 // MARK: - Identity
 
 @Test func idIsAValidVersion8UUID() {
-    let bytes = link(reference("author", to: LinkedPerson.self)).id.uuid
+    let bytes = link(reference("author", to: LinkedPerson.self)).id.uuid.uuid
     #expect(bytes.6 >> 4 == 0x8)
     #expect(bytes.8 >> 6 == 0b10)
 }

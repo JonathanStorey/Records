@@ -14,9 +14,26 @@ import SwiftSyntaxMacros
 ///
 /// An `@Asset` field is stored on its own link, so a struct with one gets `assetStates` and
 /// `loadAsset(_:id:file:)`.
-public struct RecordMacro: ExtensionMacro {
+///
+/// A struct that declares no `id` gets `var id = Name.ID()`, so each new value has its own.
+public struct RecordMacro: ExtensionMacro, MemberMacro {
     /// Modifiers that mean a property isn't stored per record.
     private static var skipped: [TokenKind] { [.keyword(.static), .keyword(.class), .keyword(.lazy)] }
+
+    /// `var id`, when the struct declares none. The extension role reports any problems.
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingMembersOf declaration: some DeclGroupSyntax,
+        conformingTo protocols: [TypeSyntax],
+        in context: some MacroExpansionContext
+    ) throws -> [DeclSyntax] {
+        guard let structDecl = declaration.as(StructDeclSyntax.self), !declaresID(structDecl.memberBlock) else { return [] }
+        let generics = structDecl.genericParameterClause.map { clause in
+            "<" + clause.parameters.map(\.name.text).joined(separator: ", ") + ">"
+        } ?? ""
+        let type = "Records.RecordID<\(structDecl.name.text)\(generics)>"
+        return ["\(raw: accessModifier(for: structDecl.modifiers))var id: \(raw: type) = Records.RecordID()"]
+    }
 
     public static func expansion(
         of node: AttributeSyntax,
@@ -33,9 +50,13 @@ public struct RecordMacro: ExtensionMacro {
         let access = accessModifier(for: structDecl.modifiers)
         let conformance = protocols.isEmpty ? "" : ": Records.Record"
 
-        let properties = try storedProperties(in: structDecl.memberBlock)
-        guard properties.contains(where: { $0.key == "id" }) else {
-            throw MacroExpansionErrorMessage("@Record requires a stored 'id: UUID' property")
+        var properties = try storedProperties(in: structDecl.memberBlock, owner: structDecl.name.text)
+        if !declaresID(structDecl.memberBlock) {
+            // The `id` the member role adds.
+            properties.insert(StoredProperty(
+                name: "id", key: "id", fieldKey: "id", type: "Records.RecordID<Self>", wrappedType: nil,
+                isArray: false, isEncrypted: false, isAsset: false, isLocation: false
+            ), at: 0)
         }
         let fields = properties.filter { $0.key != "id" }
         let references = references(in: structDecl.memberBlock, owner: structDecl.name.text)
@@ -97,7 +118,7 @@ public struct RecordMacro: ExtensionMacro {
             } else {
                 lines.append("        Records.ReferenceState.all(of: Self.self, targets: [")
                 for reference in owning {
-                    lines.append("            \"\(reference.key)\": (self.\(reference.storage).ids, self.\(reference.storage).loadedRecords),")
+                    lines.append("            \"\(reference.key)\": (self.\(reference.storage).ids.map(\\.uuid), self.\(reference.storage).loadedRecords),")
                 }
                 lines.append("        ])")
             }
@@ -136,7 +157,7 @@ public struct RecordMacro: ExtensionMacro {
     ) -> [String] {
         var lines = [
             "    \(access)init(from row: Records.RecordRow) throws {",
-            "        self.id = try row.id",
+            "        self.id = Records.RecordID(try row.id)",
         ]
         for field in fields {
             if field.isAsset {
@@ -326,9 +347,9 @@ public struct RecordMacro: ExtensionMacro {
                 let key = ".`\(reference.key)`"
                 if reference.isToMany {
                     let sorted = reference.sort == nil ? "" : ", sorted: true"
-                    lines.append("        self.\(reference.storage) = Records.ToMany(ids: try container.decodeIfPresent([UUID].self, forKey: \(key)) ?? []\(sorted))")
+                    lines.append("        self.\(reference.storage) = Records.ToMany(ids: try container.decodeIfPresent([Records.RecordID<\(reference.target)>].self, forKey: \(key)) ?? []\(sorted))")
                 } else {
-                    lines.append("        self.\(reference.storage) = Records.ToOne(id: try container.decodeIfPresent(UUID.self, forKey: \(key)))")
+                    lines.append("        self.\(reference.storage) = Records.ToOne(id: try container.decodeIfPresent(Records.RecordID<\(reference.target)>.self, forKey: \(key)))")
                 }
             }
             lines.append("    }")
@@ -406,6 +427,15 @@ public struct RecordMacro: ExtensionMacro {
         let isLocation: Bool
     }
 
+    /// Whether the struct declares a property named `id`.
+    private static func declaresID(_ members: MemberBlockSyntax) -> Bool {
+        members.members.contains { member in
+            member.decl.as(VariableDeclSyntax.self)?.bindings.contains {
+                $0.pattern.as(IdentifierPatternSyntax.self).map { unescaped($0.identifier.text) } == "id"
+            } ?? false
+        }
+    }
+
     /// The valid `@Reference` properties. `@Reference` itself reports invalid ones.
     private static func references(in members: MemberBlockSyntax, owner: String) -> [ReferenceMacro.Reference] {
         members.members.compactMap { member in
@@ -420,7 +450,7 @@ public struct RecordMacro: ExtensionMacro {
     /// not computed, and not a `let` with an initial value. Properties with only `willSet` /
     /// `didSet` observers still have storage. Each one needs an explicit type, because the
     /// generated initializer decodes by type.
-    private static func storedProperties(in members: MemberBlockSyntax) throws -> [StoredProperty] {
+    private static func storedProperties(in members: MemberBlockSyntax, owner: String) throws -> [StoredProperty] {
         var properties: [StoredProperty] = []
 
         for member in members.members {
@@ -475,7 +505,7 @@ public struct RecordMacro: ExtensionMacro {
                 if isLet, binding.initializer != nil {
                     if key == "id" {
                         throw MacroExpansionErrorMessage(
-                            "@Record cannot decode 'id' because it is a 'let' with an initial value; use 'var id = UUID()' or 'let id: UUID'"
+                            "@Record cannot decode 'id' because it is a 'let' with an initial value; leave 'id' out and @Record adds 'var id = \(owner).ID()'"
                         )
                     }
                     continue // A constant: nothing to read or write.

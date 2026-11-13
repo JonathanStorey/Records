@@ -5,7 +5,6 @@ import Testing
 
 @Record
 struct Crate {
-    var id: UUID
     var name: String
     @Reference(sort: \Disc.title) var discs: [Disc]
     @Reference(sort: [SortDescriptor(\Disc.year, order: .reverse)]) var newest: [Disc]
@@ -15,16 +14,15 @@ struct Crate {
 
 @Record
 struct Disc: Equatable {
-    var id: UUID
     var title: String
     var year: Int
     var rating: Int?
     /// A `from:` side that names a sorted property, so the two macros refer to each other.
-    @Reference(from: \Crate.discs) var crateIDs: [UUID]
+    @Reference(from: \Crate.discs) var crateIDs: [Crate.ID]
 }
 
 private func disc(_ title: String, _ year: Int, _ rating: Int? = nil) -> Disc {
-    Disc(id: UUID(), title: title, year: year, rating: rating, crateIDs: [])
+    Disc(title: title, year: year, rating: rating, crateIDs: [])
 }
 
 private let blue = disc("Blue", 1971, 5)
@@ -32,7 +30,7 @@ private let abbey = disc("Abbey Road", 1969)
 private let kid = disc("Kid A", 2000, 4)
 
 @Test func sortedReferencesReadInSortOrder() {
-    let crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid, abbey], newest: [blue, abbey, kid], rated: [abbey, kid, blue], oldest: [kid, abbey, blue])
+    let crate = Crate(name: "Vinyl", discs: [blue, kid, abbey], newest: [blue, abbey, kid], rated: [abbey, kid, blue], oldest: [kid, abbey, blue])
     #expect(crate.discs.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
     #expect(crate.newest.map(\.title) == ["Kid A", "Blue", "Abbey Road"])
     #expect(crate.rated.map(\.title).prefix(2) == ["Blue", "Kid A"])
@@ -41,21 +39,21 @@ private let kid = disc("Kid A", 2000, 4)
 }
 
 @Test func sortedReferencesWriteNoOrderKeys() {
-    let crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
+    let crate = Crate(name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
     let links = CKRecordEncoder().links(for: crate, in: .records)
     #expect(links.count == 2)
     #expect(links.allSatisfy { $0["order"] == nil })
 }
 
 @Test func reorderingASortedReferenceChangesNothing() {
-    var crate = Crate(id: UUID(), name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
+    var crate = Crate(name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
     let links = CKRecordEncoder().links(for: crate, in: .records)
     crate._discs.values = [kid, blue]
     #expect(CKRecordEncoder().changes(for: crate, from: links).isEmpty)
 }
 
 @Test func sortedReferencesRoundTrip() throws {
-    let crate = Crate(id: UUID(), name: "Vinyl", discs: [kid, blue, abbey], newest: [], rated: [], oldest: [])
+    let crate = Crate(name: "Vinyl", discs: [kid, blue, abbey], newest: [], rated: [], oldest: [])
     let encoder = CKRecordEncoder()
     let links = encoder.links(for: crate, in: .records)
     let targets = [kid, blue, abbey].map { encoder.encode($0, in: .records) }

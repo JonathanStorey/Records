@@ -12,14 +12,14 @@ private func ids(_ record: some Record, _ property: String) -> [UUID] {
 
 @MainActor
 private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
-    let nova = Musician(id: UUID(), name: "Nova", isActive: true)
-    let echo = Musician(id: UUID(), name: "Echo", isActive: false)
+    let nova = Musician(name: "Nova", isActive: true)
+    let echo = Musician(name: "Echo", isActive: false)
     let lps = [
-        LP(id: UUID(), title: "A", year: 1999, musician: nova, cuts: [
-            Cut(id: UUID(), title: "Bloom", seconds: 200), Cut(id: UUID(), title: "Drift", seconds: 350),
+        LP(title: "A", year: 1999, musician: nova, cuts: [
+            Cut(title: "Bloom", seconds: 200), Cut(title: "Drift", seconds: 350),
         ]),
-        LP(id: UUID(), title: "B", year: 2004, musician: echo, cuts: [Cut(id: UUID(), title: "Ash", seconds: 100)]),
-        LP(id: UUID(), title: "C", year: 2010, musician: nil, cuts: []),
+        LP(title: "B", year: 2004, musician: echo, cuts: [Cut(title: "Ash", seconds: 100)]),
+        LP(title: "C", year: 2010, musician: nil, cuts: []),
     ]
     let context = try RecordContainer(for: [Review.self, LP.self, Musician.self, Cut.self], url: nil).mainContext
     for lp in lps { context.insert(lp) }
@@ -33,7 +33,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
     let fetched = try context.fetch(RecordDescriptor<LP>(sortBy: [SortDescriptor(\.year)]))
     #expect(fetched.map(\.id) == lps.map(\.id))
     #expect(fetched.allSatisfy { $0.musician == nil && $0.cuts.isEmpty })
-    #expect(ids(fetched[0], "musician") == [lps[0].musician!.id])
+    #expect(ids(fetched[0], "musician") == [lps[0].musician!.uuid])
 }
 
 @MainActor
@@ -62,7 +62,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
 @MainActor
 @Test func prefetchedRecordsHoldIDs() throws {
     let (context, _, lps) = try savedShelf()
-    context.insert(Review(id: UUID(), stars: 5, lp: lps[0]))
+    context.insert(Review(stars: 5, lp: lps[0]))
     try context.save()
 
     var descriptor = RecordDescriptor<Review>()
@@ -70,7 +70,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
     let review = try #require(try context.fetch(descriptor).first)
     #expect(review.lp?.title == "A")
     #expect(review.lp?.musician == nil)
-    #expect(review.lp.map { ids($0, "musician") } == [lps[0].musician!.id])
+    #expect(review.lp.map { ids($0, "musician") } == [lps[0].musician!.uuid])
 }
 
 /// Prefetching works with a limit the database applies and sees changes once saved.
@@ -93,8 +93,8 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
 @MainActor
 @Test func prefetchingFollowsReferencesNamedOnLoadedTypes() throws {
     let (context, _, lps) = try savedShelf()
-    context.insert(Review(id: UUID(), stars: 5, lp: lps[0]))
-    context.insert(Review(id: UUID(), stars: 3, lp: lps[1]))
+    context.insert(Review(stars: 5, lp: lps[0]))
+    context.insert(Review(stars: 3, lp: lps[1]))
     try context.save()
 
     var descriptor = RecordDescriptor<Review>(sortBy: [SortDescriptor(\.stars, order: .reverse)])
@@ -110,12 +110,12 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
 @MainActor
 @Test func prefetchingIgnoresReferencesOffTheChain() throws {
     let (context, _, lps) = try savedShelf()
-    context.insert(Review(id: UUID(), stars: 5, lp: lps[0]))
+    context.insert(Review(stars: 5, lp: lps[0]))
     try context.save()
 
     var descriptor = RecordDescriptor<Review>()
     descriptor.relationshipKeyPathsForPrefetching = [\LP.musician]
     let review = try #require(try context.fetch(descriptor).first)
     #expect(review.lp == nil)
-    #expect(ids(review, "lp") == [lps[0].id])
+    #expect(ids(review, "lp") == [lps[0].uuid])
 }

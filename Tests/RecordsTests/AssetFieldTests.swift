@@ -5,7 +5,6 @@ import Testing
 
 @Record
 struct Poster: Equatable {
-    var id: UUID
     var title: String
     @Asset var image: Data?
 }
@@ -17,7 +16,7 @@ private let decoder = CKRecordDecoder()
 // MARK: - Files
 
 @Test func settingAnAssetWritesAFileNamedByItsID() throws {
-    let poster = Poster(id: UUID(), title: "Tour", image: png)
+    let poster = Poster(title: "Tour", image: png)
     let id = try #require(poster._image.id)
     let url = try #require(poster.$image)
     #expect(url == AssetField.url(for: id))
@@ -27,7 +26,7 @@ private let decoder = CKRecordDecoder()
 }
 
 @Test func eachNewValueGetsANewIDAndFile() throws {
-    var poster = Poster(id: UUID(), title: "Tour", image: png)
+    var poster = Poster(title: "Tour", image: png)
     let first = (poster._image.id, poster.$image)
     poster.image = Data("second".utf8)
     #expect(poster._image.id != first.0)
@@ -39,7 +38,7 @@ private let decoder = CKRecordDecoder()
 @Test func settingTheFileURLCopiesTheFileIn() throws {
     let source = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
     try png.write(to: source)
-    var poster = Poster(id: UUID(), title: "Tour", image: nil)
+    var poster = Poster(title: "Tour", image: nil)
     poster.$image = source
 
     let id = try #require(poster._image.id)
@@ -56,7 +55,7 @@ private let decoder = CKRecordDecoder()
 @Test func eachFileSetGetsANewID() throws {
     let source = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
     try png.write(to: source)
-    var poster = Poster(id: UUID(), title: "Tour", image: nil)
+    var poster = Poster(title: "Tour", image: nil)
     poster.$image = source
     let first = poster._image.id
     poster.$image = source
@@ -65,7 +64,7 @@ private let decoder = CKRecordDecoder()
 }
 
 @Test func settingTheFileURLToNilClearsTheAsset() {
-    var poster = Poster(id: UUID(), title: "Tour", image: png)
+    var poster = Poster(title: "Tour", image: png)
     poster.$image = nil
     #expect(poster._image.id == nil)
     #expect(poster.image == nil)
@@ -75,7 +74,7 @@ private let decoder = CKRecordDecoder()
 /// A file that can't be copied is used where it is.
 @Test func aFileThatCantBeCopiedIsUsedInPlace() throws {
     let missing = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
-    var poster = Poster(id: UUID(), title: "Tour", image: nil)
+    var poster = Poster(title: "Tour", image: nil)
     poster.$image = missing
     #expect(poster._image.id != nil)
     #expect(poster.$image == missing)
@@ -93,12 +92,12 @@ private let decoder = CKRecordDecoder()
 // MARK: - Links
 
 @Test func anAssetIsNotAField() {
-    let record = encoder.encode(Poster(id: UUID(), title: "Tour", image: png), in: .records)
+    let record = encoder.encode(Poster(title: "Tour", image: png), in: .records)
     #expect(record.allKeys() == ["title"])
 }
 
 @Test func anAssetIsSavedOnItsOwnLink() throws {
-    let poster = Poster(id: UUID(), title: "Tour", image: png)
+    let poster = Poster(title: "Tour", image: png)
     let links = encoder.links(for: poster, in: .records)
     #expect(links.count == 1)
 
@@ -112,7 +111,7 @@ private let decoder = CKRecordDecoder()
 }
 
 @Test func aDecodedAssetComesFromItsLink() throws {
-    let poster = Poster(id: UUID(), title: "Tour", image: png)
+    let poster = Poster(title: "Tour", image: png)
     let decoded = try decoder.decode(
         Poster.self, from: encoder.encode(poster, in: .records), links: encoder.links(for: poster, in: .records)
     )
@@ -122,7 +121,7 @@ private let decoder = CKRecordDecoder()
 }
 
 @Test func withoutItsLinkAnAssetIsNil() throws {
-    let poster = Poster(id: UUID(), title: "Tour", image: png)
+    let poster = Poster(title: "Tour", image: png)
     let decoded = try decoder.decode(Poster.self, from: encoder.encode(poster, in: .records))
     #expect(decoded.image == nil)
     #expect(decoded.$image == nil)
@@ -130,14 +129,14 @@ private let decoder = CKRecordDecoder()
 }
 
 @Test func editingOtherFieldsLeavesTheAssetAlone() {
-    var poster = Poster(id: UUID(), title: "Tour", image: png)
+    var poster = Poster(title: "Tour", image: png)
     let links = encoder.links(for: poster, in: .records)
     poster.title = "Encore"
     #expect(encoder.changes(for: poster, from: links).isEmpty)
 }
 
 @Test func replacingAnAssetOverwritesItsLink() throws {
-    var poster = Poster(id: UUID(), title: "Tour", image: png)
+    var poster = Poster(title: "Tour", image: png)
     let links = encoder.links(for: poster, in: .records)
     poster.image = Data("second".utf8)
 
@@ -148,7 +147,7 @@ private let decoder = CKRecordDecoder()
 }
 
 @Test func clearingAnAssetDropsItsLink() {
-    var poster = Poster(id: UUID(), title: "Tour", image: png)
+    var poster = Poster(title: "Tour", image: png)
     let links = encoder.links(for: poster, in: .records)
     poster.image = nil
     #expect(poster.$image == nil)
