@@ -35,14 +35,7 @@ private let kid = disc("Kid A", 2000, 4)
     #expect(crate.newest.map(\.title) == ["Kid A", "Blue", "Abbey Road"])
     #expect(crate.rated.map(\.title).prefix(2) == ["Blue", "Kid A"])
     #expect(crate.oldest.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
-    #expect(crate.$discs.ids == [blue.id, kid.id, abbey.id]) // IDs aren't sorted
-}
-
-@Test func sortedReferencesWriteNoOrderKeys() {
-    let crate = Crate(name: "Vinyl", discs: [blue, kid], newest: [], rated: [], oldest: [])
-    let links = CKRecordEncoder().links(for: crate, in: .records)
-    #expect(links.count == 2)
-    #expect(links.allSatisfy { $0["order"] == nil })
+    #expect(crate.$discs.ids == [blue.id, kid.id, abbey.id].sorted()) // IDs stay sorted by ID
 }
 
 @Test func reorderingASortedReferenceChangesNothing() {

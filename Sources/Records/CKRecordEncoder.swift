@@ -26,23 +26,13 @@ public struct CKRecordEncoder: Sendable {
 
     // MARK: Links
 
-    /// Every link `record`'s references point through now, one per target.
-    ///
-    /// A to-many reference orders its links with order keys. Pass the links the record already
-    /// has in `existing`, and each target keeps its key wherever it still sorts in place, so moving
-    /// one target changes only that target's link. Comparing the result with `existing` gives the
-    /// links to write and the ones to delete. `@Reference(from:)` properties write no links.
+    /// Every link `record`'s references point through now, one per target. Comparing the result
+    /// with the links the record already has gives the links to write and the ones to delete.
+    /// `@Reference(from:)` properties write no links.
     ///
     /// Each `@Asset` that holds data adds a link that carries the asset.
-    public func links(for record: some Record, in zone: Zone, existing: [CKRecord] = []) -> [CKRecord] {
-        let decoder = CKRecordDecoder()
-        var orders: [String: String] = [:]
-        for link in existing {
-            if let link = try? decoder.decode(RecordLink.self, from: link), let order = link.order {
-                orders[link.orderKey] = order
-            }
-        }
-        return record.links(orders: orders).map { link in
+    public func links(for record: some Record, in zone: Zone) -> [CKRecord] {
+        record.links().map { link in
             let linkRecord = encode(link, in: zone)
             if link.assetID != nil {
                 let asset = record.assetStates.first { $0.property == link.sourceProperty }

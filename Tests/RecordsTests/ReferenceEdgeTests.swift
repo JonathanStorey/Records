@@ -8,19 +8,19 @@ private func label(_ name: String) -> Label {
 
 // MARK: - To many
 
-@Test func repeatedIDsKeepTheirFirstPosition() {
+@Test func repeatedIDsAppearOnce() {
     let (a, b, c) = (Label.ID(), Label.ID(), Label.ID())
     let many = ToMany<Label>(ids: [a, b, a, c, b])
     #expect(many.ids == [a, b, c])
 }
 
-@Test func settingValuesKeepsUnloadedTargetsInPlace() {
+@Test func settingValuesKeepsUnloadedTargets() {
     let loaded = label("b")
     let (a, c) = (Label.ID(), Label.ID())
     var many = ToMany<Label>(ids: [a, loaded.id, c])
     let added = label("d")
     many.values = [loaded, added]
-    #expect(many.ids == [a, loaded.id, c, added.id])
+    #expect(many.ids == [loaded.id, a, c, added.id])
     #expect(many.values == [loaded, added])
 }
 

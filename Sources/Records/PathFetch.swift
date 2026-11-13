@@ -166,7 +166,7 @@ private final class LoadedReader {
         guard let row = graph[root] else { return nil }
         var loaded = RecordGraph()
         for node in reachable(from: root) {
-            for link in links(readBy: node) { loaded.add(link, from: graph.records) }
+            for link in links(readBy: node) { loaded.add(link) }
             if node != root { loaded[node.recordType, node.name] = graph[node] }
         }
         var record = try R(from: row)

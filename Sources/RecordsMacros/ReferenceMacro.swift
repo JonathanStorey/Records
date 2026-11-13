@@ -27,7 +27,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         case (false, true): "Records.ToOne(id: initialValue)"
         case (false, false): "Records.ToOne(initialValue)"
         case (true, true): "Records.ToMany(ids: initialValue)"
-        case (true, false): reference.sort == nil ? "Records.ToMany(initialValue)" : "Records.ToMany(initialValue, sorted: true)"
+        case (true, false): "Records.ToMany(initialValue)"
         }
         let member = switch (reference.isToMany, reference.isFrom) {
         case (false, true): "id"

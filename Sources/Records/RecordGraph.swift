@@ -11,8 +11,6 @@ public struct RecordGraph {
     private var rows: [String: RecordRow] = [:]
     /// Each link, under the name of each record it names.
     private(set) var linksByName: [String: [RecordLink]] = [:]
-    /// When each link was created, which orders links that share an order key.
-    private var created: [UUID: Date] = [:]
     /// The file each asset was downloaded to, by asset ID, for assets read from a `CKRecord`.
     private var assetFiles: [String: URL] = [:]
     private var linkIDs: Set<UUID> = []
@@ -28,9 +26,8 @@ public struct RecordGraph {
     }
 
     /// Adds `link` under each record it names, once.
-    mutating func add(_ link: RecordLink, createdAt: Date? = nil) {
+    mutating func add(_ link: RecordLink) {
         guard linkIDs.insert(link.uuid).inserted else { return }
-        created[link.uuid] = createdAt
         linksByName[link.sourceName, default: []].append(link)
         if let target = link.targetName, target != link.sourceName {
             linksByName[target, default: []].append(link)
@@ -42,12 +39,7 @@ public struct RecordGraph {
         var row = RecordRow(row)
         row.values["_name"] = .text(name)
         guard let link = try? RecordLink(from: row) else { return }
-        add(link, createdAt: row.createdAt)
-    }
-
-    /// `other`'s link named by `link`, with its creation date.
-    mutating func add(_ link: RecordLink, from other: RecordGraph) {
-        add(link, createdAt: other.created[link.uuid])
+        add(link)
     }
 
     /// A graph of `records` and `links` as CloudKit returns them. Each record is read as the
@@ -58,7 +50,7 @@ public struct RecordGraph {
         for record in links where record.recordType == RecordLink.recordType {
             guard let row = try? decoder.decode(record, of: RecordLink.self), let link = try? RecordLink(from: row)
             else { continue }
-            add(link, createdAt: record.creationDate)
+            add(link)
             if let assetID = link.assetID, let file = (record[RecordLink.assetKey] as? CKAsset)?.fileURL {
                 assetFiles[assetID] = file
             }
@@ -105,11 +97,10 @@ public struct RecordGraph {
     /// Fills `record`'s `@Reference` and `@Asset` properties from the links that name it.
     ///
     /// A reference that holds records is filled from the graph's rows, `depth` levels deep. With
-    /// 0, every reference holds only IDs. To-many targets are ordered by their order keys, then by
-    /// when the link was created, then by the link's ID.
+    /// 0, every reference holds only IDs. A to-many reference sorts its targets by ID.
     func load<R: Record>(_ record: inout R, depth: Int) throws {
         let name = record.id.uuidString
-        var byProperty: [String: [(target: ReferenceTarget, link: RecordLink)]] = [:]
+        var byProperty: [String: [UUID]] = [:]
         for link in linksByName[name] ?? [] {
             let property = String(link.sourceProperty)
             let ownsLink = link.sourceName == name && link.sourceType == R.recordType
@@ -122,30 +113,19 @@ public struct RecordGraph {
             }
             // The owning side: this record is the link's source.
             if ownsLink, let targetID = link.targetName.flatMap(UUID.init(uuidString:)) {
-                byProperty[property, default: []].append((ReferenceTarget(id: targetID, order: link.order), link))
+                byProperty[property, default: []].append(targetID)
             }
             // The `@Reference(from:)` side: this record is the link's target, and its type names
             // the owner's property as an inverse.
             if link.targetName == name,
                let inverse = R.schema.reference(from: String(link.sourceType), property),
                let sourceID = UUID(uuidString: link.sourceName) {
-                byProperty[inverse.property, default: []].append((ReferenceTarget(id: sourceID), link))
+                byProperty[inverse.property, default: []].append(sourceID)
             }
         }
 
-        for (property, entries) in byProperty {
-            let ordered = entries.sorted { precedes($0, $1) }
-            try record.loadReference(property, to: ordered.map(\.target), from: self, depth: depth)
+        for (property, ids) in byProperty {
+            try record.loadReference(property, to: ids, from: self, depth: depth)
         }
-    }
-
-    /// Whether `a` comes before `b` in a to-many reference: by order key, then by when its link
-    /// was created, then by the link's ID.
-    private func precedes(_ a: (target: ReferenceTarget, link: RecordLink), _ b: (target: ReferenceTarget, link: RecordLink)) -> Bool {
-        let (orderA, orderB) = (a.target.order ?? "", b.target.order ?? "")
-        if orderA != orderB { return OrderKey.precedes(orderA, orderB) }
-        let (dateA, dateB) = (created[a.link.uuid] ?? .distantPast, created[b.link.uuid] ?? .distantPast)
-        if dateA != dateB { return dateA < dateB }
-        return a.link.id.uuidString < b.link.id.uuidString
     }
 }

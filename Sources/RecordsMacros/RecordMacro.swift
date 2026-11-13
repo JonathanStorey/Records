@@ -124,7 +124,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             }
             lines += [
                 "    }",
-                "    \(access)mutating func loadReference(_ property: String, to targets: [Records.ReferenceTarget], from graph: Records.RecordGraph, depth: Int) throws {",
+                "    \(access)mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {",
                 "        switch property {",
             ]
             for reference in references {
@@ -180,7 +180,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
         }
         for reference in references {
             let empty = reference.isToMany
-                ? "Records.ToMany(ids: []\(reference.sort == nil ? "" : ", sorted: true"))"
+                ? "Records.ToMany(ids: [])"
                 : "Records.ToOne(id: nil)"
             lines.append("        self.\(reference.storage) = \(empty)")
         }
@@ -229,7 +229,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
         } else {
             lines.append("            references: [")
             for reference in references {
-                var arguments = "property: \"\(reference.key)\", target: \(reference.target).self, isToMany: \(reference.isToMany), isSorted: \(reference.sort != nil)"
+                var arguments = "property: \"\(reference.key)\", target: \(reference.target).self, isToMany: \(reference.isToMany)"
                 if let owner = reference.ownerProperty {
                     arguments += ", inverseOf: \"\(owner)\", deleteSelf: \(reference.deleteSelf)"
                 }
@@ -346,8 +346,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             for reference in references {
                 let key = ".`\(reference.key)`"
                 if reference.isToMany {
-                    let sorted = reference.sort == nil ? "" : ", sorted: true"
-                    lines.append("        self.\(reference.storage) = Records.ToMany(ids: try container.decodeIfPresent([Records.RecordID<\(reference.target)>].self, forKey: \(key)) ?? []\(sorted))")
+                    lines.append("        self.\(reference.storage) = Records.ToMany(ids: try container.decodeIfPresent([Records.RecordID<\(reference.target)>].self, forKey: \(key)) ?? [])")
                 } else {
                     lines.append("        self.\(reference.storage) = Records.ToOne(id: try container.decodeIfPresent(Records.RecordID<\(reference.target)>.self, forKey: \(key)))")
                 }

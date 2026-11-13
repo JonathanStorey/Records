@@ -23,8 +23,8 @@ enum Relationship: String, Sendable, CaseIterable {
 
 /// One link of a relationship, or one `@Asset`, stored as its own internal `RecordLink` record.
 ///
-/// A link stores only data: which property of which record it belongs to, the target, its order,
-/// and, for an asset, the asset. Everything else about the relationship, such as the target type,
+/// A link stores only data: which property of which record it belongs to, the target, and, for an
+/// asset, the asset. Everything else about the relationship, such as the target type,
 /// the inverse, and `deleteSelf`, comes from the types' declarations, so changing an inverse never
 /// rewrites a link.
 ///
@@ -41,8 +41,6 @@ struct RecordLink: Equatable, Sendable {
     var sourceName: String
     /// The target record's name, its `id` as a UUID string. `nil` on an asset's link.
     var targetName: String?
-    /// Fractional index key. Required on ordered to-many links, empty otherwise.
-    var order: String?
     /// The asset's ID as a UUID string, on an `@Asset`'s link only. The asset itself is the
     /// link's `asset` field, which the encoder writes and the decoder reads.
     var assetID: String?
@@ -104,14 +102,13 @@ struct RecordLink: Equatable, Sendable {
 // MARK: - References
 
 extension RecordLink {
-    /// The link a `@Reference` writes to `target`.
-    init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, target: ReferenceTarget) {
+    /// The link a `@Reference` writes to the target with `targetID`.
+    init(reference: ReferenceState, sourceType: CKRecord.RecordType, sourceID: UUID, targetID: UUID) {
         self.init(
-            id: RecordID(Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: target.id)),
+            id: RecordID(Self.id(reference: reference, sourceType: sourceType, sourceID: sourceID, targetID: targetID)),
             source: Self.source(type: sourceType, property: reference.property),
             sourceName: sourceID.uuidString,
-            targetName: target.id.uuidString,
-            order: target.order
+            targetName: targetID.uuidString
         )
     }
 
@@ -138,7 +135,6 @@ extension RecordLink {
             source: source,
             sourceName: sourceID.uuidString,
             targetName: nil,
-            order: nil,
             assetID: assetID.uuidString
         )
     }
@@ -146,30 +142,12 @@ extension RecordLink {
 
 // MARK: - A record's links
 
-extension RecordLink {
-    /// What `Record.links(orders:)` looks a saved order key up by: `source|targetName`.
-    var orderKey: String { Self.orderKey(source: source, targetName: targetName ?? "") }
-
-    static func orderKey(source: String, targetName: String) -> String {
-        source + "|" + targetName
-    }
-}
-
 extension Record {
-    /// A link for each target of each reference that writes links, in order, and one for each
-    /// `@Asset` that holds data. `orders` holds the saved order key of each target by
-    /// `RecordLink.orderKey`, so a target that keeps its place keeps its key. `@Reference(from:)`
-    /// properties write no links.
-    func links(orders: [String: String] = [:]) -> [RecordLink] {
-        let references = referenceStates.flatMap { reference -> [RecordLink] in
-            let source = RecordLink.source(type: Self.recordType, property: reference.property)
-            // A sorted reference is ordered by its records' fields, so its links carry no keys.
-            let keys: [String?] = reference.isToMany && !reference.isSorted
-                ? OrderKey.assign(reference.ids.map { orders[RecordLink.orderKey(source: source, targetName: $0.uuidString)] })
-                : reference.ids.map { _ in nil }
-            return zip(reference.ids, keys).map { id, order in
-                RecordLink(reference: reference, sourceType: Self.recordType, sourceID: uuid, target: ReferenceTarget(id: id, order: order))
-            }
+    /// A link for each target of each reference that writes links, and one for each `@Asset`
+    /// that holds data. `@Reference(from:)` properties write no links.
+    func links() -> [RecordLink] {
+        let references = referenceStates.flatMap { reference in
+            reference.ids.map { RecordLink(reference: reference, sourceType: Self.recordType, sourceID: uuid, targetID: $0) }
         }
         let assets = assetStates.compactMap { asset in
             asset.id.map { RecordLink(asset: asset, assetID: $0, sourceType: Self.recordType, sourceID: uuid) }
