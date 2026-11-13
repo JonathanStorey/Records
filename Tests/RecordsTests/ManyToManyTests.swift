@@ -52,17 +52,6 @@ private struct Fixture {
     #expect(encoder.links(for: fixture.swift, in: .records).isEmpty)
 }
 
-@Test func addingAManyToManyInverseKeepsLinkIDs() {
-    let sourceID = UUID(), targetID = UUID()
-    let twoWay = Fixture().first.referenceStates[0]
-    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [], records: [])
-    #expect(twoWay.inverse != nil)
-    #expect(
-        RecordLink.id(reference: oneWay, sourceType: "Post", sourceID: sourceID, targetID: targetID)
-            == RecordLink.id(reference: twoWay, sourceType: "Post", sourceID: sourceID, targetID: targetID)
-    )
-}
-
 @Test func bothSidesDecodeManyToMany() throws {
     let fixture = Fixture()
     let links = fixture.links

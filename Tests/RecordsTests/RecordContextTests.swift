@@ -330,7 +330,7 @@ private func makeVenue() -> Venue {
 }
 
 @MainActor
-@Test func rollbackDiscardsStagedChanges() throws {
+@Test func rollbackDiscardsUnsavedChanges() throws {
     let context = try makeContext(for: Venue.self)
     var venue = makeVenue()
     context.insert(venue)
@@ -384,7 +384,7 @@ private func makeVenue() -> Venue {
 
 /// Saving several records is one transaction.
 @MainActor
-@Test func saveWritesEveryStagedRecord() throws {
+@Test func saveWritesEveryInsertedRecord() throws {
     let context = try makeContext(for: Page.self)
     let label = Label(name: "a")
     let page = Page(title: "Notes", labels: [label])
@@ -460,9 +460,9 @@ private func makeVenue() -> Venue {
     #expect(try currentRow("Page", page.id, in: context)["_deleted"] == .integer(0))
 }
 
-/// Deleting a record that was never saved replaces its staged insert, so nothing is written.
+/// Deleting a record that was never saved replaces its insert, so nothing is written.
 @MainActor
-@Test func deletingAStagedRecordWritesNothing() throws {
+@Test func deletingAnUnsavedRecordWritesNothing() throws {
     let context = try makeContext(for: Page.self)
     let page = Page(title: "Notes", labels: [Label(name: "a")])
     context.insert(page)
@@ -676,15 +676,15 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
     #expect(try currentRow("Label", label.id, in: context)["name"] == .text("Current"))
 }
 
-/// A target staged on its own is saved as staged, not as the copy the record holds.
+/// A target inserted on its own is saved as inserted, not as the copy the record holds.
 @MainActor
-@Test func stagedTargetsWinOverLoadedCopies() throws {
+@Test func insertedTargetsWinOverLoadedCopies() throws {
     let context = try makeContext(for: Page.self)
     let label = Label(name: "Loaded")
     context.insert(Page(title: "Notes", labels: [label]))
-    context.insert(Label(name: "Staged", id: label.id))
+    context.insert(Label(name: "Inserted", id: label.id))
     try context.save()
-    #expect(try currentRow("Label", label.id, in: context)["name"] == .text("Staged"))
+    #expect(try currentRow("Label", label.id, in: context)["name"] == .text("Inserted"))
 }
 
 /// A deleted target stays deleted.

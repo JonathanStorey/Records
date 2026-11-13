@@ -17,11 +17,22 @@ private var macroSpecs: [String: MacroSpec] {
         "Timestamped": MacroSpec(type: TimestampedMacro.self),
     ]
 }
-#endif
+
+/// Expands `source` and expects one diagnostic, `message`, at `line` and `column`.
+private func assertDiagnostic(
+    _ message: String, line: Int = 1, column: Int = 1,
+    source: String, expandedSource: String,
+    file: StaticString = #filePath, callLine: UInt = #line
+) {
+    assertMacroExpansion(
+        source, expandedSource: expandedSource,
+        diagnostics: [DiagnosticSpec(message: message, line: line, column: column)],
+        macroSpecs: macroSpecs, file: file, line: callLine
+    )
+}
 
 final class RecordMacroTests: XCTestCase {
     func testEncodesStoredPropertiesExceptID() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -88,13 +99,9 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testExplicitNameAndPublicAccess() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record("Folder")
@@ -134,13 +141,9 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testGenericTypeWithName() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record("Box")
@@ -182,15 +185,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testGenericTypeWithoutNameIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "Generic types need an explicit record type, e.g. @Record(\"Box\")",
+            source: """
             @Record
             struct Box<Value> {
                 var id: UUID
@@ -200,25 +200,14 @@ final class RecordMacroTests: XCTestCase {
             struct Box<Value> {
                 var id: UUID
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "Generic types need an explicit record type, e.g. @Record(\"Box\")",
-                    line: 1,
-                    column: 1
-                ),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testInvalidNameIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'My Note' is not a valid record type; use letters, digits, and underscores, starting with a letter",
+            source: """
             @Record("My Note")
             struct Note {
                 var id: UUID
@@ -228,25 +217,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var id: UUID
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "'My Note' is not a valid record type; use letters, digits, and underscores, starting with a letter",
-                    line: 1,
-                    column: 1
-                ),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testClassIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Record can only be applied to a struct",
+            source: """
             @Record
             class Note {
                 var id = UUID()
@@ -256,21 +234,14 @@ final class RecordMacroTests: XCTestCase {
             class Note {
                 var id = UUID()
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Record can only be applied to a struct", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testMissingTypeAnnotationIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Record property 'count' needs an explicit type annotation",
+            source: """
             @Record
             struct Note {
                 var id: UUID
@@ -282,19 +253,11 @@ final class RecordMacroTests: XCTestCase {
                 var id: UUID
                 var count = 0
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Record property 'count' needs an explicit type annotation", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testMissingIDIsAdded() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -334,15 +297,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testConstantIDIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Record cannot decode 'id' because it is a 'let' with an initial value; leave 'id' out and @Record adds 'var id = Note.ID()'",
+            source: """
             @Record
             struct Note {
                 let id = UUID()
@@ -352,25 +312,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 let id = UUID()
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "@Record cannot decode 'id' because it is a 'let' with an initial value; leave 'id' out and @Record adds 'var id = Note.ID()'",
-                    line: 1,
-                    column: 1
-                ),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOptionalArrayIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "Record does not support an optional array",
+            source: """
             @Record
             struct Note {
                 var id: UUID
@@ -382,23 +331,11 @@ final class RecordMacroTests: XCTestCase {
                 var id: UUID
                 var tags: [String]?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "Record does not support an optional array",
-                    line: 1,
-                    column: 1
-                ),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testRecordSkipsReferenceProperties() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -475,15 +412,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testReferenceMustBeOptional() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference to one record must be optional", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference var author: Person
             }
@@ -492,21 +426,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var author: Person
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference to one record must be optional", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testReferenceMustBeVar() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference property must be a 'var'", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference let author: Person?
             }
@@ -515,21 +442,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 let author: Person?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference property must be a 'var'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testReferenceCannotHaveInitialValue() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference property cannot have an initial value", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference var author: Person? = nil
             }
@@ -538,21 +458,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var author: Person? = nil
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference property cannot have an initial value", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testReferenceToManyMustNotBeOptional() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference to many records must be a non-optional array", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference var tags: [Tag]?
             }
@@ -561,19 +474,11 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var tags: [Tag]?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference to many records must be a non-optional array", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testRecordWithToManyReferences() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -644,15 +549,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOwnerHoldsRecords() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference holds records, e.g. 'var author: Person?', and '$author.id' reads its ID", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference var authorID: UUID?
             }
@@ -661,21 +563,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var authorID: UUID?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference holds records, e.g. 'var author: Person?', and '$author.id' reads its ID", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testReferenceTakesNoTargetType() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference doesn't take '_:'", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference(Person.self) var author: Person?
             }
@@ -684,19 +579,11 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var author: Person?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference doesn't take '_:'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testSelfReferenceByRecordIsAllowed() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct Person {
@@ -750,13 +637,9 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOneToOneOwningSide() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -827,13 +710,9 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOneToOneFromSide() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -909,15 +788,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testFromNeedsAKeyPath() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference(from:) takes the owner's property, e.g. '\\User.profile'", line: 2, column: 5,
+            source: """
             struct Profile {
                 @Reference(from: User.self) var user: User?
             }
@@ -926,21 +802,14 @@ final class RecordMacroTests: XCTestCase {
             struct Profile {
                 var user: User?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference(from:) takes the owner's property, e.g. '\\User.profile'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOwnerTakesNoKeyPath() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference doesn't name its other side; name this property in the other side's '@Reference(from:)' instead", line: 2, column: 5,
+            source: """
             struct User {
                 @Reference(\\Profile.user) var profile: Profile?
             }
@@ -949,24 +818,14 @@ final class RecordMacroTests: XCTestCase {
             struct User {
                 var profile: Profile?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "@Reference doesn't name its other side; name this property in the other side's '@Reference(from:)' instead",
-                    line: 2, column: 5
-                ),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testDeleteSelfOnlyOnFrom() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "Only @Reference(from:) takes 'deleteSelf:'", line: 2, column: 5,
+            source: """
             struct User {
                 @Reference(deleteSelf: true) var profile: Profile?
             }
@@ -975,19 +834,11 @@ final class RecordMacroTests: XCTestCase {
             struct User {
                 var profile: Profile?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "Only @Reference(from:) takes 'deleteSelf:'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOneToManyFromSide() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -1063,15 +914,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testDeleteSelfNeedsAToOneFromSide() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'deleteSelf:' needs a to-one @Reference(from:) property", line: 2, column: 5,
+            source: """
             struct Shelf {
                 @Reference(from: \\Book.shelf, deleteSelf: true) var bookIDs: [Book.ID]
             }
@@ -1080,21 +928,14 @@ final class RecordMacroTests: XCTestCase {
             struct Shelf {
                 var bookIDs: [Book.ID]
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'deleteSelf:' needs a to-one @Reference(from:) property", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOneFromSidePerOwnerProperty() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "Only one @Reference(from:) can name 'Book.shelf'",
+            source: """
             @Record
             struct Shelf {
                 var id: UUID
@@ -1128,21 +969,14 @@ final class RecordMacroTests: XCTestCase {
 
                 var _otherIDs: Records.ToMany<Book>
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "Only one @Reference(from:) can name 'Book.shelf'", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testFromSideHoldsIDs() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference(from:) holds IDs, e.g. 'var bookIDs: [Book.ID]'", line: 2, column: 5,
+            source: """
             struct Shelf {
                 @Reference(from: \\Book.shelf) var books: [Book]
             }
@@ -1151,14 +985,11 @@ final class RecordMacroTests: XCTestCase {
             struct Shelf {
                 var books: [Book]
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference(from:) holds IDs, e.g. 'var bookIDs: [Book.ID]'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
-        )
-        assertMacroExpansion(
             """
+        )
+        assertDiagnostic(
+            "@Reference(from:) holds IDs, e.g. 'var userID: User.ID?'", line: 2, column: 5,
+            source: """
             struct Profile {
                 @Reference(from: \\User.profile) var user: User?
             }
@@ -1167,21 +998,14 @@ final class RecordMacroTests: XCTestCase {
             struct Profile {
                 var user: User?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference(from:) holds IDs, e.g. 'var userID: User.ID?'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testReferenceToItselfNotSupported() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference to itself is not supported yet", line: 2, column: 5,
+            source: """
             struct Person {
                 @Reference(from: \\Person.spouseID) var spouseID: Person.ID?
             }
@@ -1190,21 +1014,13 @@ final class RecordMacroTests: XCTestCase {
             struct Person {
                 var spouseID: Person.ID?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference to itself is not supported yet", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     // MARK: - Plain fields
 
     func testFieldsDeclaredTogetherOrObservedAreStored() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -1256,15 +1072,11 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     // MARK: - Encrypted fields
 
     func testEncryptedFieldsUseEncryptedValues() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -1314,15 +1126,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testEncryptedIDIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'id' is the record name, which CloudKit can't encrypt",
+            source: """
             @Record
             struct Account {
                 @Encrypted var id: UUID
@@ -1332,21 +1141,14 @@ final class RecordMacroTests: XCTestCase {
             struct Account {
                 var id: UUID
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'id' is the record name, which CloudKit can't encrypt", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testEncryptedReferenceIsAnError() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Encrypted applies to fields, not to a @Reference",
+            source: """
             @Record
             struct Account {
                 var id: UUID
@@ -1377,21 +1179,13 @@ final class RecordMacroTests: XCTestCase {
                     }
                 }
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Encrypted applies to fields, not to a @Reference", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     // MARK: - Assets
 
     func testAssetIsStoredOnItsLink() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -1491,15 +1285,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testAssetMustHoldOptionalData() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Asset holds 'Data?', e.g. 'var cover: Data?'", line: 2, column: 5,
+            source: """
             struct Poster {
                 @Asset var image: Data
             }
@@ -1508,21 +1299,14 @@ final class RecordMacroTests: XCTestCase {
             struct Poster {
                 var image: Data
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Asset holds 'Data?', e.g. 'var cover: Data?'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testAssetMustBeVar() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Asset needs a 'var'", line: 2, column: 5,
+            source: """
             struct Poster {
                 @Asset let image: Data?
             }
@@ -1531,21 +1315,14 @@ final class RecordMacroTests: XCTestCase {
             struct Poster {
                 let image: Data?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Asset needs a 'var'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testAssetCannotBeEncrypted() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "CloudKit can't encrypt an asset, so a property can't be both @Asset and @Encrypted", line: 2, column: 5,
+            source: """
             struct Poster {
                 @Asset @Encrypted var image: Data?
             }
@@ -1554,21 +1331,13 @@ final class RecordMacroTests: XCTestCase {
             struct Poster {
                 var image: Data?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "CloudKit can't encrypt an asset, so a property can't be both @Asset and @Encrypted", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     // MARK: - Locations
 
     func testLocationIsStoredAsACLLocation() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -1657,15 +1426,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testLocationMustHoldOptionalCoordinate() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Location holds 'Coordinate?', e.g. 'var venue: Coordinate?'", line: 2, column: 5,
+            source: """
             struct Gig {
                 @Location var venue: CLLocation?
             }
@@ -1674,21 +1440,13 @@ final class RecordMacroTests: XCTestCase {
             struct Gig {
                 var venue: CLLocation?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Location holds 'Coordinate?', e.g. 'var venue: Coordinate?'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     // MARK: - Timestamps
 
     func testTimestampsReadServerDates() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -1740,15 +1498,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testTimestampMustHoldOptionalDate() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Timestamped holds 'Date?', which is nil until the record is first saved", line: 2, column: 5,
+            source: """
             struct Memo {
                 @Timestamped(.created) var createdAt: Date
             }
@@ -1757,21 +1512,14 @@ final class RecordMacroTests: XCTestCase {
             struct Memo {
                 var createdAt: Date
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Timestamped holds 'Date?', which is nil until the record is first saved", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testTimestampNeedsAKind() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Timestamped takes .created or .modified, e.g. @Timestamped(.created)", line: 2, column: 5,
+            source: """
             struct Memo {
                 @Timestamped(.edited) var editedAt: Date?
             }
@@ -1780,21 +1528,13 @@ final class RecordMacroTests: XCTestCase {
             struct Memo {
                 var editedAt: Date?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Timestamped takes .created or .modified, e.g. @Timestamped(.created)", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     // MARK: - Renamed fields
 
     func testRenamedFieldUsesItsOriginalName() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -1834,15 +1574,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testTwoFieldsCannotShareAName() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "Two properties are stored in the field 'released'",
+            source: """
             @Record
             struct Album {
                 var id: UUID
@@ -1856,21 +1593,14 @@ final class RecordMacroTests: XCTestCase {
                 var released: Date
                 var year: Int
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "Two properties are stored in the field 'released'", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testRenamedNeedsAStringLiteral() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Renamed takes the field's original name as a string literal, e.g. @Renamed(\"released\")",
+            source: """
             @Record
             struct Album {
                 var id: UUID
@@ -1882,25 +1612,13 @@ final class RecordMacroTests: XCTestCase {
                 var id: UUID
                 var year: Int
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "@Renamed takes the field's original name as a string literal, e.g. @Renamed(\"released\")",
-                    line: 1,
-                    column: 1
-                ),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     // MARK: - Sorted references
 
     func testSortByKeyPath() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct Crate {
@@ -1933,13 +1651,9 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testSortByDescriptors() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             struct Crate {
@@ -1972,15 +1686,12 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testSortNeedsRecords() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5,
+            source: """
             struct Crate {
                 @Reference(from: \\Disc.crates, sort: \\Disc.title) var discIDs: [Disc.ID]
             }
@@ -1989,21 +1700,14 @@ final class RecordMacroTests: XCTestCase {
             struct Crate {
                 var discIDs: [Disc.ID]
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testSortNeedsToMany() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5,
+            source: """
             struct Crate {
                 @Reference(sort: \\Disc.title) var disc: Disc?
             }
@@ -2012,21 +1716,14 @@ final class RecordMacroTests: XCTestCase {
             struct Crate {
                 var disc: Disc?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'sort:' needs a to-many @Reference that holds records, e.g. 'var tags: [Tag]'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOrderNeedsAKeyPath() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'order:' goes with a key path, e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5,
+            source: """
             struct Crate {
                 @Reference(sort: [SortDescriptor(\\Disc.year)], order: .reverse) var discs: [Disc]
             }
@@ -2035,21 +1732,14 @@ final class RecordMacroTests: XCTestCase {
             struct Crate {
                 var discs: [Disc]
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'order:' goes with a key path, e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testLocationMustBeVar() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Location needs a 'var'", line: 2, column: 5,
+            source: """
             struct Note {
                 @Location let venue: Coordinate?
             }
@@ -2058,21 +1748,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 let venue: Coordinate?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Location needs a 'var'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testTimestampedMustBeVar() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Timestamped needs a 'var'", line: 2, column: 5,
+            source: """
             struct Note {
                 @Timestamped(.created) let createdAt: Date?
             }
@@ -2081,21 +1764,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 let createdAt: Date?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Timestamped needs a 'var'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testTimestampedCannotHaveAnInitialValue() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "The server sets @Timestamped dates, so remove the initial value", line: 2, column: 5,
+            source: """
             struct Note {
                 @Timestamped(.created) var createdAt: Date? = nil
             }
@@ -2104,21 +1780,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var createdAt: Date? = nil
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "The server sets @Timestamped dates, so remove the initial value", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testDeleteSelfNeedsABooleanLiteral() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'deleteSelf:' must be 'true' or 'false'", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference(from: \\Album.tracks, deleteSelf: maybe) var albumID: Album.ID?
             }
@@ -2127,21 +1796,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var albumID: Album.ID?
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'deleteSelf:' must be 'true' or 'false'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testOrderNeedsSort() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'order:' goes with 'sort:', e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference(order: .reverse) var tags: [Tag]
             }
@@ -2150,21 +1812,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var tags: [Tag]
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'order:' goes with 'sort:', e.g. 'sort: \\Tag.name, order: .reverse'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testReferenceRejectsUnknownArguments() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Reference doesn't take 'color:'", line: 2, column: 5,
+            source: """
             struct Note {
                 @Reference(color: 1) var tags: [Tag]
             }
@@ -2173,21 +1828,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var tags: [Tag]
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Reference doesn't take 'color:'", line: 2, column: 5),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testRecordNameMustBeALiteral() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "@Record name must be a string literal",
+            source: """
             @Record(name)
             struct Note {
                 var id: UUID
@@ -2197,21 +1845,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var id: UUID
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "@Record name must be a string literal", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testIDCannotBeRenamed() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'id' is the record name, so it has no field to rename",
+            source: """
             @Record
             struct Note {
                 @Renamed("ident") var id: UUID
@@ -2221,21 +1862,14 @@ final class RecordMacroTests: XCTestCase {
             struct Note {
                 var id: UUID
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'id' is the record name, so it has no field to rename", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testRenamedNeedsAValidFieldName() throws {
-        #if canImport(RecordsMacros)
-        assertMacroExpansion(
-            """
+        assertDiagnostic(
+            "'bad name' is not a valid field name; use letters, digits, and underscores, starting with a letter",
+            source: """
             @Record
             struct Note {
                 var id: UUID
@@ -2247,19 +1881,11 @@ final class RecordMacroTests: XCTestCase {
                 var id: UUID
                 var title: String
             }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "'bad name' is not a valid field name; use letters, digits, and underscores, starting with a letter", line: 1, column: 1),
-            ],
-            macroSpecs: macroSpecs
+            """
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 
     func testCodableRecordGetsEncodeAndDecode() throws {
-        #if canImport(RecordsMacros)
         assertMacroExpansion(
             """
             @Record
@@ -2321,8 +1947,6 @@ final class RecordMacroTests: XCTestCase {
             """,
             macroSpecs: macroSpecs
         )
-        #else
-        throw XCTSkip("macros are only supported when running tests for the host platform")
-        #endif
     }
 }
+#endif

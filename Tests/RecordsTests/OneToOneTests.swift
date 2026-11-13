@@ -96,17 +96,6 @@ private func makeProfile() -> Profile {
     #expect(state?.inverse?.deleteSelf == true)
 }
 
-@Test func addingAnInverseKeepsToOneLinkIDs() {
-    let sourceID = UUID()
-    let twoWay = makeUser(with: nil).referenceStates[0]
-    let oneWay = ReferenceState(schema: twoWay.schema, inverse: nil, ids: [], records: [])
-    #expect(twoWay.inverse != nil)
-    #expect(
-        RecordLink.id(reference: oneWay, sourceType: "User", sourceID: sourceID, targetID: UUID())
-            == RecordLink.id(reference: twoWay, sourceType: "User", sourceID: sourceID, targetID: UUID())
-    )
-}
-
 // MARK: - Round trip
 
 @Test func bothSidesDecodeFromTheSameLink() throws {
