@@ -10,9 +10,9 @@ private var macroSpecs: [String: MacroSpec] {
     [
         "Record": MacroSpec(type: RecordMacro.self, conformances: ["Record"]),
         "Reference": MacroSpec(type: ReferenceMacro.self),
-        "Encrypted": MacroSpec(type: EncryptedMacro.self),
+        "Encrypted": MacroSpec(type: MarkerMacro.self),
         "Asset": MacroSpec(type: AssetMacro.self),
-        "Renamed": MacroSpec(type: RenamedMacro.self),
+        "Renamed": MacroSpec(type: MarkerMacro.self),
         "Location": MacroSpec(type: LocationMacro.self),
         "Timestamped": MacroSpec(type: TimestampedMacro.self),
     ]
