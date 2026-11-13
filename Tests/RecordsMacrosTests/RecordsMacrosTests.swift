@@ -460,7 +460,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "author": (self._author.ids.map(\\.uuid), self._author.loadedRecords),
+                        "author": (self._author.ids.map(\\.rawValue), self._author.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
@@ -629,7 +629,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "tags": (self._tags.ids.map(\\.uuid), self._tags.loadedRecords),
+                        "tags": (self._tags.ids.map(\\.rawValue), self._tags.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {
@@ -812,7 +812,7 @@ final class RecordMacroTests: XCTestCase {
                 }
                 var referenceStates: [Records.ReferenceState] {
                     Records.ReferenceState.all(of: Self.self, targets: [
-                        "profile": (self._profile.ids.map(\\.uuid), self._profile.loadedRecords),
+                        "profile": (self._profile.ids.map(\\.rawValue), self._profile.loadedRecords),
                     ])
                 }
                 mutating func loadReference(_ property: String, to targets: [UUID], from graph: Records.RecordGraph, depth: Int) throws {

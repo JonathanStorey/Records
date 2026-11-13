@@ -118,7 +118,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             } else {
                 lines.append("        Records.ReferenceState.all(of: Self.self, targets: [")
                 for reference in owning {
-                    lines.append("            \"\(reference.key)\": (self.\(reference.storage).ids.map(\\.uuid), self.\(reference.storage).loadedRecords),")
+                    lines.append("            \"\(reference.key)\": (self.\(reference.storage).ids.map(\\.rawValue), self.\(reference.storage).loadedRecords),")
                 }
                 lines.append("        ])")
             }
