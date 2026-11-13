@@ -219,7 +219,7 @@ extension RecordContext {
     ) throws -> [R] {
         // The rows the SQL lets through.
         let (matching, values) = Database.matching(zone: zone, filter: filter)
-        let rows = try database.rows("SELECT * FROM \(database.quoted(R.recordType)) WHERE \(matching)", values)
+        let rows = try database.rows("SELECT * FROM \(quoted(R.recordType)) WHERE \(matching)", values)
         var roots: [RecordKey] = []
         var graph = Graph(zone: zone)
         for row in rows {
@@ -233,21 +233,16 @@ extension RecordContext {
 
         // Check each root with the records its paths reach loaded.
         let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
-        var matches: [(loaded: R, root: RecordKey)] = []
+        var matches: [R] = []
         for root in roots {
             guard let loaded = try reader.decode(R.self, root: root) else { continue }
-            if try predicate.evaluate(loaded) { matches.append((loaded, root)) }
+            if try predicate.evaluate(loaded) { matches.append(loaded) }
         }
-        if !descriptor.sortBy.isEmpty {
-            let order = descriptor.sortBy
-            matches.sort { order.compare($0.loaded, $1.loaded) == .orderedAscending }
-        }
-        let start = min(max(descriptor.fetchOffset ?? 0, 0), matches.count)
-        let end = descriptor.fetchLimit.map { min(start + max($0, 0), matches.count) } ?? matches.count
+        if !descriptor.sortBy.isEmpty { matches.sort(using: descriptor.sortBy) }
 
         // Return records as `fetch` always does, with references holding IDs.
-        return try matches[start..<end].map { match in
-            guard let row = graph[match.root] else { return match.loaded }
+        return try descriptor.page(of: matches).map { loaded in
+            guard let row = graph[RecordKey(recordType: R.recordType, name: loaded.id.uuidString, zone: zone)] else { return loaded }
             var record = try R(from: row)
             try graph.records.load(&record, depth: 0)
             return record
@@ -312,7 +307,7 @@ extension RecordContext {
                     let (current, zoneValues) = Database.matching(zone: zone, filter: nil)
                     let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
                     let rows = try database.rows(
-                        "SELECT * FROM \(database.quoted(recordType)) WHERE \(current) AND \"_name\" IN (\(placeholders))",
+                        "SELECT * FROM \(quoted(recordType)) WHERE \(current) AND \"_name\" IN (\(placeholders))",
                         zoneValues + chunk.map(SQLValue.text)
                     )
                     for row in rows {
@@ -339,7 +334,7 @@ extension RecordContext {
             let values = chunk.map(SQLValue.text)
             let rows = try database.rows(
                 """
-                SELECT * FROM \(database.quoted(RecordLink.recordType)) WHERE \(current) \
+                SELECT * FROM \(quoted(RecordLink.recordType)) WHERE \(current) \
                 AND ("sourceName" IN (\(placeholders)) OR "targetName" IN (\(placeholders)))
                 """,
                 zoneValues + values + values
@@ -368,14 +363,3 @@ extension Array {
     }
 }
 
-extension Sequence {
-    /// How two values compare under every descriptor in turn.
-    fileprivate func compare<Compared>(_ lhs: Compared, _ rhs: Compared) -> ComparisonResult
-    where Element == SortDescriptor<Compared> {
-        for descriptor in self {
-            let result = descriptor.compare(lhs, rhs)
-            if result != .orderedSame { return result }
-        }
-        return .orderedSame
-    }
-}

@@ -119,7 +119,7 @@ final class Database: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
-            throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+            throw lastError
         }
     }
 
@@ -141,18 +141,7 @@ final class Database: @unchecked Sendable {
 
     /// Runs one statement with `values` bound to its `?` parameters, in order.
     func run(_ sql: String, _ values: [SQLValue]) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        let statement = try prepared(sql)
-        defer {
-            sqlite3_reset(statement)
-            sqlite3_clear_bindings(statement)
-        }
-        try bind(values, to: statement)
-        let result = sqlite3_step(statement)
-        guard result == SQLITE_DONE || result == SQLITE_ROW else {
-            throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
-        }
+        _ = try rows(sql, values)
     }
 
     /// Every row `sql` returns with `values` bound, each as its columns by name.
@@ -177,7 +166,7 @@ final class Database: @unchecked Sendable {
             case SQLITE_DONE:
                 return rows
             default:
-                throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+                throw lastError
             }
         }
     }
@@ -188,7 +177,7 @@ final class Database: @unchecked Sendable {
         guard sqlite3_prepare_v3(handle, sql, -1, UInt32(SQLITE_PREPARE_PERSISTENT), &statement, nil) == SQLITE_OK,
               let statement
         else {
-            throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+            throw lastError
         }
         statements[sql] = statement
         return statement
@@ -208,7 +197,7 @@ final class Database: @unchecked Sendable {
                 data.withUnsafeBytes { sqlite3_bind_blob(statement, index, $0.baseAddress, Int32($0.count), transient) }
             }
             guard result == SQLITE_OK else {
-                throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
+                throw lastError
             }
         }
     }
@@ -230,29 +219,16 @@ final class Database: @unchecked Sendable {
         }
     }
 
-    /// The first column of each row `sql` returns, as text.
+    /// The `name` column of each row `sql` returns.
     private func strings(_ sql: String) throws -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
-        }
-        defer { sqlite3_finalize(statement) }
-        var values: [String] = []
-        while true {
-            switch sqlite3_step(statement) {
-            case SQLITE_ROW:
-                values.append(sqlite3_column_text(statement, 0).map { String(cString: $0) } ?? "")
-            case SQLITE_DONE:
-                return values
-            default:
-                throw RecordContainerError.database(String(cString: sqlite3_errmsg(handle)))
-            }
+        try rows(sql).compactMap { row in
+            guard case .text(let name) = row["name"] else { return nil }
+            return name
         }
     }
 
-    func quoted(_ name: String) -> String {
-        "\"\(name.replacingOccurrences(of: "\"", with: "\"\""))\""
+    /// The error SQLite reports for the last call that failed.
+    private var lastError: RecordContainerError {
+        .database(String(cString: sqlite3_errmsg(handle)))
     }
 }

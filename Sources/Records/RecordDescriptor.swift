@@ -39,4 +39,11 @@ public struct RecordDescriptor<R: Record> {
         self.fetchLimit = fetchLimit
         self.fetchOffset = fetchOffset
     }
+
+    /// The part of `records` from `fetchOffset` for up to `fetchLimit`.
+    func page<T>(of records: [T]) -> ArraySlice<T> {
+        let start = min(max(fetchOffset ?? 0, 0), records.count)
+        let end = fetchLimit.map { min(start + max($0, 0), records.count) } ?? records.count
+        return records[start..<end]
+    }
 }

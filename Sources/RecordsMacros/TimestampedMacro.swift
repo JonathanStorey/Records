@@ -53,16 +53,6 @@ public struct TimestampedMacro: AccessorMacro, PeerMacro {
         ]
     }
 
-    /// The `@Timestamped` attribute on `variable`, if it has one.
-    static func attribute(on variable: VariableDeclSyntax) -> AttributeSyntax? {
-        for element in variable.attributes {
-            guard let attribute = element.as(AttributeSyntax.self) else { continue }
-            let name = attribute.attributeName.trimmedDescription
-            if name == "Timestamped" || name == "Records.Timestamped" { return attribute }
-        }
-        return nil
-    }
-
     /// The storage name and kind of a valid `@Timestamped` property.
     static func timestamp(
         _ variable: VariableDeclSyntax,

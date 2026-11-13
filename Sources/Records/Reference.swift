@@ -75,10 +75,10 @@ public struct ToOne<Target: Record> {
     /// Sets the reference as read from storage. Uses the first of `ids`. When `depth` is at
     /// least 1 and `graph` holds the target, reads it with `depth - 1`, so its own references
     /// hold records `depth - 1` levels further.
-    public mutating func load(_ ids: [UUID], from graph: RecordGraph, depth: Int = 1) throws {
-        id = ids.first.map { Target.ID($0) }
+    public mutating func load(_ ids: [UUID], from graph: RecordGraph, depth: Int) throws {
+        id = ids.first.map { Target.ID(rawValue: $0) }
         guard depth > 0, let id else { box = nil; return }
-        box = try graph.record(Target.self, id: id.uuid, depth: depth - 1).map(Box.init)
+        box = try graph.record(Target.self, id: id.rawValue, depth: depth - 1).map(Box.init)
     }
 
 
@@ -150,13 +150,13 @@ public struct ToMany<Target: Record> {
     /// Sets the reference to the targets `ids` as read from storage. When `depth` is at least 1,
     /// reads each target `graph` holds with `depth - 1`, so its own references hold records
     /// `depth - 1` levels further.
-    public mutating func load(_ ids: [UUID], from graph: RecordGraph, depth: Int = 1) throws {
-        self.ids = ids.map { Target.ID($0) }
+    public mutating func load(_ ids: [UUID], from graph: RecordGraph, depth: Int) throws {
+        self.ids = ids.map { Target.ID(rawValue: $0) }
 
         var values: [Target.ID: Target] = [:]
         if depth > 0 {
             for id in storedIDs {
-                values[id] = try graph.record(Target.self, id: id.uuid, depth: depth - 1)
+                values[id] = try graph.record(Target.self, id: id.rawValue, depth: depth - 1)
             }
         }
         box = values.isEmpty ? nil : Box(values)
@@ -213,7 +213,7 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
     /// Used by the code `@Reference` generates.
     public init<Owner: Record>(owner: Owner.Type, id: Owner.ID, property: String, storage: ToMany<Target>) {
         ownerType = owner
-        ownerID = id.uuid
+        ownerID = id.rawValue
         self.property = property
         self.storage = storage
     }
@@ -248,7 +248,7 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
     /// Takes the targets with `ids` out. See `remove(_:in:)`.
     @MainActor
     public mutating func remove(_ ids: [Target.ID], in context: RecordContext) {
-        context.remove(ids.map(\.uuid), from: property, of: ownerType, id: ownerID)
+        context.remove(ids.map(\.rawValue), from: property, of: ownerType, id: ownerID)
         storage.ids.removeAll { ids.contains($0) }
     }
 
@@ -288,7 +288,7 @@ public struct ReferenceID<Target: Record>: Equatable {
     /// Used by the code `@Reference` generates.
     public init<Owner: Record>(owner: Owner.Type, id: Owner.ID, property: String, storage: ToOne<Target>) {
         ownerType = owner
-        ownerID = id.uuid
+        ownerID = id.rawValue
         self.property = property
         self.storage = storage
     }
@@ -307,7 +307,7 @@ public struct ReferenceID<Target: Record>: Equatable {
     @MainActor
     public mutating func clear(in context: RecordContext) {
         guard let id = storage.id else { return }
-        context.remove([id.uuid], from: property, of: ownerType, id: ownerID)
+        context.remove([id.rawValue], from: property, of: ownerType, id: ownerID)
         storage.value = nil
     }
 

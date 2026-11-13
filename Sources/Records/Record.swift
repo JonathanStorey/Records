@@ -174,7 +174,7 @@ public macro Reference<Owner: Record, Value>(from owner: KeyPath<Owner, Value>, 
 /// not a `CKAsset`. CloudKit can't index or query it on the server, and a field can't switch between
 /// encrypted and plain once its schema is deployed.
 @attached(peer)
-public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "EncryptedMacro")
+public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "MarkerMacro")
 
 /// Stores a `Data?` field of a `@Record` as a `CKAsset`, for images and files too large to keep
 /// in the record itself.
@@ -241,4 +241,4 @@ public macro Timestamped(_ timestamp: Timestamp) = #externalMacro(module: "Recor
 /// @Renamed("released") var year: Int   // was `var released: Int`
 /// ```
 @attached(peer)
-public macro Renamed(_ originalName: String) = #externalMacro(module: "RecordsMacros", type: "RenamedMacro")
+public macro Renamed(_ originalName: String) = #externalMacro(module: "RecordsMacros", type: "MarkerMacro")

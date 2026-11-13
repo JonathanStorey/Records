@@ -151,7 +151,7 @@ public final class RecordContext {
     /// pending edit to it laid over, oldest first, or `nil` when it is missing or deleted.
     func draft<R: Record>(id: RecordID<R>, for type: R.Type, in zone: Zone) -> R? {
         observeDrafts()
-        return draft(id: id.uuid, for: type, in: zone, savedFirst: false)
+        return draft(id: id.rawValue, for: type, in: zone, savedFirst: false)
     }
 
     /// `draft(id:for:in:)`, or with `savedFirst`, the saved record when there is one.
@@ -192,10 +192,8 @@ public final class RecordContext {
             try insertNewTargets(of: changes, now: now)
             try finishDeleting(deleted, now: now)
         }
-        differences = [:]
-        directEdits = [:]
-        updateChanges()
-        lastSaved = Date()
+        rollback()
+        lastSaved = .now
         container?.didSave(from: self)
     }
 
@@ -216,7 +214,7 @@ public final class RecordContext {
             differences[id] = difference.base == nil && difference.edit == nil ? nil : difference
         }
         updateChanges()
-        lastSaved = Date()
+        lastSaved = .now
     }
 
     /// The saved record `record` names in `zone`, or `nil` when it is missing or deleted.
@@ -234,7 +232,7 @@ public final class RecordContext {
 
     /// Discards every pending edit to the record with `id` in the current `zone`.
     public func rollback<R: Record>(id: RecordID<R>) {
-        differences = differences.filter { $0.value.zone != zone || $0.value.recordID != id.uuid }
+        differences = differences.filter { $0.value.zone != zone || $0.value.recordID != id.rawValue }
         updateChanges()
     }
 
@@ -260,8 +258,7 @@ public final class RecordContext {
                 let targetKey = RecordKey(recordType: target.recordType, name: targetName, zone: key.zone)
                 guard let targetRow = try database.currentRow(of: targetKey), targetRow["_deleted"] != .integer(1) else { continue }
                 let targetOwned = try database.currentLinks(of: targetKey)
-                try database.remove(targetKey, now: now)
-                try database.writeLinks([], of: targetKey, saved: targetOwned, removing: nil, now: now)
+                try database.delete(targetKey, links: targetOwned, now: now)
                 queue.append((targetKey, targetOwned))
             }
         }
@@ -289,15 +286,8 @@ public final class RecordContext {
 
     /// Removes every current link that points at `key`'s record through a reference.
     private func removeLinks(to key: RecordKey, now: Double) throws {
-        let rows = try database.rows(
-            """
-            SELECT "_name", "source" FROM \(database.quoted(RecordLink.recordType)) \
-            WHERE "_zoneName" = ? AND "_zoneOwner" = ? AND "targetName" = ? AND "_isCurrent" = 1 AND "_deleted" = 0
-            """,
-            key.values
-        )
-        for row in rows {
-            guard case .text(let name) = row["_name"], case .text(let source) = row["source"],
+        for (name, row) in try database.links(in: key.zone, where: "\"targetName\" = ?", [.text(key.name)]) {
+            guard case .text(let source) = row["source"],
                   linkReference(named: source)?.reference.target.recordType == key.recordType
             else { continue }
             try database.remove(RecordKey(recordType: RecordLink.recordType, name: name, zone: key.zone), now: now)
@@ -325,8 +315,8 @@ public final class RecordContext {
 
     // MARK: - Editing links
 
-    /// Adds `target` to the reference `keyPath` names on the record with `ownerID`, after its
-    /// other targets, when the context saves. Only that one link is written: the owner's record
+    /// Adds `target` to the reference `keyPath` names on the record with `ownerID` when the
+    /// context saves. Only that one link is written: the owner's record
     /// is never read or changed, so this works whether or not its references are loaded.
     ///
     /// ```swift
@@ -334,19 +324,19 @@ public final class RecordContext {
     /// ```
     ///
     /// `target` is inserted too when it exists nowhere yet. A target that exists is left as it
-    /// is, so a stale copy can't overwrite it. A target already in the reference keeps its place.
+    /// is, so a stale copy can't overwrite it. A target already in the reference is left as it is.
     public func insert<Owner: Record, Target: Record>(
         _ target: Target, into keyPath: KeyPath<Owner, [Target]>, of ownerID: Owner.ID
     ) {
         insert([target], into: keyPath, of: ownerID)
     }
 
-    /// Adds `targets` to the reference `keyPath` names on the record with `ownerID`, in order,
-    /// after its other targets. See `insert(_:into:of:)`.
+    /// Adds `targets` to the reference `keyPath` names on the record with `ownerID`. See
+    /// `insert(_:into:of:)`.
     public func insert<Owner: Record, Target: Record>(
         _ targets: [Target], into keyPath: KeyPath<Owner, [Target]>, of ownerID: Owner.ID
     ) {
-        insert(targets, into: property(keyPath), of: Owner.self, id: ownerID.uuid)
+        insert(targets, into: property(keyPath), of: Owner.self, id: ownerID.rawValue)
     }
 
     /// Points the to-one reference `keyPath` names on the record with `ownerID` at `target`,
@@ -358,7 +348,7 @@ public final class RecordContext {
     public func insert<Owner: Record, Target: Record>(
         _ target: Target, into keyPath: KeyPath<Owner, Target?>, of ownerID: Owner.ID
     ) {
-        insert([target], into: property(keyPath), of: Owner.self, id: ownerID.uuid)
+        insert([target], into: property(keyPath), of: Owner.self, id: ownerID.rawValue)
     }
 
     /// Takes the target with `targetID` out of the reference `keyPath` names on the record with
@@ -381,7 +371,7 @@ public final class RecordContext {
     public func remove<Owner: Record, Target: Record>(
         _ targetIDs: [Target.ID], from keyPath: KeyPath<Owner, [Target]>, of ownerID: Owner.ID
     ) {
-        remove(targetIDs.map(\.uuid), from: property(keyPath), of: Owner.self, id: ownerID.uuid)
+        remove(targetIDs.map(\.rawValue), from: property(keyPath), of: Owner.self, id: ownerID.rawValue)
     }
 
     /// Clears the to-one reference `keyPath` names on the record with `ownerID` when it points at
@@ -389,7 +379,7 @@ public final class RecordContext {
     public func remove<Owner: Record, Target: Record>(
         _ targetID: Target.ID, from keyPath: KeyPath<Owner, Target?>, of ownerID: Owner.ID
     ) {
-        remove([targetID.uuid], from: property(keyPath), of: Owner.self, id: ownerID.uuid)
+        remove([targetID.rawValue], from: property(keyPath), of: Owner.self, id: ownerID.rawValue)
     }
 
     /// Links `targets` through the reference named `property` on the `Owner` with `ownerID`. Used
@@ -514,12 +504,8 @@ public final class RecordContext {
         if let predicate = descriptor.predicate {
             records = try records.filter { try predicate.evaluate($0) }
         }
-        if !descriptor.sortBy.isEmpty {
-            records.sort(using: descriptor.sortBy)
-        }
-        let start = min(max(descriptor.fetchOffset ?? 0, 0), records.count)
-        let end = descriptor.fetchLimit.map { min(start + max($0, 0), records.count) } ?? records.count
-        return Array(records[start..<end])
+        if !descriptor.sortBy.isEmpty { records.sort(using: descriptor.sortBy) }
+        return Array(descriptor.page(of: records))
     }
 
     /// How many records `fetch(descriptor)` would return.
@@ -531,7 +517,7 @@ public final class RecordContext {
         // The database counts the matches without reading them.
         let (matching, values) = Database.matching(zone: zone, filter: plan.filter)
         let rows = try database.rows(
-            "SELECT COUNT(*) AS \"count\" FROM \(database.quoted(R.recordType)) WHERE \(matching)", values
+            "SELECT COUNT(*) AS \"count\" FROM \(quoted(R.recordType)) WHERE \(matching)", values
         )
         guard case .integer(let total)? = rows.first?["count"] else { return 0 }
         let remaining = max(Int(total) - max(descriptor.fetchOffset ?? 0, 0), 0)
@@ -573,7 +559,7 @@ public final class RecordContext {
         let recordTypes = types.keys.filter { $0 != RecordLink.recordType }.sorted()
         let selects = recordTypes.map { recordType in
             let literal = "'" + recordType.replacingOccurrences(of: "'", with: "''") + "'"
-            return "SELECT \(literal) AS \"type\" FROM \(database.quoted(recordType)) "
+            return "SELECT \(literal) AS \"type\" FROM \(quoted(recordType)) "
                 + "WHERE \(Database.named) AND \"_isCurrent\" = 1 AND \"_deleted\" = 0"
         }
         return (selects.joined(separator: " UNION ALL ") + " LIMIT 1", recordTypes.count)
@@ -587,10 +573,6 @@ public final class RecordContext {
             )
         }
     }
-
-    // MARK: - Writing
-
-    // MARK: - Reading
 
     /// Whether `row` exists and holds every value in `values`.
     nonisolated static func matches(_ row: [String: SQLValue]?, _ values: [String: SQLValue]) -> Bool {
@@ -694,10 +676,10 @@ extension RecordDifference {
     var schema: RecordSchema { type(of: record).schema }
 
     /// Every field's column value, by field key.
-    var values: [String: SQLValue] { Self.columns(of: record) }
+    var values: [String: SQLValue] { record.columnValues() }
 
     /// `base`'s column values, by field key.
-    var originalValues: [String: SQLValue]? { base.map { Self.columns(of: $0) } }
+    var originalValues: [String: SQLValue]? { base?.columnValues() }
 
     /// The edit's links by name.
     var links: [(String, [String: SQLValue])] { Self.linkRows(of: record) }
@@ -710,9 +692,9 @@ extension RecordDifference {
     /// `saved`. A record of another type, or one that can't be read back, reads as the draft.
     fileprivate static func merged<R: Record>(_ draft: R, over saved: any Record, original: any Record) -> any Record {
         guard let saved = saved as? R, let original = original as? R else { return draft }
-        var row = columns(of: saved)
-        let originalValues = columns(of: original)
-        for (field, value) in columns(of: draft) where originalValues[field] != value {
+        var row = saved.columnValues()
+        let originalValues = original.columnValues()
+        for (field, value) in draft.columnValues() where originalValues[field] != value {
             row[field] = value
         }
 
@@ -742,14 +724,10 @@ extension RecordDifference {
         for (keyPath, property) in R.keyPaths where fromSides.contains(property) {
             // A `from:` side holds only IDs, as an `Owner.ID?` or an `[Owner.ID]`.
             let value = saved[keyPath: keyPath]
-            let ids = (value as? [any AnyRecordID])?.map(\.uuid) ?? (value as? any AnyRecordID).map { [$0.uuid] } ?? []
+            let ids = (value as? [any RawRepresentable<UUID>])?.map { $0.rawValue } ?? (value as? any RawRepresentable<UUID>).map { [$0.rawValue] } ?? []
             try? merged.loadReference(property, to: ids, from: graph, depth: 0)
         }
         return merged
-    }
-
-    private static func columns(of record: some Record) -> [String: SQLValue] {
-        record.columnValues()
     }
 
     private static func linkRows<R: Record>(of record: R) -> [(String, [String: SQLValue])] {

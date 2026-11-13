@@ -601,7 +601,8 @@ private func sqlValue(of value: Any) -> SQLValue? {
     }
 }
 
-private func quoted(_ name: String) -> String {
+/// `name` as a quoted SQL identifier.
+func quoted(_ name: String) -> String {
     "\"\(name.replacingOccurrences(of: "\"", with: "\"\""))\""
 }
 

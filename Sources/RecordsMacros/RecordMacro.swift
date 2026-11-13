@@ -8,7 +8,7 @@ import SwiftSyntaxMacros
 /// `schema`, an `init(from row:)` that reads each stored property from its database row, and an
 /// `encodeFields(into:)` that writes each one except `id`. The schema turns a row into a
 /// `CKRecord` and back, so no record type writes its own. A struct with `@Reference` properties
-/// also gets `referenceStates` and `loadReference(_:to:from:links:depth:)`. The schema describes
+/// also gets `referenceStates` and `loadReference(_:to:from:depth:)`. The schema describes
 /// every reference, including the `@Reference(from:)` sides, so the encoder finds each inverse
 /// there.
 ///
@@ -71,7 +71,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             isGeneric: structDecl.genericParameterClause != nil
         )
             + keyPathLines(typeName: type.trimmedDescription, fields: fields, references: references, access: access)
-        lines += rowLines(fields: fields, references: references, timestamps: try timestamps(in: structDecl.memberBlock), access: access)
+        lines += rowLines(fields: fields, references: references, timestamps: timestamps(in: structDecl.memberBlock), access: access)
         let assets = fields.filter(\.isAsset)
         if !assets.isEmpty {
             // Each asset is stored on a link named by its field key, so `@Renamed` keeps it.
@@ -118,7 +118,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             } else {
                 lines.append("        Records.ReferenceState.all(of: Self.self, targets: [")
                 for reference in owning {
-                    lines.append("            \"\(reference.key)\": (self.\(reference.storage).ids.map(\\.uuid), self.\(reference.storage).loadedRecords),")
+                    lines.append("            \"\(reference.key)\": (self.\(reference.storage).ids.map(\\.rawValue), self.\(reference.storage).loadedRecords),")
                 }
                 lines.append("        ])")
             }
@@ -157,7 +157,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
     ) -> [String] {
         var lines = [
             "    \(access)init(from row: Records.RecordRow) throws {",
-            "        self.id = Records.RecordID(try row.id)",
+            "        self.id = Records.RecordID(rawValue: try row.id)",
         ]
         for field in fields {
             if field.isAsset {
@@ -439,7 +439,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
     private static func references(in members: MemberBlockSyntax, owner: String) -> [ReferenceMacro.Reference] {
         members.members.compactMap { member in
             guard let variable = member.decl.as(VariableDeclSyntax.self),
-                  let attribute = ReferenceMacro.attribute(on: variable)
+                  let attribute = variable.attribute("Reference")
             else { return nil }
             return try? ReferenceMacro.reference(variable, attribute: attribute, owner: owner)
         }
@@ -456,12 +456,12 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             guard let variable = member.decl.as(VariableDeclSyntax.self),
                   !variable.modifiers.contains(where: { skipped.contains($0.name.tokenKind) })
             else { continue }
-            let isAsset = AssetMacro.isAsset(variable)
-            let isLocation = LocationMacro.isLocation(variable)
+            let isAsset = variable.has("Asset")
+            let isLocation = variable.has("Location")
             // A location says where someone is, so it is always encrypted.
-            let isEncrypted = isEncrypted(variable) || isLocation
+            let isEncrypted = variable.has("Encrypted") || isLocation
             let renamed = try renamedKey(variable)
-            if TimestampedMacro.attribute(on: variable) != nil {
+            if variable.has("Timestamped") {
                 // The server sets the date, so there is no field to encrypt, rename, or write.
                 if isEncrypted {
                     throw MacroExpansionErrorMessage("The server sets @Timestamped dates, so they can't be @Encrypted")
@@ -471,7 +471,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
                 }
                 continue
             }
-            if ReferenceMacro.isReference(variable) {
+            if variable.has("Reference") {
                 // Links hold references, not fields.
                 if isEncrypted {
                     throw MacroExpansionErrorMessage("@Encrypted applies to fields, not to a @Reference")
@@ -549,40 +549,27 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
 
     /// The field name in `@Renamed("name")` on `variable`, if any.
     private static func renamedKey(_ variable: VariableDeclSyntax) throws -> String? {
-        for element in variable.attributes {
-            guard let attribute = element.as(AttributeSyntax.self) else { continue }
-            let name = attribute.attributeName.trimmedDescription
-            guard name == "Renamed" || name == "Records.Renamed" else { continue }
-            guard let argument = attribute.arguments?.as(LabeledExprListSyntax.self)?.first,
-                  let literal = argument.expression.as(StringLiteralExprSyntax.self),
-                  let key = literal.representedLiteralValue
-            else {
-                throw MacroExpansionErrorMessage("@Renamed takes the field's original name as a string literal, e.g. @Renamed(\"released\")")
-            }
-            guard isValidRecordType(key) else {
-                throw MacroExpansionErrorMessage("'\(key)' is not a valid field name; use letters, digits, and underscores, starting with a letter")
-            }
-            return key
+        guard let attribute = variable.attribute("Renamed") else { return nil }
+        guard let argument = attribute.arguments?.as(LabeledExprListSyntax.self)?.first,
+              let literal = argument.expression.as(StringLiteralExprSyntax.self),
+              let key = literal.representedLiteralValue
+        else {
+            throw MacroExpansionErrorMessage("@Renamed takes the field's original name as a string literal, e.g. @Renamed(\"released\")")
         }
-        return nil
+        guard isValidRecordType(key) else {
+            throw MacroExpansionErrorMessage("'\(key)' is not a valid field name; use letters, digits, and underscores, starting with a letter")
+        }
+        return key
     }
 
-    /// Whether `variable` carries `@Encrypted` or `@Records.Encrypted`.
     /// The valid `@Timestamped` properties. `@Timestamped` itself reports invalid ones.
-    private static func timestamps(in members: MemberBlockSyntax) throws -> [(storage: String, kind: TimestampedMacro.Kind)] {
+    private static func timestamps(in members: MemberBlockSyntax) -> [(storage: String, kind: TimestampedMacro.Kind)] {
         members.members.compactMap { member in
             guard let variable = member.decl.as(VariableDeclSyntax.self),
-                  let attribute = TimestampedMacro.attribute(on: variable),
+                  let attribute = variable.attribute("Timestamped"),
                   let timestamp = try? TimestampedMacro.timestamp(variable, attribute: attribute)
             else { return nil }
             return (timestamp.storage, timestamp.kind)
-        }
-    }
-
-    private static func isEncrypted(_ variable: VariableDeclSyntax) -> Bool {
-        variable.attributes.contains {
-            let name = $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription
-            return name == "Encrypted" || name == "Records.Encrypted"
         }
     }
 

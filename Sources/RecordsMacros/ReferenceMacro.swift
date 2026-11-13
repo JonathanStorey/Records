@@ -276,21 +276,6 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         return nil
     }
 
-    /// The `@Reference` or `@Records.Reference` attribute on `variable`, if any.
-    static func attribute(on variable: VariableDeclSyntax) -> AttributeSyntax? {
-        for element in variable.attributes {
-            guard let attribute = element.as(AttributeSyntax.self) else { continue }
-            let name = attribute.attributeName.trimmedDescription
-            if name == "Reference" || name == "Records.Reference" { return attribute }
-        }
-        return nil
-    }
-
-    /// Whether `variable` carries `@Reference` or `@Records.Reference`.
-    static func isReference(_ variable: VariableDeclSyntax) -> Bool {
-        attribute(on: variable) != nil
-    }
-
     private static func owner(in context: some MacroExpansionContext) -> String? {
         context.lexicalContext.first?.as(StructDeclSyntax.self)?.name.text
     }
