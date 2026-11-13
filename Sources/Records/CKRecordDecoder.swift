@@ -29,19 +29,16 @@ public struct CKRecordDecoder: Sendable {
     /// whose source or, for `@Reference(from:)` properties, target is `record` are used, and links
     /// that can't be read are skipped. To-many targets are sorted by ID, the order they were made.
     ///
-    /// A reference that holds records is filled from the matching records in `targets`, `depth`
-    /// levels deep. With the default of 1, the targets are records and their own references
-    /// hold only IDs. With 2, those references hold records too, and so on. With 0, every
-    /// reference holds only IDs. A reference that holds IDs is always filled, at every level.
+    /// A reference that holds records is filled from the matching records in `targets`. Those
+    /// targets' own references hold only IDs. A reference that holds IDs is always filled.
     public func decode<R: Record>(
         _ type: R.Type,
         from record: CKRecord,
         links: [CKRecord],
-        targets: [CKRecord] = [],
-        depth: Int = 1
+        targets: [CKRecord] = []
     ) throws -> R {
         var decoded = try decode(type, from: record)
-        try RecordGraph(records: targets, links: links, reachableFrom: R.self).load(&decoded, depth: depth)
+        try RecordGraph(records: targets, links: links, reachableFrom: R.self).load(&decoded, depth: 1)
         return decoded
     }
 
