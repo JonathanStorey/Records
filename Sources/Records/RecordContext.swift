@@ -724,7 +724,7 @@ extension RecordDifference {
         for (keyPath, property) in R.keyPaths where fromSides.contains(property) {
             // A `from:` side holds only IDs, as an `Owner.ID?` or an `[Owner.ID]`.
             let value = saved[keyPath: keyPath]
-            let ids = (value as? [any RawRepresentable<UUID>])?.map(\.rawValue) ?? (value as? any RawRepresentable<UUID>).map { [$0.rawValue] } ?? []
+            let ids = (value as? [any RawRepresentable<UUID>])?.map { $0.rawValue } ?? (value as? any RawRepresentable<UUID>).map { [$0.rawValue] } ?? []
             try? merged.loadReference(property, to: ids, from: graph, depth: 0)
         }
         return merged
