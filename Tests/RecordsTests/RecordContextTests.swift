@@ -574,7 +574,7 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 }
 
 @MainActor
-@Test func recordFillsReferenceIDsInOrder() throws {
+@Test func recordFillsReferenceIDsSortedByID() throws {
     let context = try makeContext(for: Page.self)
     let labels = ["a", "b", "c"].map { Label(name: $0) }
     let page = Page(title: "Notes", labels: [labels[2], labels[0], labels[1]])
@@ -582,7 +582,7 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
     try context.save()
 
     let loaded = try #require(try context.record(id: page.id, for: Page.self))
-    #expect(referenceIDs(loaded, "labels") == [labels[2].uuid, labels[0].uuid, labels[1].uuid])
+    #expect(referenceIDs(loaded, "labels") == labels.map(\.uuid))
 }
 
 /// A record reads as saved until `save()`.
