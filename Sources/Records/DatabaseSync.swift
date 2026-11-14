@@ -186,7 +186,8 @@ extension Database {
     /// | --- | --- |
     /// | `serverRecordChanged` | The error's server record merges in as theirs, as a fetch would. Sent again while still pending. |
     /// | `zoneNotFound`, `unknownItem` | The server copy is forgotten, so the record uploads as new. A deletion the server can't find is done, so its rows are removed. |
-    /// | Network, throttling, busy zone, not signed in, `quotaExceeded` | Nothing. The engine retries, or the next save tries again. |
+    /// | `batchRequestFailed` | Sent again while still pending. Another record in its batch failed. |
+    /// | Network, throttling, busy zone, not signed in, cancelled, `quotaExceeded` | Nothing. The engine retries, or the next save tries again. |
     /// | Anything else | Logged. Never sent again in a loop. |
     func resolve(
         _ error: CKError, for recordID: CKRecord.ID, schema: RecordSchema, assets: URL
@@ -205,8 +206,10 @@ extension Database {
             }
             try forgetServerCopy(of: key)
             return true
+        case .batchRequestFailed:
+            return try isPending(key)
         case .networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited,
-             .zoneBusy, .notAuthenticated, .accountTemporarilyUnavailable, .quotaExceeded:
+             .zoneBusy, .notAuthenticated, .accountTemporarilyUnavailable, .operationCancelled, .quotaExceeded:
             return false
         default:
             syncLog.error("Upload of \(key.recordType, privacy: .public) \(key.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
@@ -223,6 +226,59 @@ extension Database {
             """,
             key.values
         ).isEmpty
+    }
+
+    /// Every record with work to upload, as the pending index counts it, and whether that work
+    /// is its deletion.
+    func pendingChanges() throws -> [(key: RecordKey, isDelete: Bool)] {
+        var changes: [(key: RecordKey, isDelete: Bool)] = []
+        for recordType in try recordTables() {
+            let table = quoted(recordType)
+            let rows = try self.rows(
+                """
+                SELECT "_name", "_zoneName", "_zoneOwner", "_deleted" FROM \(table) AS c WHERE "_isCurrent" = 1 \
+                AND ("_systemFields" IS NULL OR "_deleted" = 1 OR EXISTS (SELECT 1 FROM \(table) AS b \
+                WHERE b."_isCurrent" = 0 AND b."_name" = c."_name" AND b."_zoneName" IS c."_zoneName" AND b."_zoneOwner" IS c."_zoneOwner"))
+                """
+            )
+            for row in rows {
+                guard case .text(let name) = row["_name"], case .text(let zoneName) = row["_zoneName"],
+                      case .text(let owner) = row["_zoneOwner"], Zone.isAllowed(zoneName)
+                else { continue }
+                let key = RecordKey(recordType: recordType, name: name, zone: Zone(zoneName, ownerName: owner))
+                changes.append((key, row["_deleted"] == .integer(1)))
+            }
+        }
+        return changes
+    }
+
+    /// The record type whose table holds `recordID`'s rows, or `nil` when none does. The engine
+    /// names records by ID alone, and every record's name is a UUID, so at most one table does.
+    func recordType(of recordID: CKRecord.ID) throws -> CKRecord.RecordType? {
+        let values = Self.key(of: recordID, recordType: "").values
+        for table in try recordTables() {
+            if try !rows("SELECT 1 FROM \(quoted(table)) WHERE \(Self.named) LIMIT 1", values).isEmpty {
+                return table
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Sync state
+
+    /// The value saved under `key` in the sync state table, or `nil`.
+    func syncState(_ key: String) throws -> SQLValue? {
+        try rows("SELECT \"state\" FROM \(quoted(Self.syncStateTable)) WHERE \"scope\" = ?", [.text(key)]).first?["state"]
+    }
+
+    /// Saves `value` under `key`, or removes `key` when `value` is `nil`.
+    func setSyncState(_ value: SQLValue?, for key: String) throws {
+        let table = quoted(Self.syncStateTable)
+        if let value {
+            try run("INSERT OR REPLACE INTO \(table) (\"scope\", \"state\") VALUES (?, ?)", [.text(key), value])
+        } else {
+            try run("DELETE FROM \(table) WHERE \"scope\" = ?", [.text(key)])
+        }
     }
 
     // MARK: - Zones and accounts

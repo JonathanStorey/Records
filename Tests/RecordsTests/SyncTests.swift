@@ -487,11 +487,20 @@ private func assetLink(_ assetID: String?, target: String? = nil) -> [String: SQ
     let store = try Store()
     let tune = Tune(title: "Blue", plays: 0)
     try store.save(tune)
-    let codes: [CKError.Code] = [.networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited, .zoneBusy, .notAuthenticated, .quotaExceeded, .internalError]
+    let codes: [CKError.Code] = [.networkFailure, .networkUnavailable, .serviceUnavailable, .requestRateLimited, .zoneBusy, .notAuthenticated, .operationCancelled, .quotaExceeded, .internalError]
     for code in codes {
         #expect(try !store.database.resolve(CKError(code), for: recordID(tune.id.uuidString), schema: Tune.schema, assets: store.assets))
         #expect(try store.isPending(tune.id.uuidString))
     }
+}
+
+/// Another record in the batch failed, so this one is sent again as it is.
+@MainActor
+@Test func aRecordWhoseBatchFailedIsSentAgain() throws {
+    let store = try Store()
+    let tune = Tune(title: "Blue", plays: 0)
+    try store.save(tune)
+    #expect(try store.database.resolve(CKError(.batchRequestFailed), for: recordID(tune.id.uuidString), schema: Tune.schema, assets: store.assets))
 }
 
 // MARK: - Zones and accounts
