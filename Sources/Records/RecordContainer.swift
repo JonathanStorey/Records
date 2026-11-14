@@ -120,11 +120,12 @@ public final class RecordContainer: Sendable {
     }
 
     /// Rebases every other context after `context` saved, so their pending edits sit on the
-    /// records as now saved and their views redraw.
+    /// records as now saved, then appends `.saved` to each so their views redraw.
     @MainActor func didSave(from context: RecordContext) {
         contexts.all.removeAll { $0.context == nil }
         for other in contexts.all.compactMap(\.context) where other !== context {
             other.rebase()
+            other.append(.saved(.now))
         }
     }
 

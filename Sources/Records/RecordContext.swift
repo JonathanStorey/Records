@@ -16,9 +16,9 @@ import Observation
 /// Saving writes only the fields and links that differ from the saved copy, so a record saved
 /// again unchanged writes nothing and stays in sync.
 ///
-/// Views observe three properties: `lastSaved`, which moves when the saved records change,
-/// and `changes` and `hasChanges`, which move when pending edits begin or end. Nothing else
-/// in the context redraws a view.
+/// Views observe three properties: `events`, which grows when the saved records change, and
+/// `changes` and `hasChanges`, which move when pending edits begin or end. Nothing else in the
+/// context redraws a view.
 @MainActor
 @Observable
 public final class RecordContext {
@@ -49,10 +49,14 @@ public final class RecordContext {
     /// that edit and keeps its base.
     @ObservationIgnored private var directEdits: [RecordKey: UUID] = [:]
 
-    /// When the saved records this context reads last changed, or `nil` before the first
-    /// change. `save()` sets it, and so does a save in another context of the same container.
-    /// Every read of a record reads it, so a view showing records redraws when it moves.
-    public private(set) var lastSaved: Date?
+    /// What has happened to the saved records since launch, oldest first, such as
+    /// `[.saved(date), .synced(date)]`. `save()` appends `.saved`, and so does a save in another
+    /// context of the same container. Every read of a record reads it, so a view showing records
+    /// redraws on each new entry. The log is kept in memory only.
+    ///
+    /// An event of the same kind as the newest entry, with the same status or flag, replaces
+    /// that entry, so two saves in a row leave one `.saved` with the later date.
+    public private(set) var events: [RecordEvent] = []
 
     /// Whether any change is waiting for `save()`, in any zone.
     public private(set) var hasChanges = false
@@ -82,10 +86,20 @@ public final class RecordContext {
         if hasChanges == differences.isEmpty { hasChanges = !differences.isEmpty }
     }
 
+    /// Adds `event` to `events`, or replaces the newest entry when `event` repeats it. Either way
+    /// the views showing records redraw.
+    func append(_ event: RecordEvent) {
+        if let last = events.last, last.isRepeated(by: event) {
+            events[events.count - 1] = event
+        } else {
+            events.append(event)
+        }
+    }
+
     /// Reads what a record's pending edits depend on, so a view reading one redraws when the
     /// saved records change or a pending edit begins or ends.
     private func observeDrafts() {
-        _ = lastSaved
+        _ = events
         _ = changes
         _ = hasChanges
     }
@@ -193,13 +207,14 @@ public final class RecordContext {
             try finishDeleting(deleted, now: now)
         }
         rollback()
-        lastSaved = .now
+        append(.saved(.now))
         container?.didSave(from: self)
     }
 
-    /// Moves every pending edit onto its record as saved now, then redraws the views showing
-    /// records. Call it after the saved records change from outside this context: the container
-    /// does after another context saves, and sync does after it writes the server's changes.
+    /// Moves every pending edit onto its record as saved now. Call it after the saved records
+    /// change from outside this context, then append the event that redraws the views: the
+    /// container appends `.saved` after another context saves, and sync will append `.synced`
+    /// after it writes the server's changes.
     ///
     /// Each edit keeps the fields and links it changed and takes everything else from the
     /// record as saved now. An edit to a record deleted elsewhere becomes an insert, so editing
@@ -214,7 +229,6 @@ public final class RecordContext {
             differences[id] = difference.base == nil && difference.edit == nil ? nil : difference
         }
         updateChanges()
-        lastSaved = .now
     }
 
     /// The saved record `record` names in `zone`, or `nil` when it is missing or deleted.
@@ -451,7 +465,7 @@ public final class RecordContext {
     ///
     /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
     public func record<R: Record>(id: RecordID<R>, for type: R.Type = R.self) throws -> R? {
-        _ = lastSaved
+        _ = events
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
         return try database.load(R.self, key: key)
@@ -460,7 +474,7 @@ public final class RecordContext {
     /// The saved record with `id` in the current `zone`, whatever its type, or `nil` when there
     /// is none. Finding the type takes one indexed query across every table.
     public func record(id: UUID) throws -> (any Record)? {
-        _ = lastSaved
+        _ = events
         let name = id.uuidString
         let lookup = recordTypeLookup
         let values = Array(repeating: RecordKey(recordType: "", name: name, zone: zone).values, count: lookup.tables).flatMap { $0 }
@@ -477,7 +491,7 @@ public final class RecordContext {
     /// The references named in `relationshipKeyPathsForPrefetching` come back holding their
     /// records, loaded together for every result.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
-        _ = lastSaved
+        _ = events
         checkRegistered(R.self)
         let records = try fetchRecords(descriptor)
         guard !descriptor.relationshipKeyPathsForPrefetching.isEmpty else { return records }
@@ -510,7 +524,7 @@ public final class RecordContext {
 
     /// How many records `fetch(descriptor)` would return.
     public func fetchCount<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> Int {
-        _ = lastSaved
+        _ = events
         checkRegistered(R.self)
         let plan = self.plan(for: descriptor)
         guard plan.page != nil else { return try fetchRecords(descriptor).count }

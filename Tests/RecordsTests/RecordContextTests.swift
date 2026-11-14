@@ -89,7 +89,7 @@ private func linkRows<R>(of id: RecordID<R>, in context: RecordContext) throws -
 @Test func mainContextSwitchesBetweenZones() throws {
     let container = try RecordContainer(for: [Page.self], url: nil)
     let shared = Zone(CKRecordZone.ID(zoneName: "Team", ownerName: "_friend"))
-    let zones: [Zone] = [.records, "Work", .local, shared]
+    let zones: [Zone] = [.records, "Work", "Home", shared]
     var pages: [Page] = []
     for zone in zones {
         container.mainContext.zone = zone
