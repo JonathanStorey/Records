@@ -583,7 +583,7 @@ public final class RecordContext {
     private func checkRegistered<R: Record>(_ type: R.Type) {
         guard let registered = types[R.recordType], ObjectIdentifier(registered) == ObjectIdentifier(R.self) else {
             preconditionFailure(
-                "'\(R.recordType)' isn't registered with this container. Pass it, or a type that refers to it, to RecordContainer(for:)."
+                "'\(R.recordType)' isn't registered with this container. Pass it, or a type that refers to it, to RecordContainer(for:sync:)."
             )
         }
     }

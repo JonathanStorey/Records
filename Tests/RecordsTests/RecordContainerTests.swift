@@ -40,17 +40,17 @@ private func temporaryFile() -> URL {
 // MARK: - Registering types
 
 @Test func relatedTypesAreRegistered() throws {
-    let container = try RecordContainer.inMemory(for: Page.self)
+    let container = try RecordContainer(for: Page.self, sync: .inMemory)
     #expect(container.recordTypes == ["Label", "Page", "RecordLink"])
 }
 
 @Test func bothSidesOfAnInverseAreRegistered() throws {
-    let container = try RecordContainer.inMemory(for: Profile.self)
+    let container = try RecordContainer(for: Profile.self, sync: .inMemory)
     #expect(container.recordTypes == ["Profile", "RecordLink", "User"])
 }
 
 @Test func namingATypeTwiceIsFine() throws {
-    let container = try RecordContainer.inMemory(for: Label.self, Page.self, Label.self)
+    let container = try RecordContainer(for: Label.self, Page.self, Label.self, sync: .inMemory)
     #expect(container.recordTypes == ["Label", "Page", "RecordLink"])
 }
 
@@ -58,44 +58,44 @@ private func temporaryFile() -> URL {
 
 @Test func twoTypesCantShareARecordType() {
     #expect(throws: RecordContainerError.duplicateRecordType("Gadget")) {
-        try RecordContainer.inMemory(for: GadgetV1.self, GadgetV2.self)
+        try RecordContainer(for: GadgetV1.self, GadgetV2.self, sync: .inMemory)
     }
 }
 
 @Test func recordLinkIsReserved() {
     #expect(throws: RecordContainerError.reservedRecordType("RecordLink")) {
-        try RecordContainer.inMemory(for: FakeLink.self)
+        try RecordContainer(for: FakeLink.self, sync: .inMemory)
     }
 }
 
 @Test func fieldsCantStartWithAnUnderscore() {
     #expect(throws: RecordContainerError.reservedFieldName(recordType: "Underscored", field: "_hidden")) {
-        try RecordContainer.inMemory(for: Underscored.self)
+        try RecordContainer(for: Underscored.self, sync: .inMemory)
     }
 }
 
 @Test func anInverseMustPointBack() {
     #expect(throws: RecordContainerError.invalidInverse(recordType: "Imposter", property: "accountID")) {
-        try RecordContainer.inMemory(for: Imposter.self)
+        try RecordContainer(for: Imposter.self, sync: .inMemory)
     }
 }
 
 // MARK: - Tables
 
 @Test func eachTypeGetsATable() throws {
-    let container = try RecordContainer.inMemory(for: Page.self)
+    let container = try RecordContainer(for: Page.self, sync: .inMemory)
     #expect(try container.database.tableNames() == ["Label", "Page", "RecordLink", "_SyncState"])
 }
 
 @Test func aTableHasBookkeepingThenFields() throws {
-    let container = try RecordContainer.inMemory(for: Book.self)
+    let container = try RecordContainer(for: Book.self, sync: .inMemory)
     let bookkeeping = Database.bookkeeping.map(\.name)
     #expect(try container.database.columnNames("Book") == bookkeeping + ["title"])
     #expect(try container.database.columnNames("RecordLink") == bookkeeping + ["source", "sourceName", "targetName", "assetID"])
 }
 
 @Test func renamedFieldsUseTheirStoredName() throws {
-    let container = try RecordContainer.inMemory(for: Novel.self)
+    let container = try RecordContainer(for: Novel.self, sync: .inMemory)
     let columns = try container.database.columnNames("Novel")
     #expect(columns.contains("released") && !columns.contains("year"))
     #expect(!columns.contains("cover")) // assets live on links
@@ -103,7 +103,7 @@ private func temporaryFile() -> URL {
 }
 
 @Test func tablesGetTheirIndexes() throws {
-    let container = try RecordContainer.inMemory(for: Page.self)
+    let container = try RecordContainer(for: Page.self, sync: .inMemory)
     #expect(try container.database.indexNames("Page") == ["Page_pending"])
     #expect(try container.database.indexNames("RecordLink") == ["RecordLink_pending", "RecordLink_source", "RecordLink_target"])
 }
@@ -146,9 +146,32 @@ private func temporaryFile() -> URL {
     #expect(RecordContainer.defaultURL.lastPathComponent == "default.records")
 }
 
+// MARK: - Sync
+
+/// An app syncs one container: a second one that syncs with iCloud can't open while the first
+/// is alive, and closing the first frees the place.
+@Test func onlyOneContainerSyncsWithICloud() throws {
+    var first: RecordContainer? = try RecordContainer(for: [Page.self], url: nil, syncsWithICloud: true)
+    #expect(throws: RecordContainerError.iCloudInUse) {
+        try RecordContainer(for: [Page.self], url: nil, syncsWithICloud: true)
+    }
+    // Containers that don't sync open freely beside it.
+    _ = try RecordContainer(for: Page.self, sync: .inMemory)
+    withExtendedLifetime(first) {}
+    first = nil
+    _ = try RecordContainer(for: [Page.self], url: nil, syncsWithICloud: true)
+}
+
+/// Asset files live in `Assets` beside the database file, so an app group shares both.
+@Test func assetsLiveBesideTheDatabase() {
+    let database = URL(filePath: "/Shared/Records/default.records")
+    #expect(RecordContainer.assetFolder(for: database) == URL(filePath: "/Shared/Records/Assets", directoryHint: .isDirectory))
+    #expect(RecordContainer.assetFolder(for: RecordContainer.defaultURL).deletingLastPathComponent() == RecordContainer.defaultURL.deletingLastPathComponent())
+}
+
 @MainActor
 @Test func theMainContextIsTheSameEveryTime() throws {
-    let container = try RecordContainer.inMemory(for: Page.self)
+    let container = try RecordContainer(for: Page.self, sync: .inMemory)
     container.mainContext.zone = "Music"
     #expect(container.mainContext === container.mainContext)
     #expect(container.mainContext.zone == "Music")

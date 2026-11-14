@@ -68,7 +68,7 @@ uses the file where it is.
 
 The asset isn't a field of the record. It rides on its own link for `Artwork.image`, so
 editing the record's other fields never uploads it again. Each new value gets a new ID and its own
-`<ID>.asset` file in `Application Support/Records/Assets`, and the link carries that ID, so two
+`<ID>.asset` file in `Records/Assets` beside the database, and the link carries that ID, so two
 devices can tell whether they hold the same image without comparing the data. Loading a list never
 reads the data until you ask for it. An asset can't be `@Encrypted`.
 
@@ -364,11 +364,18 @@ The owner is the side your code edits.
 
 ## Opening a container
 
-`RecordContainer` keeps records on device in SQLite and will sync them with CloudKit.
+`RecordContainer` keeps records on device in SQLite and will sync them with CloudKit. Its `sync`
+says where inserts, edits, and deletes go, and every app chooses:
 
 ```swift
-let container = try RecordContainer(for: Album.self)
+let container = try RecordContainer(for: Album.self, sync: .iCloud)
 ```
+
+| `sync` | Where records go |
+| --- | --- |
+| `.inMemory` | Memory only, gone when the app quits. For tests and previews. |
+| `.local` | A file on this device, never synced. |
+| `.iCloud` | A file on this device, synced with the app's default iCloud container. Until sync is built, it works like `.local`. |
 
 Every type a registered type refers to is registered too, so `Album` brings `Track`, `Artist`, and
 `Genre`. Opening checks the types against each other and throws a `RecordContainerError` that names
@@ -376,15 +383,17 @@ the problem: two types with the same record type, a field name starting with an 
 `@Reference(from:)` that names a property not pointing back. It then creates a table for each type,
 or updates the table when fields were added or removed.
 
-The database lives at `Application Support/Records/default.records` and syncs with the app's default
-iCloud container. One container holds every zone. Tests and previews can use a throwaway database:
+The database lives at `Application Support/Records/default.records`, and its asset files in
+`Records/Assets` beside it. One container holds every zone, and an app syncs one container. Tests
+and previews can use a throwaway database:
 
 ```swift
-let preview = try RecordContainer.inMemory(for: Album.self)
+let preview = try RecordContainer(for: Album.self, sync: .inMemory)
 ```
 
-To share the database with the app's extensions and widgets, pass its app group:
-`RecordContainer(for: Album.self, appGroup: "group.com.example.music")`.
+To share the database and its assets with the app's extensions and widgets, pass its app group:
+`RecordContainer(for: Album.self, sync: .iCloud(appGroup: "group.com.example.music"))`. An
+extension never syncs. Its saves wait in the shared file until the app uploads them.
 
 ## Writing records
 
@@ -573,7 +582,7 @@ because only the album is saved. Give the artist its own `@Recordable` to edit i
 
 A `@Recordable` edits its record in the container's `defaultZone`, or in the zone you pass with
 `Recordable(album, zone: "Work")`. Changing `context.zone` never moves it. Set the default when
-opening the container with `RecordContainer(for: Album.self, defaultZone: "Work")`. It is
+opening the container with `RecordContainer(for: Album.self, sync: .iCloud, defaultZone: "Work")`. It is
 `.records` unless you set it, and every context starts with its `zone` set to it.
 
 Any view can reach the context with `@Environment(\.recordContext) private var context`, for

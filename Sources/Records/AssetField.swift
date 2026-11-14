@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import Synchronization
 
 /// The storage behind an `@Asset` property: the asset's ID and the file that holds its data.
 ///
@@ -9,10 +10,23 @@ import Foundation
 /// view. Setting `$name` to a file copies it in instead, without reading it into memory. Reading the property reads that file, so a record that is loaded but never asked for its
 /// data never loads it.
 public struct AssetField {
-    /// Where asset files are kept: `Application Support/Records/Assets`.
-    public static let directory: URL = URL.applicationSupportDirectory
-        .appending(path: "Records", directoryHint: .isDirectory)
-        .appending(path: "Assets", directoryHint: .isDirectory)
+    /// Where asset files are kept: `Records/Assets` beside the database, which is in the app
+    /// group's folder when the container has one. Until a container with a file opens, and in
+    /// tests and previews that only use `.inMemory`, it is a temporary folder.
+    public static var directory: URL {
+        folder.withLock { $0 }
+    }
+
+    private static let folder = Mutex(
+        URL.temporaryDirectory
+            .appending(path: "Records", directoryHint: .isDirectory)
+            .appending(path: "Assets", directoryHint: .isDirectory)
+    )
+
+    /// Keeps asset files in `directory` from now on. The container calls it when it opens.
+    static func use(_ directory: URL) {
+        folder.withLock { $0 = directory }
+    }
 
     private enum Source: Equatable {
         case none
