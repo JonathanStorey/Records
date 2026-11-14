@@ -473,8 +473,8 @@ is left as it is. Inserting a target the reference already holds, or removing on
 does nothing.
 
 Records go to the context's `zone`, `Records` unless you set another. Set it to switch zones at
-any time. `Zone.local` keeps records on this device without syncing them. As in CloudKit, a record is
-named by its zone and ID together, so the same record can be saved to more than one zone.
+any time. As in CloudKit, a record is named by its zone and ID together, so the same record can
+be saved to more than one zone.
 
 ```swift
 context.zone = "Work"
@@ -510,12 +510,14 @@ Reading `album` shows the saved record with every pending edit to it. Each chang
 in the context, and nothing is written until you call `context.save()`. `rollback()` returns
 every `@Recordable` to its saved record.
 
-The context is `@Observable`, and views watch three of its properties. `lastSaved` is when the
-saved records last changed: `save()` sets it, and every read of a record reads it, so each view
-showing a record, or a list built with `fetch`, redraws then. Use it for a "Saved 2 minutes ago"
-label too. `changes` and `hasChanges` move only when an edit begins, turns into a delete, or
-ends, so a Save button that reads `hasChanges` redraws on the first edit and on save, not while
-you type. A `@Recordable` reads all three.
+The context is `@Observable`, and views watch three of its properties. `events` is a short log
+of what happened to the saved records since launch, such as `[.saved(date)]`. `save()` appends to
+it, and every read of a record reads it, so each view showing a record, or a list built with
+`fetch`, redraws then. Two saves in a row leave one `.saved` entry with the later date, so the log
+stays short. `context.events.lastSaved` gives the date for a "Saved 2 minutes ago" label.
+`changes` and `hasChanges` move only when an edit begins, turns into a delete, or ends, so a Save
+button that reads `hasChanges` redraws on the first edit and on save, not while you type. A
+`@Recordable` reads all three.
 
 When one context saves, the container refreshes its other contexts. Each pending edit there
 keeps the fields it changed and takes everything else from the record as saved now, and their

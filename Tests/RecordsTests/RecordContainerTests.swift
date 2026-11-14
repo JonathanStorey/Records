@@ -141,10 +141,8 @@ private func temporaryFile() -> URL {
 
 // MARK: - Zones
 
-@Test func localZonesDontSync() {
-    #expect(Zone.records.name == "Records" && Zone.records.isSynced)
-    #expect(!Zone.local.isSynced)
-    #expect(Zone("Music").isSynced)
+@Test func defaultZoneAndFile() {
+    #expect(Zone.records.name == "Records")
     #expect(RecordContainer.defaultURL.lastPathComponent == "default.records")
 }
 
