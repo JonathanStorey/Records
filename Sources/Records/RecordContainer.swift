@@ -74,6 +74,9 @@ public final class RecordContainer: Sendable {
     /// The zone contexts start in, and the zone `@Recordable` edits in when it isn't given one.
     public let defaultZone: Zone
     private let contexts = Contexts()
+    /// Keeps the container in sync with iCloud. Set once, right after a `.iCloud` container
+    /// opens in the app itself.
+    private let iCloudSync = Mutex<RecordSync?>(nil)
 
     /// Opens a container for `types` and every type they refer to. `sync` says where its
     /// inserts, edits, and deletes go: `.inMemory`, `.local`, or `.iCloud`, with an app group for
@@ -90,6 +93,11 @@ public final class RecordContainer: Sendable {
     public convenience init(for types: [any Record.Type], sync: Sync, defaultZone: Zone = .records) throws {
         let url = try sync.isInMemory ? nil : Self.url(appGroup: sync.appGroup)
         try self.init(for: types, url: url, syncsWithICloud: sync.isICloud, assets: url.map(Self.assetFolder(for:)), defaultZone: defaultZone)
+        if sync.isICloud && !Self.isExtension {
+            let recordSync = RecordSync(container: self, assets: AssetField.directory)
+            iCloudSync.withLock { $0 = recordSync }
+            Task { await recordSync.start() }
+        }
     }
 
     /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
@@ -152,12 +160,28 @@ public final class RecordContainer: Sendable {
     }
 
     /// Rebases every other context after `context` saved, so their pending edits sit on the
-    /// records as now saved, then appends `.saved` to each so their views redraw.
+    /// records as now saved, then appends `.saved` to each so their views redraw. Sync then
+    /// reads what the save left to upload.
     @MainActor func didSave(from context: RecordContext) {
         contexts.all.removeAll { $0.context == nil }
         for other in contexts.all.compactMap(\.context) where other !== context {
             other.rebase()
             other.append(.saved(.now))
+        }
+        if let recordSync = iCloudSync.withLock({ $0 }) {
+            Task { await recordSync.readPendingWork() }
+        }
+    }
+
+    /// Appends `event` to every context after sync wrote to the database or learned something,
+    /// rebasing each first when `rebasing`, because the saved records changed. Starts the main
+    /// context if nothing has read it yet, so no event is missed.
+    @MainActor func syncDidWrite(_ event: RecordEvent, rebasing: Bool) {
+        _ = mainContext
+        contexts.all.removeAll { $0.context == nil }
+        for context in contexts.all.compactMap(\.context) {
+            if rebasing { context.rebase() }
+            context.append(event)
         }
     }
 
