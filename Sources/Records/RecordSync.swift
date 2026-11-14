@@ -26,6 +26,8 @@ actor RecordSync: CKSyncEngineDelegate {
     private var keepsState = true
     /// Whether the newest upload failed because iCloud storage is full.
     private var isStorageFull = false
+    /// Whether `start()` has run, so it runs once.
+    private var isStarted = false
 
     /// The `_SyncState` key of the engine's state.
     static let stateKey = "private"
@@ -43,8 +45,11 @@ actor RecordSync: CKSyncEngineDelegate {
     // MARK: - Starting
 
     /// Creates the engine from the saved state, adds the work waiting to upload, and reports the
-    /// account's status. The engine then fetches and sends on its own.
+    /// account's status. The engine then fetches and sends on its own. Runs once. A later call,
+    /// such as `refresh()` arriving first, returns once the engine exists.
     func start() async {
+        guard !isStarted else { return }
+        isStarted = true
         do {
             startEngine(with: try loadState())
         } catch {
@@ -129,6 +134,7 @@ actor RecordSync: CKSyncEngineDelegate {
     /// Fetches the server's changes and returns once they are written, then sends anything
     /// waiting to upload. A failure is logged, and the engine tries again on its own.
     func refresh() async {
+        await start()
         guard let engine else { return }
         readPendingWork()
         do {
@@ -226,6 +232,7 @@ actor RecordSync: CKSyncEngineDelegate {
     /// saved this session, because the engine counts the batch as received. The next launch
     /// fetches everything again, which changes nothing already here.
     func received(_ records: [CKRecord], deletions: [(CKRecord.ID, CKRecord.RecordType)]) async {
+        copyAssets(of: records)
         do {
             try database.transaction {
                 for record in records where Self.isOwn(record.recordID.zoneID) {
@@ -266,6 +273,7 @@ actor RecordSync: CKSyncEngineDelegate {
         var merged = false
         var isFull = false
         var missingZones: Set<CKRecordZone.ID> = []
+        copyAssets(of: failedSaves.compactMap { $0.1.serverRecord })
         do {
             try database.transaction {
                 func failed(_ recordID: CKRecord.ID, _ recordType: CKRecord.RecordType?, _ error: CKError) throws {
@@ -314,6 +322,15 @@ actor RecordSync: CKSyncEngineDelegate {
             await container?.syncDidWrite(.storage(.now, isFull: isFull), rebasing: false)
         }
         return again
+    }
+
+    /// Copies the asset files of `records` into the asset folder before their transaction, so
+    /// large files never hold the database lock while the app reads. A copy that fails here is
+    /// tried again inside the transaction, where it fails the batch.
+    private func copyAssets(of records: [CKRecord]) {
+        for record in records where Self.isOwn(record.recordID.zoneID) {
+            try? database.copyAsset(of: record, into: assets)
+        }
     }
 
     /// The change that uploads `recordID`'s work, when it has any.

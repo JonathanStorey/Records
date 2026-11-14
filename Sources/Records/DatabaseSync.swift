@@ -59,7 +59,7 @@ extension Database {
     /// CloudKit may delete its file once the event is handled. A file already there is kept.
     func apply(_ record: CKRecord, schema: RecordSchema, assets: URL) throws {
         let theirs = try schema.values(of: record)
-        try copyAsset(of: record, values: theirs, into: assets)
+        try copyAsset(of: record, into: assets)
         let key = Self.key(of: record.recordID, recordType: record.recordType)
         let server = ServerCopy(record)
         let rows = try self.rows(of: key)
@@ -228,28 +228,28 @@ extension Database {
         ).isEmpty
     }
 
-    /// Every record with work to upload, as the pending index counts it, and whether that work
-    /// is its deletion.
+    /// Every record with work to upload, and whether that work is its deletion. The condition
+    /// is the pending index's own, so SQLite reads only the index's rows, never the whole table.
     func pendingChanges() throws -> [(key: RecordKey, isDelete: Bool)] {
-        var changes: [(key: RecordKey, isDelete: Bool)] = []
+        var changes: [RecordKey: Bool] = [:]
         for recordType in try recordTables() {
-            let table = quoted(recordType)
             let rows = try self.rows(
                 """
-                SELECT "_name", "_zoneName", "_zoneOwner", "_deleted" FROM \(table) AS c WHERE "_isCurrent" = 1 \
-                AND ("_systemFields" IS NULL OR "_deleted" = 1 OR EXISTS (SELECT 1 FROM \(table) AS b \
-                WHERE b."_isCurrent" = 0 AND b."_name" = c."_name" AND b."_zoneName" IS c."_zoneName" AND b."_zoneOwner" IS c."_zoneOwner"))
+                SELECT "_name", "_zoneName", "_zoneOwner", "_isCurrent", "_deleted" FROM \(quoted(recordType)) \
+                WHERE "_isCurrent" = 0 OR "_systemFields" IS NULL OR "_deleted" = 1
                 """
             )
+            // A record with a base row appears twice. Its current row says whether it is deleted.
             for row in rows {
                 guard case .text(let name) = row["_name"], case .text(let zoneName) = row["_zoneName"],
                       case .text(let owner) = row["_zoneOwner"], Zone.isAllowed(zoneName)
                 else { continue }
                 let key = RecordKey(recordType: recordType, name: name, zone: Zone(zoneName, ownerName: owner))
-                changes.append((key, row["_deleted"] == .integer(1)))
+                let isDelete = row["_isCurrent"] == .integer(1) && row["_deleted"] == .integer(1)
+                changes[key] = (changes[key] ?? false) || isDelete
             }
         }
-        return changes
+        return changes.map { (key: $0.key, isDelete: $0.value) }
     }
 
     /// The record type whose table holds `recordID`'s rows, or `nil` when none does. The engine
@@ -396,8 +396,10 @@ extension Database {
     }
 
     /// Copies a fetched asset link's file into `folder` as `<assetID>.asset`, unless it is there.
-    private func copyAsset(of record: CKRecord, values: [String: SQLValue], into folder: URL) throws {
-        guard record.recordType == RecordLink.recordType, case .text(let assetID) = values["assetID"],
+    /// Sync calls it before the batch's transaction, so file copies never hold the database
+    /// lock, and `apply` calls it again, which finds the file there.
+    func copyAsset(of record: CKRecord, into folder: URL) throws {
+        guard record.recordType == RecordLink.recordType, let assetID = record["assetID"] as? String,
               let file = (record[RecordLink.assetKey] as? CKAsset)?.fileURL
         else { return }
         let destination = folder.appending(path: "\(assetID).asset", directoryHint: .notDirectory)

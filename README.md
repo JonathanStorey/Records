@@ -709,7 +709,8 @@ records:
 
 Saves never wait on iCloud. With no account, or with storage full, they stay on the device and
 upload later. Signing out or switching accounts removes every record from the device, so one
-person's records never upload into another person's account.
+person's records never upload into another person's account. That includes saves that hadn't
+uploaded yet, which are lost.
 
 ### When two devices edit the same record
 

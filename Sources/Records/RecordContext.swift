@@ -185,8 +185,19 @@ public final class RecordContext {
 
     /// Writes every pending edit in one transaction, oldest first, then clears them. If any
     /// write fails, nothing is written and the edits stay pending.
+    ///
+    /// An `@Asset` set in this edit whose file couldn't be copied into the asset folder is copied
+    /// first. If that still fails, `save()` throws the file system's error and writes nothing.
     public func save() throws {
         guard hasChanges else { return }
+        for difference in differences.values {
+            // Only assets this edit set. One already saved is left as it is, even when its file
+            // hasn't arrived, so other fields can still be edited.
+            let saved = Set(difference.base?.assetStates.compactMap(\.id) ?? [])
+            for asset in difference.edit?.assetStates ?? [] where asset.id.map(saved.contains) == false {
+                try asset.storeFile()
+            }
+        }
         // Links edited on their own go last, so a new record saved in the same save can't drop
         // them for not listing them.
         let sorted = differences.values.sorted(by: RecordDifference.isOlder)

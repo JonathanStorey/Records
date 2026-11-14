@@ -73,7 +73,8 @@ public struct AssetField {
     ///
     /// Setting it to a file gives the asset a new ID and copies the file in as its `.asset` file,
     /// without reading the data into memory. When the copy fails, the asset uses the file where it
-    /// is. Setting it to `nil` clears the asset.
+    /// is, and `save()` tries the copy again, throwing if it still fails. Setting it to `nil`
+    /// clears the asset.
     public var fileURL: URL? {
         get {
             if case .file(let url) = source { url } else { nil }
@@ -152,6 +153,22 @@ extension AssetField: Hashable {
 }
 
 extension AssetField: Sendable {}
+
+extension AssetState {
+    /// Puts the asset's file in the asset folder under its ID when it isn't there, so a saved
+    /// asset never names a missing file. Throws the file system's error when the file can't be
+    /// copied, such as a file from the Files app that the app didn't open for access.
+    func storeFile() throws {
+        guard let id else { return }
+        let destination = AssetField.url(for: id)
+        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
+        guard let fileURL else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: destination.path])
+        }
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: fileURL, to: destination)
+    }
+}
 
 /// One `@Asset` as the encoder needs it to write its link.
 public struct AssetState: Equatable, Sendable {
