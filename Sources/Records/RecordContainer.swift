@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import Synchronization
 
 /// Why a `RecordContainer` couldn't open.
 public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
@@ -13,6 +14,8 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
     case invalidInverse(recordType: String, property: String)
     /// The app can't reach the app group, usually because its entitlements don't list it.
     case appGroupUnavailable(String)
+    /// Another container that syncs with iCloud is still open. An app syncs one container.
+    case iCloudInUse
     /// SQLite reported an error.
     case database(String)
 
@@ -28,6 +31,8 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
             "\(type).\(property) names a property that doesn't point at \(type)."
         case .appGroupUnavailable(let group):
             "The app group '\(group)' isn't available. Add it to the app's entitlements."
+        case .iCloudInUse:
+            "Another container that syncs with iCloud is still open. Use that one, or open this one with sync: .local."
         case .database(let message):
             "The database couldn't open: \(message)"
         }
@@ -37,7 +42,7 @@ public enum RecordContainerError: Error, Equatable, CustomStringConvertible {
 /// Stores `@Record` values on device and keeps them in sync with CloudKit.
 ///
 /// ```swift
-/// let container = try RecordContainer(for: Album.self, Artist.self)
+/// let container = try RecordContainer(for: Album.self, Artist.self, sync: .iCloud)
 /// container.mainContext.insert(album)
 /// try container.mainContext.save()
 /// ```
@@ -70,28 +75,32 @@ public final class RecordContainer: Sendable {
     public let defaultZone: Zone
     private let contexts = Contexts()
 
-    /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
-    /// database in that group's shared folder, so the app's extensions and widgets can open it
-    /// too. `defaultZone` is the zone contexts start in and `@Recordable` edits in.
-    public convenience init(for types: any Record.Type..., appGroup: String? = nil, defaultZone: Zone = .records) throws {
-        try self.init(for: types, appGroup: appGroup, defaultZone: defaultZone)
+    /// Opens a container for `types` and every type they refer to. `sync` says where its
+    /// inserts, edits, and deletes go: `.inMemory`, `.local`, or `.iCloud`, with an app group for
+    /// the last two when extensions and widgets should open it too. `defaultZone` is the zone
+    /// contexts start in and `@Recordable` edits in.
+    public convenience init(for types: any Record.Type..., sync: Sync, defaultZone: Zone = .records) throws {
+        try self.init(for: types, sync: sync, defaultZone: defaultZone)
     }
 
-    /// Opens a container for `types` and every type they refer to. Pass `appGroup` to keep the
-    /// database in that group's shared folder, so the app's extensions and widgets can open it
-    /// too. `defaultZone` is the zone contexts start in and `@Recordable` edits in.
-    public convenience init(for types: [any Record.Type], appGroup: String? = nil, defaultZone: Zone = .records) throws {
-        try self.init(for: types, url: Self.url(appGroup: appGroup), defaultZone: defaultZone)
-    }
-
-    /// A container whose database lives in memory and never syncs, for tests and previews. It
-    /// starts empty every time.
-    public static func inMemory(for types: any Record.Type..., defaultZone: Zone = .records) throws -> RecordContainer {
-        try RecordContainer(for: types, url: nil, defaultZone: defaultZone)
+    /// Opens a container for `types` and every type they refer to. `sync` says where its
+    /// inserts, edits, and deletes go: `.inMemory`, `.local`, or `.iCloud`, with an app group for
+    /// the last two when extensions and widgets should open it too. `defaultZone` is the zone
+    /// contexts start in and `@Recordable` edits in.
+    public convenience init(for types: [any Record.Type], sync: Sync, defaultZone: Zone = .records) throws {
+        let url = try sync.isInMemory ? nil : Self.url(appGroup: sync.appGroup)
+        try self.init(for: types, url: url, syncsWithICloud: sync.isICloud, assets: url.map(Self.assetFolder(for:)), defaultZone: defaultZone)
     }
 
     /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
-    init(for types: [any Record.Type], url: URL?, defaultZone: Zone = .records) throws {
+    ///
+    /// With `syncsWithICloud`, no other such container may be open, except in an extension, which
+    /// never syncs. With `assets`, the app's asset files move to that folder, and files no link
+    /// names are removed before any context exists.
+    init(
+        for types: [any Record.Type], url: URL?, syncsWithICloud: Bool = false, assets: URL? = nil,
+        defaultZone: Zone = .records
+    ) throws {
         self.defaultZone = defaultZone
         self.types = try Self.register(types)
         try Self.validate(self.types)
@@ -99,6 +108,29 @@ public final class RecordContainer: Sendable {
         // A closure, not `\.schema`: a key path to a static member of an existential metatype
         // crashes the Swift 6.1 compiler.
         try database.createTables(for: self.types.values.map { $0.schema })
+        if syncsWithICloud && !Self.isExtension {
+            try Self.syncingContainer.withLock { open in
+                guard open.container == nil else { throw RecordContainerError.iCloudInUse }
+                open.container = self
+            }
+        }
+        if let assets {
+            AssetField.use(assets)
+            try database.removeUnusedAssetFiles(in: assets)
+        }
+    }
+
+    /// The folder for the asset files of the database at `url`: `Assets` beside it.
+    static func assetFolder(for url: URL) -> URL {
+        url.deletingLastPathComponent().appending(path: "Assets", directoryHint: .isDirectory)
+    }
+
+    /// The open container that syncs with iCloud, held weakly so closing it frees the place.
+    private static let syncingContainer = Mutex(WeakContainer())
+
+    /// Whether this process is an app extension, such as a widget, which never syncs.
+    private static var isExtension: Bool {
+        Bundle.main.bundleURL.pathExtension == "appex"
     }
 
     /// The context the app's main actor reads and writes records through. The same context
@@ -190,4 +222,48 @@ private final class Contexts {
 /// A context the container refers to without keeping it.
 private struct WeakContext {
     weak var context: RecordContext?
+}
+
+/// A container referred to without keeping it.
+private struct WeakContainer: Sendable {
+    weak var container: RecordContainer?
+}
+
+extension RecordContainer {
+    /// Where a container's inserts, edits, and deletes go.
+    ///
+    /// ```swift
+    /// RecordContainer(for: Album.self, sync: .inMemory)  // gone when the app quits
+    /// RecordContainer(for: Album.self, sync: .local)     // a file on this device
+    /// RecordContainer(for: Album.self, sync: .iCloud)    // a file on this device, synced with iCloud
+    /// ```
+    ///
+    /// Pass an app group to `.local` or `.iCloud` to keep the file in that group's shared folder,
+    /// so the app's extensions and widgets can open it too. An app syncs one container.
+    public struct Sync: Sendable {
+        private enum Place: Sendable { case memory, device, iCloud }
+        private let place: Place
+        let appGroup: String?
+
+        /// Kept in memory and gone when the app quits, for tests and previews.
+        public static let inMemory = Sync(place: .memory, appGroup: nil)
+        /// Kept in a file on this device and never synced.
+        public static let local = Sync(place: .device, appGroup: nil)
+        /// Kept in a file on this device and synced with the app's default iCloud container.
+        public static let iCloud = Sync(place: .iCloud, appGroup: nil)
+
+        /// Kept in a file in `appGroup`'s shared folder and never synced.
+        public static func local(appGroup: String) -> Sync {
+            Sync(place: .device, appGroup: appGroup)
+        }
+
+        /// Kept in a file in `appGroup`'s shared folder and synced with the app's default iCloud
+        /// container.
+        public static func iCloud(appGroup: String) -> Sync {
+            Sync(place: .iCloud, appGroup: appGroup)
+        }
+
+        var isInMemory: Bool { place == .memory }
+        var isICloud: Bool { place == .iCloud }
+    }
 }

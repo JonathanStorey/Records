@@ -299,7 +299,7 @@ private func linkRows<R>(of id: RecordID<R>, in context: RecordContext) throws -
     weak var released: RecordContainer?
     let context: RecordContext
     do {
-        let container = try RecordContainer.inMemory(for: Venue.self)
+        let container = try RecordContainer(for: Venue.self, sync: .inMemory)
         released = container
         context = container.mainContext
     }
