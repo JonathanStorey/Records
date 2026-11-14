@@ -156,3 +156,51 @@ private let decoder = CKRecordDecoder()
     #expect(changes.saves.isEmpty)
     #expect(changes.deletes == links.map(\.recordID))
 }
+
+// MARK: - Saving
+
+/// A file that couldn't be copied in when it was set, and still can't be at save, fails the
+/// save, which writes nothing.
+@MainActor
+@Test func aFileThatStillCantBeCopiedFailsTheSave() throws {
+    let context = try RecordContainer(for: Poster.self, sync: .inMemory).mainContext
+    var poster = Poster(title: "Tour", image: nil)
+    poster.$image = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
+    context.insert(poster)
+    #expect(throws: (any Error).self) { try context.save() }
+    #expect(context.hasChanges)
+    #expect(try context.record(id: poster.id) == nil)
+}
+
+/// The save copies the file in once it can, so the saved asset reads back.
+@MainActor
+@Test func aFileThatAppearsBeforeTheSaveIsCopiedIn() throws {
+    let context = try RecordContainer(for: Poster.self, sync: .inMemory).mainContext
+    let source = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
+    var poster = Poster(title: "Tour", image: nil)
+    poster.$image = source
+    try png.write(to: source)
+    context.insert(poster)
+    try context.save()
+
+    let id = try #require(poster._image.id)
+    let saved = try #require(try context.record(id: poster.id))
+    #expect(saved.$image == AssetField.url(for: id))
+    #expect(saved.image == png)
+}
+
+/// A saved asset whose file is missing doesn't stop edits to the record's other fields.
+@MainActor
+@Test func aSavedAssetWithoutItsFileDoesntBlockOtherEdits() throws {
+    let context = try RecordContainer(for: Poster.self, sync: .inMemory).mainContext
+    let poster = Poster(title: "Tour", image: png)
+    context.insert(poster)
+    try context.save()
+    try FileManager.default.removeItem(at: AssetField.url(for: try #require(poster._image.id)))
+
+    var edited = try #require(try context.record(id: poster.id))
+    edited.title = "Encore"
+    context.insert(edited)
+    try context.save()
+    #expect(try context.record(id: poster.id)?.title == "Encore")
+}

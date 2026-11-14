@@ -415,3 +415,17 @@ private func isStorageFull(_ device: Device) -> Bool? {
     #expect(try device.database.recordType(of: CKRecord.ID(recordName: tune.id.uuidString, zoneID: Zone.records.zoneID)) == Tune.recordType)
     #expect(try device.database.recordType(of: CKRecord.ID(recordName: UUID().uuidString, zoneID: Zone.records.zoneID)) == nil)
 }
+
+/// A record with a base row is listed once, as a save.
+@MainActor
+@Test(.tags(.sync)) func anEditedRecordIsPendingOnce() async throws {
+    let server = StandInServer()
+    let device = try Device()
+    var tune = Tune(title: "Blue", plays: 0)
+    try device.save(tune)
+    try await device.send(to: server)
+    tune.plays = 1
+    try device.save(tune)
+    let pending = try device.database.pendingChanges()
+    #expect(pending.count == 1 && pending.first?.isDelete == false)
+}
