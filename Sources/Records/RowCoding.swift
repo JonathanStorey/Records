@@ -73,6 +73,20 @@ extension Record {
 }
 
 extension RecordSchema {
+    /// The column value of each field of `record`, by field key. A missing field is `NULL`, and a
+    /// field holding a value of another type throws.
+    func values(of record: CKRecord) throws(CKRecordDecodingError) -> [String: SQLValue] {
+        var values: [String: SQLValue] = [:]
+        for field in fields {
+            let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]
+            values[field.key] = field.kind.sqlValue(value)
+            if value != nil, values[field.key] == .null {
+                throw CKRecordDecodingError.typeMismatch(field: field.key)
+            }
+        }
+        return values
+    }
+
     /// A record named `name` in `zone`, holding the fields of `row`. `CKRecordDecoder` reads it
     /// back into a row.
     ///
