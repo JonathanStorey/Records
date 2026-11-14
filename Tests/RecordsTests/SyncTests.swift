@@ -122,19 +122,27 @@ private let base: [String: SQLValue] = ["title": .text("Blue"), "plays": .intege
     #expect(merged == base)
 }
 
-/// CloudKit truncates a date to the millisecond, in seconds since 1970.
-private func truncatedByCloudKit(_ date: Date) -> Date {
-    Date(timeIntervalSince1970: (date.timeIntervalSince1970 * 1000).rounded(.towardZero) / 1000)
+/// A date goes to CloudKit as a `Double`, which CloudKit keeps to the last bit, so the server's
+/// copy matches the row exactly and an acknowledged upload settles the record.
+@MainActor
+@Test func aDateRoundTripsExactlyThroughCloudKit() throws {
+    let store = try Store()
+    let released = Date(timeIntervalSinceReferenceDate: 800_000_000.999_999_9)
+    let tune = Tune(title: "Blue", plays: 0, released: released)
+    try store.save(tune)
+    let sent = try #require(try store.database.recordToSend(for: recordID(tune.id.uuidString), schema: Tune.schema, assets: store.assets))
+    #expect((sent["released"] as? NSNumber)?.doubleValue == released.timeIntervalSinceReferenceDate)
+    try store.database.acknowledge(saved: sent, schema: Tune.schema)
+    #expect(try !store.isPending(tune.id.uuidString))
+    #expect(try store.context.record(id: tune.id)?.released == released)
 }
 
-@Test func aDateCloudKitTruncatedIsTheSame() {
-    for sent in [800_000_000.123_456, 800_000_000.999_999_9, 800_000_000.000_000_1] {
-        let date = Date(timeIntervalSinceReferenceDate: sent)
-        let returned = truncatedByCloudKit(date).timeIntervalSinceReferenceDate
-        #expect(Database.same(.real(sent), .real(returned), kind: .date))
-    }
-    #expect(!Database.same(.real(100.12), .real(100.123), kind: .date))
-    #expect(!Database.same(.real(100.123_456), .real(100.123), kind: .real))
+/// A date field CloudKit typed as a date, such as one written by another tool, still reads.
+@Test func aCloudKitDateStillDecodes() throws {
+    let record = server(UUID().uuidString, title: "Blue", plays: 0)
+    let released = Date(timeIntervalSince1970: 1_700_000_000.123)
+    record["released"] = released
+    #expect(try Tune.schema.values(of: record)["released"] == .real(released.timeIntervalSinceReferenceDate))
 }
 
 // MARK: - Links and assets merge whole

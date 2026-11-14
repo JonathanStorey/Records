@@ -30,7 +30,7 @@ extension Database {
     ) -> [String: SQLValue] {
         func unchanged(_ field: FieldSchema) -> Bool {
             guard let base else { return false }
-            return Self.same(ours[field.key] ?? .null, base[field.key] ?? .null, kind: field.kind)
+            return (ours[field.key] ?? .null) == (base[field.key] ?? .null)
         }
         if schema.recordType == RecordLink.recordType {
             let winner = schema.fields.allSatisfy(unchanged) ? theirs : ours
@@ -39,14 +39,6 @@ extension Database {
         return Dictionary(uniqueKeysWithValues: schema.fields.map { field in
             (field.key, (unchanged(field) ? theirs[field.key] : ours[field.key]) ?? .null)
         })
-    }
-
-    /// Whether two column values hold the same value. CloudKit truncates dates to the millisecond,
-    /// so a date the server returns can be up to a millisecond earlier than the one sent, plus the
-    /// rounding of a `Double`. Two dates count as the same within 2 ms, far closer than any edit.
-    static func same(_ first: SQLValue, _ second: SQLValue, kind: FieldKind) -> Bool {
-        if kind == .date, case .real(let a) = first, case .real(let b) = second { return abs(a - b) < 0.002 }
-        return first == second
     }
 
     // MARK: - Receiving
@@ -162,8 +154,7 @@ extension Database {
             return
         }
         let isDeleted = ours["_deleted"] == .integer(1)
-        if !isDeleted, schema.fields.allSatisfy({ Self.same(ours[$0.key] ?? .null, sent[$0.key] ?? .null, kind: $0.kind) }) {
-            // The row takes the server's values, so a date matches the server's to the digit.
+        if !isDeleted, schema.fields.allSatisfy({ (ours[$0.key] ?? .null) == sent[$0.key] }) {
             try deleteBase(of: key)
             try writeRow(key, isCurrent: true, fields: sent, schema: schema, server: server, existing: ours)
         } else {

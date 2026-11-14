@@ -62,7 +62,8 @@ public enum FieldKind: String, Hashable, Sendable {
     /// `REAL`, from a `Double` or `Float`.
     case real
     /// `REAL` seconds since 2001, the way `Date` holds them, so a date reads back exactly and
-    /// dates sort and compare in SQL.
+    /// dates sort and compare in SQL. CloudKit gets the same seconds as a `Double`, because its
+    /// own date type keeps only milliseconds, and a synced date must match on every device.
     case date
     /// `BLOB`, from `Data`, including Codable values stored as JSON.
     case bytes

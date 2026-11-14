@@ -52,7 +52,7 @@ private func zone() -> CKRecordZone.ID {
     #expect(record["isPinned"] as? Bool == true)
     #expect(record["rating"] == nil)
     #expect(record["tags"] as? [String] == ["home", "food"])
-    #expect(record["created"] as? Date == created)
+    #expect((record["created"] as? NSNumber)?.doubleValue == created.timeIntervalSinceReferenceDate)
     #expect(record["id"] == nil)
     #expect(record["summary"] == nil)
     #expect(Set(record.allKeys()) == ["title", "isPinned", "tags", "created"])
