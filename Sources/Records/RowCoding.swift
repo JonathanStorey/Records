@@ -24,7 +24,9 @@ extension FieldKind {
         case .real:
             return (value as? NSNumber).map { .real($0.doubleValue) } ?? .null
         case .date:
-            return (value as? Date).map { .real($0.timeIntervalSinceReferenceDate) } ?? .null
+            // Records uploads a date as a `Double`. A field CloudKit typed as a date reads too.
+            if let date = value as? Date { return .real(date.timeIntervalSinceReferenceDate) }
+            return (value as? NSNumber).map { .real($0.doubleValue) } ?? .null
         case .bytes:
             if let location = value as? CLLocation {
                 // A `@Location` stored as a `CLLocation` rather than its archive.
@@ -73,6 +75,20 @@ extension Record {
 }
 
 extension RecordSchema {
+    /// The column value of each field of `record`, by field key. A missing field is `NULL`, and a
+    /// field holding a value of another type throws.
+    func values(of record: CKRecord) throws(CKRecordDecodingError) -> [String: SQLValue] {
+        var values: [String: SQLValue] = [:]
+        for field in fields {
+            let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]
+            values[field.key] = field.kind.sqlValue(value)
+            if value != nil, values[field.key] == .null {
+                throw CKRecordDecodingError.typeMismatch(field: field.key)
+            }
+        }
+        return values
+    }
+
     /// A record named `name` in `zone`, holding the fields of `row`. `CKRecordDecoder` reads it
     /// back into a row.
     ///
@@ -81,7 +97,14 @@ extension RecordSchema {
     func record(from row: [String: SQLValue], name: String, zone: Zone, onto base: CKRecord? = nil) -> CKRecord {
         let record = base ?? CKRecord(recordType: recordType, recordID: CKRecord.ID(recordName: name, zoneID: zone.zoneID))
         for field in fields {
-            let value = field.kind.recordValue(row[field.key] ?? .null)
+            let stored = row[field.key] ?? .null
+            // A date goes up as a `Double` of its seconds, which CloudKit keeps exactly. CloudKit's
+            // own date type keeps only milliseconds, so a synced date wouldn't match its row.
+            let value: (any CKRecordValueProtocol)? = if field.kind == .date, case .real(let seconds) = stored {
+                NSNumber(value: seconds)
+            } else {
+                field.kind.recordValue(stored)
+            }
             guard value != nil || base != nil else { continue }
             if field.isEncrypted {
                 record.encryptedValues[field.key] = value

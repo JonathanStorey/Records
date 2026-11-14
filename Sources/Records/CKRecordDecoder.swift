@@ -49,19 +49,11 @@ public struct CKRecordDecoder: Sendable {
         guard record.recordType == R.recordType else {
             throw CKRecordDecodingError.recordTypeMismatch(expected: R.recordType, found: record.recordType)
         }
-        var row = RecordRow([
-            "_name": .text(record.recordID.recordName),
-            "_createdAt": record.creationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null,
-            "_modifiedAt": record.modificationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null,
-            "_systemFields": RecordRow.systemFields(of: record),
-        ])
-        for field in R.schema.fields {
-            let value = field.isEncrypted ? record.encryptedValues[field.key] : record[field.key]
-            row.values[field.key] = field.kind.sqlValue(value)
-            if value != nil, row.values[field.key] == .null {
-                throw CKRecordDecodingError.typeMismatch(field: field.key)
-            }
-        }
+        var row = RecordRow(try R.schema.values(of: record))
+        row.values["_name"] = .text(record.recordID.recordName)
+        row.values["_createdAt"] = record.creationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null
+        row.values["_modifiedAt"] = record.modificationDate.map { .real($0.timeIntervalSinceReferenceDate) } ?? .null
+        row.values["_systemFields"] = RecordRow.systemFields(of: record)
         return row
     }
 }
