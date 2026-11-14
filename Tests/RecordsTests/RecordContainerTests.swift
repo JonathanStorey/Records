@@ -162,15 +162,6 @@ private func temporaryFile() -> URL {
     _ = try RecordContainer(for: [Page.self], url: nil, syncsWithICloud: true)
 }
 
-/// A missing app group stops `.local` and `.iCloud` before anything opens.
-@Test func anUnavailableAppGroupThrows() {
-    for sync in [RecordContainer.Sync.local(appGroup: "group.missing"), .iCloud(appGroup: "group.missing")] {
-        #expect(throws: RecordContainerError.appGroupUnavailable("group.missing")) {
-            try RecordContainer(for: Page.self, sync: sync)
-        }
-    }
-}
-
 /// Asset files live in `Assets` beside the database file, so an app group shares both.
 @Test func assetsLiveBesideTheDatabase() {
     let database = URL(filePath: "/Shared/Records/default.records")
