@@ -1,11 +1,11 @@
 # Records
 
 A Swift persistence package that keeps your models as plain structs. Records maps them to
-`CKRecord`s, with relationships stored as their own link records, and will store them in SQLite on
-device and sync them through CloudKit with `CKSyncEngine`. Swift macros generate the mapping code.
+`CKRecord`s, with relationships stored as their own link records, stores them in SQLite on device,
+and syncs them through CloudKit with `CKSyncEngine`. Swift macros generate the mapping code.
 
-> **Status:** the macros, the encoder, and the decoder are built and tested. The SQLite store and
-> sync are not built yet.
+> **Status:** the macros, the store, and sync are built and tested in CI. Sync hasn't yet run
+> against iCloud on a device.
 
 - [Defining records](#defining-records)
 - [References](#references)
@@ -13,6 +13,7 @@ device and sync them through CloudKit with `CKSyncEngine`. Swift macros generate
 - [Choosing the owner](#choosing-the-owner)
 - [Opening a container](#opening-a-container)
 - [Writing records](#writing-records)
+- [Syncing with iCloud](#syncing-with-icloud)
 - [Saving and loading](#saving-and-loading)
 - [What loading returns](#what-loading-returns)
 - [Not built yet](#not-built-yet)
@@ -364,7 +365,7 @@ The owner is the side your code edits.
 
 ## Opening a container
 
-`RecordContainer` keeps records on device in SQLite and will sync them with CloudKit. Its `sync`
+`RecordContainer` keeps records on device in SQLite and syncs them with iCloud. Its `sync`
 says where inserts, edits, and deletes go, and every app chooses:
 
 ```swift
@@ -375,7 +376,7 @@ let container = try RecordContainer(for: Album.self, sync: .iCloud)
 | --- | --- |
 | `.inMemory` | Memory only, gone when the app quits. For tests and previews. |
 | `.local` | A file on this device, never synced. |
-| `.iCloud` | A file on this device, synced with the app's default iCloud container. Until sync is built, it works like `.local`. |
+| `.iCloud` | A file on this device, synced with the app's default iCloud container. See [Syncing with iCloud](#syncing-with-icloud). |
 
 Every type a registered type refers to is registered too, so `Album` brings `Track`, `Artist`, and
 `Genre`. Opening checks the types against each other and throws a `RecordContainerError` that names
@@ -531,7 +532,7 @@ button that reads `hasChanges` redraws on the first edit and on save, not while 
 When one context saves, the container refreshes its other contexts. Each pending edit there
 keeps the fields it changed and takes everything else from the record as saved now, and their
 views redraw. A field changed elsewhere after you started editing shows, and your save won't
-undo it. An edit to a record deleted elsewhere brings it back when saved. Sync will refresh
+undo it. An edit to a record deleted elsewhere brings it back when saved. Sync refreshes
 contexts the same way when it writes changes from the server.
 
 Lists show saved records, so a list beside an editor shows an edit once it is saved. Save when
@@ -653,6 +654,102 @@ database also sorts and applies `fetchLimit` and `fetchOffset`, so only the reco
 read. `fetchCount` then counts without reading any. A string sort or a predicate part Swift has
 to check keeps the sorting and limiting in Swift.
 
+## Syncing with iCloud
+
+> Sync is tested in CI with two simulated devices, but hasn't yet run against iCloud on a device.
+
+Open the container with `sync: .iCloud`, and Records keeps it in sync with the user's private
+iCloud database. Each save uploads what changed. Changes from the user's other devices arrive on
+their own, at launch and whenever iCloud announces them. Records lives in its own zone, `Records`
+unless the container's `defaultZone` says otherwise, and creates it the first time.
+
+### Setup
+
+In the app target's Signing & Capabilities, add:
+
+- **iCloud**, with CloudKit checked and a container chosen. `.iCloud` uses the app's default
+  container.
+- **Background Modes**, with Remote notifications checked, so changes arrive while the app is open.
+  Without it, changes arrive only at launch and on refresh.
+
+Without the iCloud capability, a `.iCloud` container stops the app at launch with a message that
+names the missing entitlement. Apps can't check for it ahead of time, so an app without iCloud
+passes `sync: .local`. An extension that opens the same app group never syncs. Its saves upload
+at the app's next save, refresh, or launch.
+
+### What the app adds
+
+| Addition | Code |
+| --- | --- |
+| Turn sync on | `RecordContainer(for: Album.self, sync: .iCloud)` |
+| Refresh | `await context.refresh()` |
+| Events | `context.events` |
+
+`refresh()` discards the context's unsaved edits, brings in what changed on the server, and sends
+anything waiting to upload, such as a widget's saves. It returns once the changes are in the
+records, so it fits `.refreshable`:
+
+```swift
+List(albums) { ... }
+    .refreshable { await context.refresh() }
+```
+
+No call is needed at launch. `refresh()` never throws. When iCloud can't be reached,
+`events.lastSynced` stays where it was and sync tries again on its own. Without sync, `refresh()`
+only discards the edits, as `rollback()` does.
+
+Sync adds three kinds of entries to `context.events`, and each one redraws the views showing
+records:
+
+| Event | Appended when |
+| --- | --- |
+| `.synced(date)` | Changes from the server were written. `events.lastSynced` gives the date. Uploads add nothing. |
+| `.account(date, status)` | At launch and after each account change, with the `CKAccountStatus`. The newest one is the account's status. |
+| `.storage(date, isFull:)` | `true` when an upload fails because the user's iCloud storage is full, and `false` once an upload succeeds again. |
+
+Saves never wait on iCloud. With no account, or with storage full, they stay on the device and
+upload later. Signing out or switching accounts removes every record from the device, so one
+person's records never upload into another person's account.
+
+### When two devices edit the same record
+
+Fields merge one at a time. A field only one device changed keeps that change, so one device's new
+title and another's new year both survive. A field both devices changed takes the value from the
+device that uploads last. An asset, and the target of a to-one reference, change as one value,
+never half from each side. An edit to a record that another device deleted brings it back.
+
+### Default records
+
+An app that inserts default records on first launch does so on every device, and sync then holds a
+copy from each. Give default records fixed IDs, so every device inserts the same record:
+
+```swift
+var inbox = Tag(name: "Inbox")
+inbox.id = Tag.ID(rawValue: UUID(uuidString: "2F1B0E4C-5D0A-4C6E-9B7A-3E1F2D4C5B6A")!)
+context.insert(inbox)
+```
+
+### Release checklist
+
+1. In the development environment, save at least one record of every type with every field
+   filled, optional fields and assets included. CloudKit creates a field the first time a record
+   holds a value for it, so a field that was always `nil` doesn't exist yet.
+2. Deploy the schema to production in the CloudKit Console. Production never creates record types
+   or fields, so a missing one makes every save fail for real users.
+3. Never change a deployed field's type. Date fields show as `Double` in the Console. That is on
+   purpose: it keeps every date exact to the last fraction of a second.
+4. Rename a property with `@Renamed`, so it keeps the name the server has. Production never drops
+   a field.
+
+### Known limits
+
+- A record larger than 1 MB fails to upload every time, and the log names it. Keep large data in
+  an `@Asset`.
+- Only the user's private database syncs. Sharing records with other people isn't built yet.
+- Asset files download with their records, never on demand.
+- Failures other than full storage go to the log, under the subsystem `Records` and the category
+  `Sync`, which Xcode's console and the Console app show.
+
 ## Saving and loading
 
 `CKRecordEncoder` turns a record into a `CKRecord`, plus a link record for each target its
@@ -721,8 +818,7 @@ track's tags, load the track.
 
 ## Not built yet
 
-- `CKSyncEngine` sync. The store keeps the last synced copy of each record, so sync can upload only
-  the fields and links that changed.
+- Sharing records through CloudKit's shared database.
 - Exclusivity for one-to-one. Two albums can each point at the same artwork until the store
   enforces it.
 

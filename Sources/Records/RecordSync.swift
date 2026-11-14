@@ -126,6 +126,21 @@ actor RecordSync: CKSyncEngineDelegate {
         }
     }
 
+    /// Fetches the server's changes and returns once they are written, then sends anything
+    /// waiting to upload. A failure is logged, and the engine tries again on its own.
+    func refresh() async {
+        guard let engine else { return }
+        readPendingWork()
+        do {
+            try await engine.fetchChanges()
+            if !engine.state.pendingRecordZoneChanges.isEmpty || !engine.state.pendingDatabaseChanges.isEmpty {
+                try await engine.sendChanges()
+            }
+        } catch {
+            syncLog.info("Refresh didn't finish: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Appends the account's status to the contexts' events. With `rebasing`, the contexts
     /// rebase first, because the records changed.
     private func reportAccountStatus(rebasing: Bool = false) async {
