@@ -122,10 +122,17 @@ private let base: [String: SQLValue] = ["title": .text("Blue"), "plays": .intege
     #expect(merged == base)
 }
 
-@Test func aDateWithinAMillisecondIsTheSame() {
-    let sent = Date(timeIntervalSinceReferenceDate: 100.123_456)
-    let returned = Date(timeIntervalSinceReferenceDate: 100.123)
-    #expect(Database.same(.real(sent.timeIntervalSinceReferenceDate), .real(returned.timeIntervalSinceReferenceDate), kind: .date))
+/// CloudKit truncates a date to the millisecond, in seconds since 1970.
+private func truncatedByCloudKit(_ date: Date) -> Date {
+    Date(timeIntervalSince1970: (date.timeIntervalSince1970 * 1000).rounded(.towardZero) / 1000)
+}
+
+@Test func aDateCloudKitTruncatedIsTheSame() {
+    for sent in [800_000_000.123_456, 800_000_000.999_999_9, 800_000_000.000_000_1] {
+        let date = Date(timeIntervalSinceReferenceDate: sent)
+        let returned = truncatedByCloudKit(date).timeIntervalSinceReferenceDate
+        #expect(Database.same(.real(sent), .real(returned), kind: .date))
+    }
     #expect(!Database.same(.real(100.12), .real(100.123), kind: .date))
     #expect(!Database.same(.real(100.123_456), .real(100.123), kind: .real))
 }
