@@ -173,6 +173,11 @@ public final class RecordContainer: Sendable {
         }
     }
 
+    /// Fetches from iCloud and sends anything waiting, when the container syncs.
+    func refresh() async {
+        await iCloudSync.withLock({ $0 })?.refresh()
+    }
+
     /// Appends `event` to every context after sync wrote to the database or learned something,
     /// rebasing each first when `rebasing`, because the saved records changed. Starts the main
     /// context if nothing has read it yet, so no event is missed.

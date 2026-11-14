@@ -725,3 +725,23 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
     #expect(try linkRows(of: sequel.id, in: context).map { $0["targetName"] } == [Optional(SQLValue.text(writer.id.uuidString))])
 }
 
+
+// MARK: - Refresh
+
+/// Without iCloud sync, a refresh only discards the unsaved edits.
+@MainActor
+@Test func refreshWithoutSyncDiscardsTheEdits() async throws {
+    let container = try RecordContainer(for: Tune.self, sync: .inMemory)
+    let context = container.mainContext
+    let saved = Tune(title: "Blue", plays: 0)
+    context.insert(saved)
+    try context.save()
+    var edited = saved
+    edited.title = "Red"
+    context.insert(edited)
+    context.insert(Tune(title: "New", plays: 0))
+
+    await context.refresh()
+    #expect(!context.hasChanges)
+    #expect(try context.record(id: saved.id) == saved)
+}
