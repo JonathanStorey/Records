@@ -1,6 +1,7 @@
 import CloudKit
 
 /// One `@Reference` that writes links, with its current targets, as the encoder needs it.
+@_documentation(visibility: internal)
 public struct ReferenceState {
     /// The reference as `@Record` describes it.
     public let schema: ReferenceSchema
@@ -39,6 +40,7 @@ public struct ReferenceState {
 ///
 /// It keeps the target's ID and, for `@Reference var author: Person?`, the loaded record. Two
 /// values are equal when they point at the same target, whether or not it is loaded.
+@_documentation(visibility: internal)
 public struct ToOne<Target: Record> {
     /// The target the reference points at now.
     public internal(set) var id: Target.ID?
@@ -111,6 +113,7 @@ extension ToOne: @unchecked Sendable where Target: Sendable {}
 /// It keeps the target IDs and, for `@Reference var tags: [Tag]`, the loaded records. The targets
 /// are sorted by ID, which is the order they were made, and each appears once. Two values are
 /// equal when they point at the same targets.
+@_documentation(visibility: internal)
 public struct ToMany<Target: Record> {
     private var storedIDs: [Target.ID] = []
     /// The loaded targets by ID. A class, so a record can refer to its own type.
@@ -202,15 +205,17 @@ extension ToMany: @unchecked Sendable where Target: Sendable {}
 /// The album's own record is never written, so the change can't conflict with edits to its fields.
 public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
     /// The record type that holds the reference.
-    public let ownerType: any Record.Type
+    let ownerType: any Record.Type
     /// The ID of the record that holds the reference.
-    public let ownerID: UUID
+    let ownerID: UUID
     /// The reference's property, such as `tracks`.
-    public let property: String
+    let property: String
     /// The reference's storage. Used by the code `@Reference` generates.
+    @_documentation(visibility: internal)
     public internal(set) var storage: ToMany<Target>
 
     /// Used by the code `@Reference` generates.
+    @_documentation(visibility: internal)
     public init<Owner: Record>(owner: Owner.Type, id: Owner.ID, property: String, storage: ToMany<Target>) {
         ownerType = owner
         ownerID = id.rawValue
@@ -277,15 +282,17 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
 /// Each change updates `album` at once and waits in the context, as one link, until it saves.
 public struct ReferenceID<Target: Record>: Equatable {
     /// The record type that holds the reference.
-    public let ownerType: any Record.Type
+    let ownerType: any Record.Type
     /// The ID of the record that holds the reference.
-    public let ownerID: UUID
+    let ownerID: UUID
     /// The reference's property, such as `artist`.
-    public let property: String
+    let property: String
     /// The reference's storage. Used by the code `@Reference` generates.
+    @_documentation(visibility: internal)
     public internal(set) var storage: ToOne<Target>
 
     /// Used by the code `@Reference` generates.
+    @_documentation(visibility: internal)
     public init<Owner: Record>(owner: Owner.Type, id: Owner.ID, property: String, storage: ToOne<Target>) {
         ownerType = owner
         ownerID = id.rawValue

@@ -14,6 +14,7 @@ import Foundation
 /// A type can match more than one rule: `String` is Codable, and so is `enum Mood: String, Codable`.
 /// Each such pair has its own initializer, which Swift prefers because it is more specific, so the
 /// most direct storage always wins.
+@_documentation(visibility: internal)
 public struct FieldCoding<Value> {
     /// The kind of SQLite column the field is stored in.
     public let kind: FieldKind
