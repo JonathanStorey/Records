@@ -227,8 +227,8 @@ actor RecordSync: CKSyncEngineDelegate {
     /// Writes fetched records and deletions in one transaction, then rebases the contexts and
     /// appends `.synced`.
     ///
-    /// A record of a type this app doesn't register, or that doesn't decode, is skipped and
-    /// logged. If the batch can't be written, the saved state is cleared and later state isn't
+    /// A record of a type this app doesn't register, or one this app can't read because a field
+    /// it needs is missing or holds another type, is skipped and logged, and never written. If the batch can't be written, the saved state is cleared and later state isn't
     /// saved this session, because the engine counts the batch as received. The next launch
     /// fetches everything again, which changes nothing already here.
     func received(_ records: [CKRecord], deletions: [(CKRecord.ID, CKRecord.RecordType)]) async {
@@ -240,11 +240,8 @@ actor RecordSync: CKSyncEngineDelegate {
                         syncLog.info("Skipped a \(record.recordType, privacy: .public): the app doesn't register that type")
                         continue
                     }
-                    do {
-                        try database.apply(record, schema: type.schema, assets: assets)
-                    } catch let error as CKRecordDecodingError {
-                        syncLog.error("Skipped \(record.recordType, privacy: .public) \(record.recordID.recordName, privacy: .public): \(String(describing: error), privacy: .public)")
-                    }
+                    guard Self.isReadable(record, as: type, else: "Skipped") else { continue }
+                    try database.apply(record, schema: type.schema, assets: assets)
                 }
                 for (recordID, recordType) in deletions where types[recordType] != nil && Self.isOwn(recordID.zoneID) {
                     try database.applyDeletion(of: recordID, recordType: recordType)
@@ -257,6 +254,18 @@ actor RecordSync: CKSyncEngineDelegate {
             return
         }
         await container?.syncDidWrite(.synced(.now), rebasing: true)
+    }
+
+    /// Whether this app can read `record` as `type`: every field it needs is there, holding the
+    /// type it expects. When it can't, logs why after `action`.
+    private static func isReadable(_ record: CKRecord, as type: any Record.Type, else action: String) -> Bool {
+        do {
+            _ = try CKRecordDecoder().decode(type, from: record)
+            return true
+        } catch {
+            syncLog.error("\(action, privacy: .public) \(record.recordType, privacy: .public) \(record.recordID.recordName, privacy: .public): this app can't read it: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     /// Writes what the server did with an upload in one transaction, hands the engine every
@@ -278,6 +287,12 @@ actor RecordSync: CKSyncEngineDelegate {
             try database.transaction {
                 func failed(_ recordID: CKRecord.ID, _ recordType: CKRecord.RecordType?, _ error: CKError) throws {
                     guard let recordType, let type = types[recordType] else { return }
+                    // Merging a server copy this app can't read would write it. The upload stops
+                    // instead, so it doesn't fail the same way again and again.
+                    if let server = error.serverRecord, error.code == .serverRecordChanged,
+                       !Self.isReadable(server, as: type, else: "Kept this device's copy and stopped uploading") {
+                        return
+                    }
                     if try database.resolve(error, for: recordID, schema: type.schema, assets: assets) {
                         again += try pendingChange(recordID, recordType: recordType)
                     }

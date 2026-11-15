@@ -1885,6 +1885,78 @@ final class RecordMacroTests: XCTestCase {
         )
     }
 
+    func testDefaultFillsAMissingField() throws {
+        assertMacroExpansion(
+            """
+            @Record
+            struct Note: Codable {
+                var id: UUID
+                var plays: Int = 0
+                var tags: [String] = ["new"]
+                var rating: Int? = 3
+            }
+            """,
+            expandedSource: """
+            struct Note: Codable {
+                var id: UUID
+                var plays: Int = 0
+                var tags: [String] = ["new"]
+                var rating: Int? = 3
+            }
+
+            extension Note: Records.Record {
+                static var recordType: CKRecord.RecordType {
+                    "Note"
+                }
+                static let schema = Records.RecordSchema(
+                    recordType: "Note",
+                    fields: [
+                        Records.FieldSchema(name: "plays", key: "plays", isOptional: false, isEncrypted: false, kind: Records.FieldCoding((Int).self).kind),
+                        Records.FieldSchema(name: "tags", key: "tags", isOptional: false, isEncrypted: false, kind: Records.FieldCoding(([String]).self).kind),
+                        Records.FieldSchema(name: "rating", key: "rating", isOptional: true, isEncrypted: false, kind: Records.FieldCoding((Int).self).kind),
+                    ],
+                    references: []
+                )
+                static var keyPaths: [PartialKeyPath<Self>: String] {
+                    [\\Note.id: "_name", \\Note.plays: "plays", \\Note.tags: "tags", \\Note.rating: "rating"]
+                }
+                init(from row: Records.RecordRow) throws(Records.CKRecordDecodingError) {
+                    self.id = Records.RecordID(rawValue: try row.id)
+                    self.plays = try Records.FieldCoding((Int).self).decodeIfPresent("plays", from: row) ?? (0)
+                    self.tags = try Records.FieldCoding(([String]).self).decodeIfPresent("tags", from: row) ?? []
+                    self.rating = try Records.FieldCoding((Int).self).decodeIfPresent("rating", from: row)
+                }
+                func encodeFields(into row: inout Records.RecordRow) {
+                    Records.FieldCoding((Int).self).encode(self.plays, into: &row, forKey: "plays")
+                    Records.FieldCoding(([String]).self).encode(self.tags, into: &row, forKey: "tags")
+                    Records.FieldCoding((Int).self).encode(self.rating, into: &row, forKey: "rating")
+                }
+                private enum _RecordCodingKeys: String, CodingKey {
+                    case `id`
+                    case `plays`
+                    case `tags`
+                    case `rating`
+                }
+                func encode(to encoder: any Encoder) throws {
+                    var container = encoder.container(keyedBy: _RecordCodingKeys.self)
+                    try container.encode(self.id, forKey: .`id`)
+                    try container.encode(self.plays, forKey: .`plays`)
+                    try container.encode(self.tags, forKey: .`tags`)
+                    try container.encodeIfPresent(self.rating, forKey: .`rating`)
+                }
+                init(from decoder: any Decoder) throws {
+                    let container = try decoder.container(keyedBy: _RecordCodingKeys.self)
+                    self.id = try container.decode((UUID).self, forKey: .`id`)
+                    self.plays = try container.decodeIfPresent((Int).self, forKey: .`plays`) ?? (0)
+                    self.tags = try container.decodeIfPresent(([String]).self, forKey: .`tags`) ?? (["new"])
+                    self.rating = try container.decodeIfPresent((Int).self, forKey: .`rating`)
+                }
+            }
+            """,
+            macroSpecs: macroSpecs
+        )
+    }
+
     func testCodableRecordGetsEncodeAndDecode() throws {
         assertMacroExpansion(
             """

@@ -134,8 +134,9 @@ The record type is the struct's name. Pass a name to use another, which generic 
 Records keeps no schema versions, because CloudKit's schema only grows. Change a record this way:
 
 - **Rename** a type with `@Record("OldName")` and a field with `@Renamed("oldName")`.
-- **Add** a field as an optional or with a default, because records saved before it existed don't
-  have it.
+- **Add** a field as an optional or with a default, such as `var plays: Int = 0`. Records saved
+  before it existed read it as `nil` or the default. A record from iCloud missing a field that has
+  neither can't be read, so sync skips it and logs why. A list is empty when it's missing.
 - **Stop using** a field by deleting the property. Its data stays in CloudKit.
 - **Never change a field's type.** Add a new field and stop writing the old one.
 

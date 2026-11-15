@@ -140,6 +140,29 @@ private func noteRecord(name: String = UUID().uuidString, type: String = "Note")
     }
 }
 
+/// A record whose newer fields have defaults, as after an app update added them.
+@Record
+struct Counter: Codable {
+    var name: String
+    var plays: Int = 5
+    var tags: [String] = ["new"]
+}
+
+@Test func aMissingFieldReadsItsDefault() throws {
+    let record = CKRecord(recordType: Counter.recordType, recordID: CKRecord.ID(recordName: UUID().uuidString))
+    record["name"] = "Old"
+    let counter = try CKRecordDecoder().decode(Counter.self, from: record)
+    #expect(counter.plays == 5)
+    #expect(counter.tags == []) // CloudKit stores an empty list as no field
+}
+
+@Test func aMissingJSONFieldReadsItsDefault() throws {
+    let json = Data(#"{"id":"\#(UUID().uuidString)","name":"Old"}"#.utf8)
+    let counter = try JSONDecoder().decode(Counter.self, from: json)
+    #expect(counter.plays == 5)
+    #expect(counter.tags == ["new"])
+}
+
 @Test func wrongFieldTypeThrows() {
     let record = noteRecord()
     record["title"] = 5
