@@ -88,7 +88,7 @@ enum RoundTripScenarios {
         let links = server.values.filter { $0.recordType == "RecordLink" }
 
         /// The server's copy of `record`, decoded with every link, as another device reads it.
-        func copy<R: Record>(_ record: R) throws -> R {
+        @MainActor func copy<R: Record>(_ record: R) throws -> R {
             let found = try lab.unwrap("iCloud has the \(R.recordType)", server[ghost.id(of: record)])
             return try ghost.decode(R.self, found, links: links)
         }
@@ -195,7 +195,7 @@ enum RoundTripScenarios {
         try await lab.waitForUploads(context)
 
         /// Downloads the asset `record` carries, straight from its link in iCloud.
-        func download<R: Record>(_ record: R, _ name: String) async throws -> (data: Data, assetID: String?) {
+        @MainActor func download<R: Record>(_ record: R, _ name: String) async throws -> (data: Data, assetID: String?) {
             let id = try lab.unwrap("The \(name) has a link", ghost.assetLinkIDs(of: record).first)
             let link = try lab.unwrap("iCloud has the \(name)'s link", try await ghost.fetch(id))
             let file = try lab.unwrap("The link carries the \(name)", (link["asset"] as? CKAsset)?.fileURL)
