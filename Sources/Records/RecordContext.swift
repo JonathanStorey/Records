@@ -68,6 +68,12 @@ public final class RecordContext {
     /// that reads it. `save()` writes the changes of every zone, not only these.
     public private(set) var changes: [RecordDifference.Change] = []
 
+    /// How many records have saved changes iCloud hasn't confirmed yet: new, edited, or
+    /// deleted, with a change to a record's references counted as a change to that record. It
+    /// updates after each save and each upload, for a line such as "3 changes not yet uploaded".
+    /// It is always 0 for a container that doesn't sync with iCloud.
+    public internal(set) var pendingUploads = 0
+
     init(container: RecordContainer) {
         types = container.types
         database = container.database
@@ -75,6 +81,9 @@ public final class RecordContext {
         zone = container.defaultZone
         self.container = container
         container.add(self)
+        if container.countsUploads {
+            pendingUploads = (try? database.pendingRecordCount()) ?? 0
+        }
     }
 
     /// Sets `changes` and `hasChanges` from the pending edits, each only when it differs, so a
@@ -125,6 +134,25 @@ public final class RecordContext {
     /// unless another record has taken them over in the same save.
     public func delete(_ record: some Record) {
         edit(id: directEdit(of: record), of: record, in: zone, with: nil)
+    }
+
+    /// Deletes every saved record of `type` in the current `zone` that matches `predicate`, or
+    /// every one without a predicate, when the context saves. Each is deleted as `delete(_:)`
+    /// deletes it, with the links it owns and the records it owns through `deleteSelf: true`.
+    /// Returns how many records it deleted.
+    ///
+    /// ```swift
+    /// try context.delete(Album.self, where: #Predicate { $0.year < 1960 })
+    /// try context.delete(Review.self)   // every review
+    /// try context.save()
+    /// ```
+    @discardableResult
+    public func delete<R: Record>(_ type: R.Type, where predicate: Predicate<R>? = nil) throws -> Int {
+        let records = try fetch(RecordDescriptor<R>(predicate: predicate))
+        for record in records {
+            delete(record)
+        }
+        return records.count
     }
 
     /// The ID of the edit `insert` and `delete` make to `record` in the current `zone`.
@@ -186,8 +214,8 @@ public final class RecordContext {
     /// Writes every pending edit in one transaction, oldest first, then clears them. If any
     /// write fails, nothing is written and the edits stay pending.
     ///
-    /// An `@Asset` set in this edit whose file couldn't be copied into the asset folder is copied
-    /// first. If that still fails, `save()` throws the file system's error and writes nothing.
+    /// Each `@Asset` set in this edit has its file copied into the container's asset folder
+    /// first. If a copy fails, `save()` throws the file system's error and writes nothing.
     public func save() throws {
         guard hasChanges else { return }
         for difference in differences.values {
@@ -195,7 +223,7 @@ public final class RecordContext {
             // hasn't arrived, so other fields can still be edited.
             let saved = Set(difference.base?.assetStates.compactMap(\.id) ?? [])
             for asset in difference.edit?.assetStates ?? [] where asset.id.map(saved.contains) == false {
-                try asset.storeFile()
+                try asset.storeFile(in: database.assets)
             }
         }
         // Links edited on their own go last, so a new record saved in the same save can't drop

@@ -175,7 +175,8 @@ private let decoder = CKRecordDecoder()
 /// The save copies the file in once it can, so the saved asset reads back.
 @MainActor
 @Test func aFileThatAppearsBeforeTheSaveIsCopiedIn() throws {
-    let context = try RecordContainer(for: Poster.self, sync: .inMemory).mainContext
+    let container = try RecordContainer(for: Poster.self, sync: .inMemory)
+    let context = container.mainContext
     let source = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).png")
     var poster = Poster(title: "Tour", image: nil)
     poster.$image = source
@@ -185,22 +186,64 @@ private let decoder = CKRecordDecoder()
 
     let id = try #require(poster._image.id)
     let saved = try #require(try context.record(id: poster.id))
-    #expect(saved.$image == AssetField.url(for: id))
+    #expect(saved.$image == container.database.assets.appending(path: "\(id.uuidString).asset"))
     #expect(saved.image == png)
 }
 
 /// A saved asset whose file is missing doesn't stop edits to the record's other fields.
 @MainActor
 @Test func aSavedAssetWithoutItsFileDoesntBlockOtherEdits() throws {
-    let context = try RecordContainer(for: Poster.self, sync: .inMemory).mainContext
+    let container = try RecordContainer(for: Poster.self, sync: .inMemory)
+    let context = container.mainContext
     let poster = Poster(title: "Tour", image: png)
     context.insert(poster)
     try context.save()
-    try FileManager.default.removeItem(at: AssetField.url(for: try #require(poster._image.id)))
+    let id = try #require(poster._image.id)
+    try FileManager.default.removeItem(at: AssetField.url(for: id))
+    try FileManager.default.removeItem(at: container.database.assets.appending(path: "\(id.uuidString).asset"))
 
     var edited = try #require(try context.record(id: poster.id))
     edited.title = "Encore"
     context.insert(edited)
     try context.save()
     #expect(try context.record(id: poster.id)?.title == "Encore")
+}
+
+// MARK: - Folders
+
+/// Each container keeps its own copies, so a throwaway container never writes into another's
+/// folder, and its folder goes when it does.
+@MainActor
+@Test func eachContainerKeepsItsOwnAssetFiles() throws {
+    var first: RecordContainer? = try RecordContainer(for: Poster.self, sync: .inMemory)
+    let second = try RecordContainer(for: Poster.self, sync: .inMemory)
+    let poster = Poster(title: "Tour", image: png)
+    first?.mainContext.insert(poster)
+    try first?.mainContext.save()
+
+    let id = try #require(poster._image.id)
+    let name = "\(id.uuidString).asset"
+    let folder = try #require(first?.database.assets)
+    #expect(FileManager.default.fileExists(atPath: folder.appending(path: name).path))
+    #expect(!FileManager.default.fileExists(atPath: second.database.assets.appending(path: name).path))
+
+    first = nil
+    #expect(!FileManager.default.fileExists(atPath: folder.path))
+}
+
+/// A record saved in one container and inserted into another brings its file along.
+@MainActor
+@Test func aRecordSavedElsewhereBringsItsFile() throws {
+    let source = try RecordContainer(for: Poster.self, sync: .inMemory)
+    let target = try RecordContainer(for: Poster.self, sync: .inMemory)
+    let poster = Poster(title: "Tour", image: png)
+    source.mainContext.insert(poster)
+    try source.mainContext.save()
+    let saved = try #require(try source.mainContext.record(id: poster.id))
+
+    target.mainContext.insert(saved)
+    try target.mainContext.save()
+    let id = try #require(poster._image.id)
+    #expect(FileManager.default.fileExists(atPath: target.database.assets.appending(path: "\(id.uuidString).asset").path))
+    #expect(try target.mainContext.record(id: poster.id)?.image == png)
 }

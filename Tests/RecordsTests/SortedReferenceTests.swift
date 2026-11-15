@@ -35,7 +35,48 @@ private let kid = disc("Kid A", 2000, 4)
     #expect(crate.newest.map(\.title) == ["Kid A", "Blue", "Abbey Road"])
     #expect(crate.rated.map(\.title).prefix(2) == ["Blue", "Kid A"])
     #expect(crate.oldest.map(\.title) == ["Abbey Road", "Blue", "Kid A"])
-    #expect(crate.$discs.ids == [blue.id, kid.id, abbey.id].sorted()) // IDs stay sorted by ID
+    #expect(crate.$discs.ids == [abbey.id, blue.id, kid.id], "the handle follows the sort")
+    #expect(Array(crate.$newest) == [kid.id, blue.id, abbey.id])
+}
+
+// MARK: - The handle
+
+@Test func theHandleHoldsTheSort() {
+    let crate = Crate(name: "Vinyl", discs: [], newest: [], rated: [], oldest: [])
+    #expect(crate.$discs.sortBy.count == 1)
+    #expect(crate.$oldest.sortBy.count == 1)
+    #expect(crate.$newest.sortBy.first?.order == .reverse)
+}
+
+@MainActor
+@Test func aHandleWithoutLoadedRecordsListsIDsInIDOrder() throws {
+    let context = try RecordContainer(for: Crate.self, sync: .inMemory).mainContext
+    let crate = Crate(name: "Vinyl", discs: [blue, kid, abbey], newest: [], rated: [], oldest: [])
+    context.insert(crate)
+    try context.save()
+
+    let saved = try #require(try context.record(id: crate.id))
+    #expect(saved.discs.isEmpty)
+    #expect(saved.$discs.ids == [blue.id, kid.id, abbey.id].sorted())
+}
+
+@MainActor
+@Test func onDeleteOffsetsFollowTheSort() throws {
+    let context = try RecordContainer(for: Crate.self, sync: .inMemory).mainContext
+    let crate = Crate(name: "Vinyl", discs: [blue, kid, abbey], newest: [], rated: [], oldest: [])
+    context.insert(crate)
+    try context.save()
+
+    var descriptor = RecordDescriptor<Crate>()
+    descriptor.relationshipKeyPathsForPrefetching = [\Crate.discs]
+    var loaded = try #require(try context.fetch(descriptor).first)
+    #expect(loaded.$discs.ids == loaded.discs.map(\.id))
+    loaded.$discs.remove(atOffsets: IndexSet(integer: 0), in: context)   // the first by title
+    #expect(loaded.discs.map(\.title) == ["Blue", "Kid A"])
+    try context.save()
+
+    descriptor.relationshipKeyPathsForPrefetching = [\Crate.discs]
+    #expect(try context.fetch(descriptor).first?.discs.map(\.title) == ["Blue", "Kid A"])
 }
 
 @Test func reorderingASortedReferenceChangesNothing() {

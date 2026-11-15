@@ -321,6 +321,7 @@ actor RecordSync: CKSyncEngineDelegate {
             isStorageFull = isFull
             await container?.syncDidWrite(.storage(.now, isFull: isFull), rebasing: false)
         }
+        await container?.uploadsDidChange()
         return again
     }
 

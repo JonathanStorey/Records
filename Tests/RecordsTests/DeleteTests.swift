@@ -102,3 +102,46 @@ private func linksTo<R>(_ id: RecordID<R>, in context: RecordContext) throws -> 
 
     #expect(try context.fetch(RecordDescriptor<Label>()).count == 2)
 }
+
+// MARK: - Deleting by type
+
+@MainActor
+@Test func deletingByTypeDeletesEveryRecordOfIt() throws {
+    let context = try makeContext()
+    for title in ["Dune", "Emma", "Ulysses"] {
+        context.insert(Book(title: title, shelf: nil))
+    }
+    context.insert(Shelf(name: "Fiction", bookIDs: []))
+    try context.save()
+
+    #expect(try context.delete(Book.self) == 3)
+    #expect(try context.fetchCount(RecordDescriptor<Book>()) == 3, "nothing is deleted until the save")
+    try context.save()
+    #expect(try context.fetchCount(RecordDescriptor<Book>()) == 0)
+    #expect(try context.fetchCount(RecordDescriptor<Shelf>()) == 1)
+}
+
+@MainActor
+@Test func deletingByTypeDeletesOnlyTheMatches() throws {
+    let context = try makeContext()
+    for title in ["Dune", "Emma", "Ulysses"] {
+        context.insert(Book(title: title, shelf: nil))
+    }
+    try context.save()
+
+    #expect(try context.delete(Book.self, where: #Predicate { $0.title == "Emma" }) == 1)
+    try context.save()
+    #expect(try context.fetch(RecordDescriptor<Book>(sortBy: [SortDescriptor(\.title)])).map(\.title) == ["Dune", "Ulysses"])
+}
+
+@MainActor
+@Test func deletingByTypeCascadesLikeDeletingEach() throws {
+    let context = try makeContext()
+    let songs = ["Intro", "Outro"].map { Song(title: $0, albumID: nil) }
+    context.insert(Release(tracks: songs))
+    try context.save()
+
+    try context.delete(Release.self)
+    try context.save()
+    #expect(try context.fetchCount(RecordDescriptor<Song>()) == 0)
+}

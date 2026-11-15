@@ -73,7 +73,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             """
             \(raw: RecordMacro.accessLevel(of: variable))var $\(raw: reference.key): \(raw: handle)<\(raw: reference.target)> {
                 get {
-                    \(raw: handle)(owner: Self.self, id: id, property: "\(raw: reference.key)", storage: \(raw: reference.storage))
+                    \(raw: handle)(owner: Self.self, id: id, property: "\(raw: reference.key)", storage: \(raw: reference.storage)\(raw: reference.sort.map { ", sortBy: \($0)" } ?? ""))
                 }
                 set {
                     \(raw: reference.storage) = newValue.storage
@@ -127,9 +127,6 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         guard binding.accessorBlock == nil else {
             throw MacroExpansionErrorMessage("@Reference property must be stored, not computed")
         }
-        guard binding.initializer == nil else {
-            throw MacroExpansionErrorMessage("@Reference property cannot have an initial value")
-        }
         guard let type = binding.typeAnnotation?.type else {
             throw MacroExpansionErrorMessage("@Reference property needs an explicit type annotation")
         }
@@ -151,6 +148,15 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
                 throw MacroExpansionErrorMessage("@Reference to one record must be optional")
             }
             wrapped = optional
+        }
+        // `= nil` or `= []` lets the memberwise initializer leave the reference out.
+        if let value = binding.initializer?.value {
+            let isEmpty = isToMany
+                ? value.as(ArrayExprSyntax.self)?.elements.isEmpty == true
+                : value.is(NilLiteralExprSyntax.self)
+            guard isEmpty else {
+                throw MacroExpansionErrorMessage("@Reference can only start empty, with '= \(isToMany ? "[]" : "nil")'")
+            }
         }
 
         let name = pattern.identifier.text

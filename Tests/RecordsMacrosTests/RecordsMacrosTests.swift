@@ -446,17 +446,17 @@ final class RecordMacroTests: XCTestCase {
         )
     }
 
-    func testReferenceCannotHaveInitialValue() throws {
+    func testReferenceCanOnlyStartEmpty() throws {
         assertDiagnostic(
-            "@Reference property cannot have an initial value", line: 2, column: 5,
+            "@Reference can only start empty, with '= []'", line: 2, column: 5,
             source: """
             struct Note {
-                @Reference var author: Person? = nil
+                @Reference var tags: [Tag] = [pinned]
             }
             """,
             expandedSource: """
             struct Note {
-                var author: Person? = nil
+                var tags: [Tag] = [pinned]
             }
             """
         )
@@ -1641,7 +1641,7 @@ final class RecordMacroTests: XCTestCase {
 
                 var $discs: Records.ReferenceIDs<Disc> {
                     get {
-                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs)
+                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs, sortBy: [SortDescriptor(\\Disc.title, order: .reverse)])
                     }
                     set {
                         _discs = newValue.storage
@@ -1676,7 +1676,7 @@ final class RecordMacroTests: XCTestCase {
 
                 var $discs: Records.ReferenceIDs<Disc> {
                     get {
-                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs)
+                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs, sortBy: [SortDescriptor(\\Disc.year)])
                     }
                     set {
                         _discs = newValue.storage

@@ -191,9 +191,14 @@ extension ToMany: @unchecked Sendable where Target: Sendable {}
 /// A to-many `@Reference` as its target IDs, which `$tracks` gives for
 /// `@Reference var tracks: [Track]`.
 ///
-/// It lists every target, sorted by ID, whether or not its record is loaded, so `count` is always
-/// the true count. `album.tracks` holds the loaded records and can't be changed. Change the targets
-/// here, through a context:
+/// It lists every target, whether or not its record is loaded, so `count` is always the true
+/// count. The IDs are in the reference's order: sorted by `sortBy` for a reference declared with
+/// `sort:` whose records are loaded, and otherwise by ID, the order the records were made. A
+/// target whose record isn't loaded comes after the loaded ones. So a list of `album.tracks` and
+/// a list of `album.$tracks` line up, and the offsets `onDelete` gives fit either.
+///
+/// `album.tracks` holds the loaded records and can't be changed. Change the targets here, through
+/// a context:
 ///
 /// ```swift
 /// album.$tracks.insert(track, in: context)
@@ -212,23 +217,52 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
     let property: String
     /// The reference's storage. Used by the code `@Reference` generates.
     @_documentation(visibility: internal)
-    public internal(set) var storage: ToMany<Target>
+    public internal(set) var storage: ToMany<Target> {
+        didSet { ids = Self.order(storage, by: sortBy) }
+    }
+
+    /// How the reference sorts its records, as declared with `@Reference(sort:)`, or empty for
+    /// a reference sorted by ID.
+    public let sortBy: [SortDescriptor<Target>]
+
+    /// Every target's ID, loaded or not, in the reference's order.
+    public private(set) var ids: [Target.ID]
 
     /// Used by the code `@Reference` generates.
     @_documentation(visibility: internal)
-    public init<Owner: Record>(owner: Owner.Type, id: Owner.ID, property: String, storage: ToMany<Target>) {
+    public init<Owner: Record>(
+        owner: Owner.Type, id: Owner.ID, property: String, storage: ToMany<Target>,
+        sortBy: [SortDescriptor<Target>] = []
+    ) {
         ownerType = owner
         ownerID = id.rawValue
         self.property = property
+        self.sortBy = sortBy
         self.storage = storage
+        ids = Self.order(storage, by: sortBy)
     }
 
-    /// Every target's ID, sorted, loaded or not.
-    public var ids: [Target.ID] { storage.ids }
+    /// Used by the code `@Reference` generates for `@Reference(sort: SortDescriptor(...))`.
+    @_documentation(visibility: internal)
+    public init<Owner: Record>(
+        owner: Owner.Type, id: Owner.ID, property: String, storage: ToMany<Target>,
+        sortBy: SortDescriptor<Target>
+    ) {
+        self.init(owner: owner, id: id, property: property, storage: storage, sortBy: [sortBy])
+    }
+
+    /// The loaded targets sorted by `sortBy`, then the rest by ID. By ID alone without a sort.
+    private static func order(_ storage: ToMany<Target>, by sortBy: [SortDescriptor<Target>]) -> [Target.ID] {
+        let loaded = storage.values
+        guard !sortBy.isEmpty, !loaded.isEmpty else { return storage.ids }
+        let sorted = loaded.sorted(using: sortBy).map(\.id)
+        let isLoaded = Set(sorted)
+        return sorted + storage.ids.filter { !isLoaded.contains($0) }
+    }
 
     public var startIndex: Int { 0 }
-    public var endIndex: Int { storage.ids.count }
-    public subscript(position: Int) -> Target.ID { storage.ids[position] }
+    public var endIndex: Int { ids.count }
+    public subscript(position: Int) -> Target.ID { ids[position] }
 
     /// Adds `record`. A target already held stays once.
     @MainActor
@@ -257,10 +291,11 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
         storage.ids.removeAll { ids.contains($0) }
     }
 
-    /// Takes the targets at `offsets` out, as SwiftUI's `onDelete` gives them.
+    /// Takes the targets at `offsets` out, as SwiftUI's `onDelete` gives them, counted in the
+    /// reference's order.
     @MainActor
     public mutating func remove(atOffsets offsets: IndexSet, in context: RecordContext) {
-        remove(offsets.map { storage.ids[$0] }, in: context)
+        remove(offsets.map { ids[$0] }, in: context)
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {

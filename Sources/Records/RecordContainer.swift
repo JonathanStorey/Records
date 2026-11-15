@@ -71,6 +71,8 @@ public final class RecordContainer: Sendable {
     /// Every registered type by record type, including related types and Records' own.
     let types: [CKRecord.RecordType: any Record.Type]
     let database: Database
+    /// Whether saves go to iCloud, so contexts count what waits to upload.
+    let countsUploads: Bool
     /// The zone contexts start in, and the zone `@Recordable` edits in when it isn't given one.
     public let defaultZone: Zone
     private let contexts = Contexts()
@@ -92,9 +94,9 @@ public final class RecordContainer: Sendable {
     /// contexts start in and `@Recordable` edits in.
     public convenience init(for types: [any Record.Type], sync: Sync, defaultZone: Zone = .records) throws {
         let url = try sync.isInMemory ? nil : Self.url(appGroup: sync.appGroup)
-        try self.init(for: types, url: url, syncsWithICloud: sync.isICloud, assets: url.map(Self.assetFolder(for:)), defaultZone: defaultZone)
+        try self.init(for: types, url: url, syncsWithICloud: sync.isICloud, defaultZone: defaultZone)
         if sync.isICloud && !Self.isExtension {
-            let recordSync = RecordSync(container: self, assets: AssetField.directory)
+            let recordSync = RecordSync(container: self, assets: database.assets)
             iCloudSync.withLock { $0 = recordSync }
             Task { await recordSync.start() }
         }
@@ -103,16 +105,23 @@ public final class RecordContainer: Sendable {
     /// Opens a container whose database is the file at `url`, or in memory when it is `nil`.
     ///
     /// With `syncsWithICloud`, no other such container may be open, except in an extension, which
-    /// never syncs. With `assets`, the app's asset files move to that folder, and files no link
-    /// names are removed before any context exists.
+    /// never syncs. Asset files are kept in `assets`, or `Records/Assets` beside the file, or a
+    /// temporary folder removed with a database in memory. For a database in a file, asset files
+    /// no link names are removed before any context exists. Contexts count pending uploads when
+    /// `countsUploads` says so, or by default when the container syncs.
     init(
         for types: [any Record.Type], url: URL?, syncsWithICloud: Bool = false, assets: URL? = nil,
-        defaultZone: Zone = .records
+        countsUploads: Bool? = nil, defaultZone: Zone = .records
     ) throws {
         self.defaultZone = defaultZone
+        self.countsUploads = countsUploads ?? syncsWithICloud
         self.types = try Self.register(types)
         try Self.validate(self.types)
-        database = try Database(url: url)
+        database = try Database(
+            url: url,
+            assets: assets ?? url.map(Self.assetFolder(for:))
+                ?? URL.temporaryDirectory.appending(path: "Records/\(UUID().uuidString)", directoryHint: .isDirectory)
+        )
         // A closure, not `\.schema`: a key path to a static member of an existential metatype
         // crashes the Swift 6.1 compiler.
         try database.createTables(for: self.types.values.map { $0.schema })
@@ -122,9 +131,8 @@ public final class RecordContainer: Sendable {
                 open.container = self
             }
         }
-        if let assets {
-            AssetField.use(assets)
-            try database.removeUnusedAssetFiles(in: assets)
+        if url != nil {
+            try database.removeUnusedAssetFiles(in: database.assets)
         }
     }
 
@@ -168,6 +176,7 @@ public final class RecordContainer: Sendable {
             other.rebase()
             other.append(.saved(.now))
         }
+        uploadsDidChange()
         if let recordSync = iCloudSync.withLock({ $0 }) {
             Task { await recordSync.readPendingWork() }
         }
@@ -187,6 +196,24 @@ public final class RecordContainer: Sendable {
         for context in contexts.all.compactMap(\.context) {
             if rebasing { context.rebase() }
             context.append(event)
+        }
+        uploadsDidChange()
+    }
+
+    /// Recounts what waits to upload and sets it on every context, after a save or after sync
+    /// wrote. Does nothing for a container that doesn't sync with iCloud.
+    @MainActor func uploadsDidChange() {
+        guard countsUploads else { return }
+        let count: Int
+        do {
+            count = try database.pendingRecordCount()
+        } catch {
+            syncLog.error("Couldn't count pending uploads: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        contexts.all.removeAll { $0.context == nil }
+        for context in contexts.all.compactMap(\.context) where context.pendingUploads != count {
+            context.pendingUploads = count
         }
     }
 
