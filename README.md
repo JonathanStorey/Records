@@ -449,6 +449,11 @@ was never saved drops it.
 `save()` writes the changes of every zone. Reads and fetches show saved records only, so a
 change shows once it is saved.
 
+A record's fields can hold at most 1 MB, the most iCloud accepts for one record. `save()` throws
+`RecordContextError.recordTooLarge` for a record over it, naming the record and its size, and
+writes nothing. The changes stay in the context, so fix the record and save again. An `@Asset`
+doesn't count toward the limit, so keep large data there.
+
 Saving a delete also removes the links other records hold to the deleted record, so their
 references drop it. It deletes the records the deleted one owns through a reference whose `from:`
 side says `deleteSelf: true`, and theirs in turn, unless another record took them over in the same
@@ -771,7 +776,7 @@ context.insert(inbox)
 
 ### Known limits
 
-- A record larger than 1 MB fails to upload every time, and the log names it. Keep large data in
+- A record's fields hold at most 1 MB, and `save()` throws for a larger one. Keep large data in
   an `@Asset`.
 - Only the user's private database syncs. Sharing records with other people isn't built yet.
 - Asset files download with their records, never on demand.

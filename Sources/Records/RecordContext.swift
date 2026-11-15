@@ -2,6 +2,19 @@ import CloudKit
 import Foundation
 import Observation
 
+/// Why a context couldn't save.
+public enum RecordContextError: Error, Equatable, CustomStringConvertible {
+    /// A record's fields hold more than iCloud accepts for one record.
+    case recordTooLarge(recordType: String, id: UUID, bytes: Int)
+
+    public var description: String {
+        switch self {
+        case .recordTooLarge(let type, let id, let bytes):
+            "\(type) \(id.uuidString) is \(bytes.formatted(.byteCount(style: .file))), over the 1 MB iCloud accepts for a record. Store large data in an @Asset."
+        }
+    }
+}
+
 /// Reads and writes records in a container's database.
 ///
 /// The app's main actor uses `container.mainContext`. Changes wait in the context and reach
@@ -215,6 +228,9 @@ public final class RecordContext {
 
     /// Writes every pending edit in one transaction, oldest first, then clears them. If any
     /// write fails, nothing is written and the edits stay pending.
+    ///
+    /// A record whose fields come to more than 1 MB throws `RecordContextError.recordTooLarge`,
+    /// since iCloud would refuse it. Large data belongs in an `@Asset`, which doesn't count.
     ///
     /// Each `@Asset` set in this edit has its file copied into the container's asset folder
     /// first. If a copy fails, `save()` throws the file system's error and writes nothing.

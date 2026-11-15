@@ -29,7 +29,7 @@ the pipeline working and finds what breaks.
 | Local | Nothing. Runs on any simulator. |
 | Round trip, Ghost | iCloud. Works in a zone of its own, `Lab`, so the catalog is never touched. |
 | Relaunch | Each scenario asks you to tap **Quit now** and open the Lab again, then finishes on its own. One asks you to turn airplane mode on and off. *Records stay without iCloud* runs only on a device that isn't signed in. |
-| Failures | iCloud. Uploads a record over 1 MB and an album of 5,000 tracks. |
+| Failures | iCloud. Saves a record over 1 MB, which must throw, and uploads an album of 5,000 tracks. |
 | Two devices | A second device running the Lab, signed in to the same account. Seed the catalog on one device only and let the other fetch it. |
 
 **Run every scenario** leaves out Relaunch and Two devices, because they quit the app or need you
