@@ -137,6 +137,8 @@ Records keeps no schema versions, because CloudKit's schema only grows. Change a
 - **Add** a field as an optional or with a default, such as `var plays: Int = 0`. Records saved
   before it existed read it as `nil` or the default. A record from iCloud missing a field that has
   neither can't be read, so sync skips it and logs why. A list is empty when it's missing.
+  Any stored row this app can't read is left out of every fetch, count, and reference, so invalid
+  data is invisible.
 - **Stop using** a field by deleting the property. Its data stays in CloudKit.
 - **Never change a field's type.** Add a new field and stop writing the old one.
 
@@ -397,6 +399,7 @@ let container = try RecordContainer(for: Album.self, sync: .iCloud)
 | `.inMemory` | Memory only, gone when the app quits. For tests and previews. |
 | `.local` | A file on this device, never synced. |
 | `.iCloud` | A file on this device, synced with the app's default iCloud container. See [Syncing with iCloud](#syncing-with-icloud). |
+| `.iCloud(container:)` | The same, synced with the iCloud container you name, such as `"iCloud.com.example.Music"`. |
 
 Every type a registered type refers to is registered too, so `Album` brings `Track`, `Artist`, and
 `Genre`. Opening checks the types against each other and throws a `RecordContainerError` that names
@@ -678,7 +681,7 @@ unless the container's `defaultZone` says otherwise, and creates it the first ti
 In the app target's Signing & Capabilities, add:
 
 - **iCloud**, with CloudKit checked and a container chosen. `.iCloud` uses the app's default
-  container.
+  container, and `.iCloud(container: "iCloud.com.example.Music")` uses the one you name.
 - **Background Modes**, with Remote notifications checked, so changes arrive while the app is open.
   Without it, changes arrive only at launch and on refresh.
 
@@ -696,8 +699,8 @@ at the app's next save, refresh, or launch.
 | Events | `context.events` |
 | Waiting to upload | `context.pendingUploads` |
 
-`refresh()` discards the context's unsaved edits, brings in what changed on the server, and sends
-anything waiting to upload, such as a widget's saves. It returns once the changes are in the
+`refresh()` brings in what changed on the server and sends anything waiting to upload, such as a
+widget's saves. Unsaved edits stay, laid over the new records as after any sync. It returns once the changes are in the
 records, so it fits `.refreshable`:
 
 ```swift
@@ -707,7 +710,7 @@ List(albums) { ... }
 
 No call is needed at launch. `refresh()` never throws. When iCloud can't be reached,
 `events.lastSynced` stays where it was and sync tries again on its own. Without sync, `refresh()`
-only discards the edits, as `rollback()` does.
+does nothing. To start over from the saved records, call `rollback()` first.
 
 Sync adds three kinds of entries to `context.events`, and each one redraws the views showing
 records:
@@ -738,7 +741,10 @@ uploaded yet, which are lost.
 Fields merge one at a time. A field only one device changed keeps that change, so one device's new
 title and another's new year both survive. A field both devices changed takes the value from the
 device that uploads last. An asset, and the target of a to-one reference, change as one value,
-never half from each side. An edit to a record that another device deleted brings it back.
+never half from each side. An edit to a record that another device deleted brings it back, alone:
+what the deletion took with it, such as an album's tracks, stays deleted. When the other device's
+copy can't be read, this device keeps its own, and tries to upload it again only at the next
+launch.
 
 ### Default records
 

@@ -136,7 +136,7 @@ struct DashboardView: View {
         } header: {
             Text("Sync")
         } footer: {
-            Text("Not yet uploaded is context.pendingUploads: records with saved changes iCloud hasn't confirmed. Refreshing fetches from iCloud and uploads anything waiting. It discards unsaved edits first.")
+            Text("Not yet uploaded is context.pendingUploads: records with saved changes iCloud hasn't confirmed. Refreshing fetches from iCloud and uploads anything waiting. Unsaved edits stay.")
         }
     }
 

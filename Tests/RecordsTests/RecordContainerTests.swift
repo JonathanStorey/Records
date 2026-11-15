@@ -189,3 +189,12 @@ private func temporaryFile() -> URL {
     #expect(FieldCoding(Rating.self).kind == .integer)
     #expect(FieldCoding([Mood].self).kind == .bytes)
 }
+
+@Test func iCloudNamesItsContainer() {
+    #expect(RecordContainer.Sync.iCloud.iCloudContainer == nil)
+    #expect(RecordContainer.Sync.iCloud(appGroup: "group.example").iCloudContainer == nil)
+    let named = RecordContainer.Sync.iCloud(container: "iCloud.com.example.Music", appGroup: "group.example")
+    #expect(named.iCloudContainer == "iCloud.com.example.Music")
+    #expect(named.appGroup == "group.example")
+    #expect(named.isICloud)
+}
