@@ -117,7 +117,7 @@ private final class Device {
     let assets: URL
 
     init(assets: URL = temporaryFolder()) throws {
-        container = try RecordContainer(for: [Tune.self, Poster.self], url: nil)
+        container = try RecordContainer(for: [Tune.self, Poster.self], url: nil, assets: assets, countsUploads: true)
         sync = RecordSync(container: container, assets: assets)
         self.assets = assets
     }
@@ -270,8 +270,8 @@ private func twoDevices(with tune: Tune) async throws -> (StandInServer, Device,
 @MainActor
 @Test(.tags(.sync)) func anAssetReachesTheOtherDevice() async throws {
     let server = StandInServer()
-    // The phone's assets are where `@Asset` writes them. The laptop keeps its own folder.
-    let phone = try Device(assets: AssetField.directory)
+    // Saving copies the file into the phone's own folder, which it uploads from.
+    let phone = try Device()
     let laptop = try Device()
     let poster = Poster(title: "Tour", image: png)
     try phone.save(poster)
@@ -428,4 +428,30 @@ private func isStorageFull(_ device: Device) -> Bool? {
     try device.save(tune)
     let pending = try device.database.pendingChanges()
     #expect(pending.count == 1 && pending.first?.isDelete == false)
+}
+
+// MARK: - Pending uploads
+
+/// A save raises the count, a record's asset link counts with the record, and an upload the
+/// server confirms brings it back to zero.
+@MainActor
+@Test(.tags(.sync)) func pendingUploadsCountUntilTheServerConfirms() async throws {
+    let server = StandInServer()
+    let phone = try Device()
+    #expect(phone.context.pendingUploads == 0)
+    try phone.save(Poster(title: "Tour", image: png))
+    #expect(phone.context.pendingUploads == 1)
+    try phone.save(Tune(title: "Blue", plays: 0))
+    #expect(phone.context.pendingUploads == 2)
+
+    try await phone.send(to: server)
+    #expect(phone.context.pendingUploads == 0)
+}
+
+/// A device that opens with saves not yet uploaded counts them from the start.
+@MainActor
+@Test(.tags(.sync)) func aNewContextCountsWhatWaitsToUpload() throws {
+    let phone = try Device()
+    try phone.save(Tune(title: "Blue", plays: 0))
+    #expect(RecordContext(container: phone.container).pendingUploads == 1)
 }

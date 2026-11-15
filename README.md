@@ -57,7 +57,7 @@ struct Artwork {
     @Asset var image: Data?
 }
 
-artwork.image = pngData   // written to a new .asset file right away
+artwork.image = pngData   // written to a new temporary .asset file right away
 artwork.$image            // that file's URL, ready for an image view
 artwork.image             // read from the file only when asked for
 artwork.$image = videoURL // copied in as a new .asset file, never read into memory
@@ -69,7 +69,8 @@ uses the file where it is.
 
 The asset isn't a field of the record. It rides on its own link for `Artwork.image`, so
 editing the record's other fields never uploads it again. Each new value gets a new ID and its own
-`<ID>.asset` file in `Records/Assets` beside the database, and the link carries that ID, so two
+`<ID>.asset` file. Saving copies the file into `Records/Assets` beside the database, a clone on
+APFS, so each container keeps its own files. The link carries that ID, so two
 devices can tell whether they hold the same image without comparing the data. Loading a list never
 reads the data until you ask for it. An asset can't be `@Encrypted`.
 
@@ -99,9 +100,10 @@ Read the dates the server keeps for every record with `@Timestamped`:
 @Timestamped(.modified) var modifiedAt: Date?
 ```
 
-They come from the server's clock, so they match on every device, and `.modified` is the one to sort
-a "recently updated" list by. They are `nil` until the record is first saved. They can't be assigned
-and stay out of the memberwise initializer.
+They are `nil` until the record is first saved. A save sets them from the device's clock, and once
+iCloud confirms the upload they take the server's dates, which match on every device. `.modified` is
+the one to sort a "recently updated" list by. They can't be assigned and stay out of the memberwise
+initializer.
 
 A field can hold any type CloudKit stores, such as `String`, `Int`, `Double`, `Bool`, `Date`, `Data`,
 `CLLocation`, or an array of them. An enum with such a raw value is stored as its raw value, and any
@@ -173,6 +175,21 @@ Three rules cover every relationship:
    ID, or make the other side the owner.
 3. **A to-one reference is optional and a to-many reference is a non-optional array.** A to-many
    reference and a `from:` array are sorted by ID, which is the order the records were made.
+
+A reference can start empty with `= nil` or `= []`, so the memberwise initializer can leave it out.
+This suits every `from:` side, which is filled when the record is read:
+
+```swift
+@Record
+struct Artist {
+    var name: String
+    @Reference(from: \Album.artist) var albumIDs: [Album.ID] = []
+}
+
+let nova = Artist(name: "Nova")
+```
+
+Swift gives a default only to a property that declares one, so `@Record` can't add it for you.
 
 A `from:` side names the owner's property with a key path. That makes the relationship two-way,
 and determines its shape:
@@ -394,6 +411,8 @@ and previews can use a throwaway database:
 let preview = try RecordContainer(for: Album.self, sync: .inMemory)
 ```
 
+Its asset files go in a temporary folder that is removed with it, so it never touches the app's.
+
 To share the database and its assets with the app's extensions and widgets, pass its app group:
 `RecordContainer(for: Album.self, sync: .iCloud(appGroup: "group.com.example.music"))`. An
 extension never syncs. Its saves wait in the shared file until the app uploads them.
@@ -431,6 +450,15 @@ references drop it. It deletes the records the deleted one owns through a refere
 side says `deleteSelf: true`, and theirs in turn, unless another record took them over in the same
 save. Deleting an album deletes its tracks, but moving a track to another album and deleting the
 old one keeps it.
+
+To delete many records at once, name their type and, optionally, which ones. Each is deleted as
+`delete(_:)` deletes it, when the context saves:
+
+```swift
+try context.delete(Album.self, where: #Predicate { $0.year < 1960 })
+try context.delete(Review.self)   // every review in the zone
+try context.save()
+```
 
 The first time a saved record is inserted, the context keeps the saved version as its base.
 Saving writes only the fields and links you changed from that base, keeps the creation date,
@@ -686,6 +714,7 @@ at the app's next save, refresh, or launch.
 | Turn sync on | `RecordContainer(for: Album.self, sync: .iCloud)` |
 | Refresh | `await context.refresh()` |
 | Events | `context.events` |
+| Waiting to upload | `context.pendingUploads` |
 
 `refresh()` discards the context's unsaved edits, brings in what changed on the server, and sends
 anything waiting to upload, such as a widget's saves. It returns once the changes are in the
@@ -708,6 +737,16 @@ records:
 | `.synced(date)` | Changes from the server were written. `events.lastSynced` gives the date. Uploads add nothing. |
 | `.account(date, status)` | At launch and after each account change, with the `CKAccountStatus`. The newest one is the account's status. |
 | `.storage(date, isFull:)` | `true` when an upload fails because the user's iCloud storage is full, and `false` once an upload succeeds again. |
+
+`pendingUploads` counts the records with saved changes iCloud hasn't confirmed yet, for a line such
+as "3 changes not yet uploaded". A change to a record's references counts as a change to that
+record. It updates after each save and each upload, and redraws the views that read it:
+
+```swift
+if context.pendingUploads > 0 {
+    Label("\(context.pendingUploads) not yet uploaded", systemImage: "icloud.and.arrow.up")
+}
+```
 
 Saves never wait on iCloud. With no account, or with storage full, they stay on the device and
 upload later. Signing out or switching accounts removes every record from the device, so one

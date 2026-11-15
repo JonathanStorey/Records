@@ -134,14 +134,14 @@ public macro Encrypted() = #externalMacro(module: "RecordsMacros", type: "Marker
 ///     @Asset var cover: Data?
 /// }
 ///
-/// album.cover = pngData    // written to a new .asset file right away
+/// album.cover = pngData    // written to a new temporary .asset file right away
 /// album.$cover             // that file's URL
 /// album.cover              // read from the file only when asked for
 /// ```
 ///
 /// The asset isn't a field of the record. It is stored on its own link for `Album.cover`, so
 /// saving the record's other fields never uploads it again. Each new value gets a new ID and its
-/// own `<ID>.asset` file in `AssetField.directory`. CloudKit can't encrypt an asset, so a property
+/// own `<ID>.asset` file, which saving copies into the container's asset folder. CloudKit can't encrypt an asset, so a property
 /// can't be both `@Asset` and `@Encrypted`.
 @attached(accessor, names: named(init), named(get), named(set))
 @attached(peer, names: prefixed(_), prefixed(`$`))
@@ -173,8 +173,9 @@ public enum Timestamp: Sendable {
 
 /// Reads a date the server keeps for every record, in place of a field.
 ///
-/// The server's clock sets it, so it is the same on every device. It is `nil` until the record is
-/// first saved, can't be assigned, and stays out of the memberwise initializer.
+/// It is `nil` until the record is first saved. A save sets it from the device's clock, and once
+/// iCloud confirms the upload it takes the server's date, the same on every device. It can't be
+/// assigned and stays out of the memberwise initializer.
 ///
 /// ```swift
 /// @Timestamped(.created) var createdAt: Date?
