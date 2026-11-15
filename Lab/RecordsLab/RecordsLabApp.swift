@@ -8,6 +8,8 @@ struct RecordsLabApp: App {
     private let opened: Result<RecordContainer, any Error>
 
     init() {
+        // A relaunch scenario may change the database before the container opens.
+        RelaunchScenarios.beforeOpening()
         let opened = Result { try RecordContainer(for: Catalog.types, sync: .iCloud) }
         if case .failure(let error) = opened {
             print("LAB FAIL launch: the container didn't open: \(error)")
@@ -57,6 +59,7 @@ struct RootView: View {
             QuestionSheet(question: question)
                 .interactiveDismissDisabled()
         }
+        .task { await runner.resume() }
     }
 
     private var failures: Int {
@@ -108,6 +111,22 @@ struct QuestionSheet: View {
                             Label("Done", systemImage: "checkmark").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
+                    case .quit:
+                        HStack {
+                            Button {
+                                runner.answer(false)
+                            } label: {
+                                Label("Cancel", systemImage: "xmark").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            Button {
+                                runner.answer(true)
+                            } label: {
+                                Label("Quit now", systemImage: "power").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
+                        }
                     }
                 }
                 .controlSize(.large)

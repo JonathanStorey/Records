@@ -5,7 +5,10 @@ import SwiftUI
 /// Every scenario, in the order the Scenarios tab lists them.
 @MainActor
 enum Scenarios {
-    static var all: [Scenario] { LocalScenarios.all + RoundTripScenarios.all + GhostScenarios.all }
+    static var all: [Scenario] {
+        LocalScenarios.all + RoundTripScenarios.all + GhostScenarios.all + RelaunchScenarios.all + FailureScenarios.all
+            + TwoDeviceScenarios.all
+    }
 }
 
 /// Scenarios that never touch iCloud. Each opens its own in-memory container, so they leave the

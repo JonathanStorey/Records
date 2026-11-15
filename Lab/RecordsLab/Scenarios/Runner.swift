@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The groups on the Scenarios tab, each with its own color and symbol.
 enum ScenarioGroup: String, CaseIterable, Identifiable {
-    case local, roundTrip, ghost, relaunch, failures
+    case local, roundTrip, ghost, relaunch, failures, twoDevices
 
     var id: Self { self }
 
@@ -15,6 +15,7 @@ enum ScenarioGroup: String, CaseIterable, Identifiable {
         case .ghost: "Ghost"
         case .relaunch: "Relaunch"
         case .failures: "Failures"
+        case .twoDevices: "Two devices"
         }
     }
 
@@ -25,6 +26,7 @@ enum ScenarioGroup: String, CaseIterable, Identifiable {
         case .ghost: "person.2.wave.2"
         case .relaunch: "arrow.clockwise.circle"
         case .failures: "exclamationmark.icloud"
+        case .twoDevices: "arrow.left.arrow.right.circle"
         }
     }
 
@@ -35,7 +37,14 @@ enum ScenarioGroup: String, CaseIterable, Identifiable {
         case .ghost: .purple
         case .relaunch: .orange
         case .failures: .red
+        case .twoDevices: .teal
         }
+    }
+
+    /// Whether Run All includes the group. Relaunch scenarios quit the app, and two-device
+    /// scenarios need you at both devices, so each runs on its own.
+    var runsInBatch: Bool {
+        self != .relaunch && self != .twoDevices
     }
 
     var summary: String {
@@ -43,8 +52,9 @@ enum ScenarioGroup: String, CaseIterable, Identifiable {
         case .local: "Records on this device only, in throwaway containers. No iCloud."
         case .roundTrip: "Records sent to iCloud and read back by a second device the Lab plays. Needs iCloud, and works in a zone of its own."
         case .ghost: "A second device, played by the Lab, changes the same records in iCloud. Needs iCloud, and works in a zone of its own."
-        case .relaunch: "Steps that need the app swiped away and opened again."
-        case .failures: "Errors iCloud can return, and how sync recovers."
+        case .relaunch: "Steps that quit the app and open it again. Each one picks up where it stopped."
+        case .failures: "Limits iCloud enforces, and how sync behaves when it hits them."
+        case .twoDevices: "Two devices signed in to the same iCloud account, with the catalog seeded on one and fetched on the other."
         }
     }
 }
@@ -68,10 +78,37 @@ struct LabFailure: Error, CustomStringConvertible {
     var description: String { "\(step): expected \(expected), found \(actual)" }
 }
 
+/// Ends a scenario that can't run here, such as one that needs the device signed out.
+struct LabSkip: Error, CustomStringConvertible {
+    let reason: String
+
+    var description: String { reason }
+}
+
+/// A scenario that quit the app to be opened again, and what it kept for the rest of its run.
+struct Resume: Codable {
+    let scenario: Scenario.ID
+    var values: [String: String]
+
+    private static let key = "LabResume"
+
+    static var saved: Resume? {
+        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(Resume.self, from: $0) }
+    }
+
+    func save() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(self), forKey: Self.key)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+}
+
 /// One step of a run, as it happened.
-struct Step: Identifiable {
-    enum Kind {
-        case act, check, wait, ask, metric
+struct Step: Identifiable, Codable {
+    enum Kind: String, Codable {
+        case act, check, wait, ask, metric, relaunch
 
         var symbol: String {
             switch self {
@@ -80,11 +117,12 @@ struct Step: Identifiable {
             case .wait: "hourglass"
             case .ask: "person.fill.questionmark"
             case .metric: "gauge.with.dots.needle.67percent"
+            case .relaunch: "arrow.clockwise.circle"
             }
         }
     }
 
-    let id = UUID()
+    var id = UUID()
     let kind: Kind
     let name: String
     var status: Outcome.Status = .running
@@ -93,8 +131,8 @@ struct Step: Identifiable {
 }
 
 /// A scenario's latest run.
-struct Outcome {
-    enum Status { case running, passed, failed }
+struct Outcome: Codable {
+    enum Status: String, Codable { case running, passed, failed, skipped }
 
     var status: Status = .running
     var steps: [Step] = []
@@ -104,7 +142,7 @@ struct Outcome {
 
 /// A question that pauses a scenario until the user answers it.
 struct Question: Identifiable {
-    enum Answers { case yesNo, done }
+    enum Answers { case yesNo, done, quit }
 
     let id = UUID()
     let title: String
@@ -135,6 +173,16 @@ final class Runner {
 
     init(cloud: RecordContainer?) {
         self.cloud = cloud
+        outcomes = Self.savedOutcomes()
+    }
+
+    /// Finishes the scenario that quit the app, now that it has opened again.
+    func resume() async {
+        guard running == nil, let resume = Resume.saved else { return }
+        // Cleared first, so a scenario that crashes the app doesn't run again at every launch.
+        Resume.clear()
+        guard let scenario = Scenarios.all.first(where: { $0.id == resume.scenario }) else { return }
+        await perform(scenario, resumed: resume.values)
     }
 
     func run(_ scenario: Scenario) async {
@@ -150,7 +198,9 @@ final class Runner {
             progress?.done += 1
         }
         let failed = scenarios.filter { outcomes[$0.id]?.status == .failed }.map(\.id)
-        var line = "LAB SUMMARY \(scenarios.count - failed.count) passed, \(failed.count) failed"
+        let passed = scenarios.filter { outcomes[$0.id]?.status == .passed }.count
+        let skipped = scenarios.filter { outcomes[$0.id]?.status == .skipped }.count
+        var line = "LAB SUMMARY \(passed) passed, \(failed.count) failed, \(skipped) skipped"
         if !failed.isEmpty { line += ": " + failed.joined(separator: ", ") }
         report(line, failed: !failed.isEmpty)
         progress = nil
@@ -166,15 +216,24 @@ final class Runner {
     func clear() {
         guard running == nil else { return }
         outcomes = [:]
+        saveOutcomes()
     }
 
-    private func perform(_ scenario: Scenario) async {
+    /// Runs `scenario`. With `resumed`, it picks up after a relaunch: its earlier steps stay,
+    /// and the scenario reads what it kept from `Lab.resumed`.
+    private func perform(_ scenario: Scenario, resumed: [String: String]? = nil) async {
         running = scenario.id
-        outcomes[scenario.id] = Outcome()
+        if resumed == nil || outcomes[scenario.id] == nil {
+            outcomes[scenario.id] = Outcome()
+        }
+        outcomes[scenario.id]?.status = .running
         let start = ContinuousClock.now
         var failure: String?
+        var skipped: String?
         do {
-            try await scenario.run(Lab(runner: self, scenario: scenario.id))
+            try await scenario.run(Lab(runner: self, scenario: scenario.id, resumed: resumed))
+        } catch let skip as LabSkip {
+            skipped = skip.reason
         } catch {
             failure = String(describing: error)
         }
@@ -183,13 +242,37 @@ final class Runner {
         let duration = ContinuousClock.now - start
         outcomes[scenario.id]?.duration = duration
         outcomes[scenario.id]?.failure = failure
-        outcomes[scenario.id]?.status = failure == nil ? .passed : .failed
+        outcomes[scenario.id]?.status = failure != nil ? .failed : skipped != nil ? .skipped : .passed
         if let failure {
             report("LAB FAIL \(scenario.id) after \(duration.label): \(failure)", failed: true)
+        } else if let skipped {
+            report("LAB SKIP \(scenario.id): \(skipped)", failed: false)
         } else {
             report("LAB PASS \(scenario.id) in \(duration.label)", failed: false)
         }
+        saveOutcomes()
         running = nil
+    }
+
+    // MARK: Saved results
+
+    private static let outcomesKey = "LabOutcomes"
+
+    /// The results so far, kept so a relaunch doesn't lose them.
+    fileprivate func saveOutcomes() {
+        UserDefaults.standard.set(try? JSONEncoder().encode(outcomes), forKey: Self.outcomesKey)
+    }
+
+    private static func savedOutcomes() -> [Scenario.ID: Outcome] {
+        guard let data = UserDefaults.standard.data(forKey: outcomesKey),
+              let outcomes = try? JSONDecoder().decode([Scenario.ID: Outcome].self, from: data)
+        else { return [:] }
+        // A run cut short by a quit or a crash is no longer running.
+        return outcomes.mapValues { outcome in
+            var outcome = outcome
+            if outcome.status == .running { outcome.status = .failed }
+            return outcome
+        }
     }
 
     private func report(_ line: String, failed: Bool) {
@@ -221,10 +304,13 @@ final class Runner {
 final class Lab {
     private let runner: Runner
     let scenario: Scenario.ID
+    /// What the scenario kept before it quit the app, when this run picks up after a relaunch.
+    let resumed: [String: String]?
 
-    fileprivate init(runner: Runner, scenario: Scenario.ID) {
+    fileprivate init(runner: Runner, scenario: Scenario.ID, resumed: [String: String]?) {
         self.runner = runner
         self.scenario = scenario
+        self.resumed = resumed
     }
 
     /// Does something and times it. An error fails the step and the scenario.
@@ -305,10 +391,40 @@ final class Lab {
         return answer
     }
 
+    /// Keeps `values`, asks you to quit, and quits. When the app opens again, the scenario runs
+    /// once more with `resumed` holding `values`. Cancelling fails the scenario.
+    func relaunch(_ detail: String, keeping values: [String: String] = [:]) async throws -> Never {
+        let index = runner.begin(.relaunch, "Quit and open the app again", in: scenario)
+        let start = ContinuousClock.now
+        Resume(scenario: scenario, values: values).save()
+        runner.end(index, in: scenario, passed: true, detail: detail)
+        runner.saveOutcomes()
+        let quits = await withCheckedContinuation { continuation in
+            runner.question = Question(title: "Quit and open the app again", detail: detail, answers: .quit, content: nil) { value in
+                continuation.resume(returning: value)
+            }
+        }
+        if quits { exit(0) }
+        Resume.clear()
+        runner.end(index, in: scenario, passed: false, since: start, detail: "Cancelled")
+        throw LabFailure(step: "Quit and open the app again", expected: "the app to quit", actual: "cancelled")
+    }
+
+    /// Ends the scenario as skipped, saying why it can't run here.
+    func skip(_ reason: String) throws -> Never {
+        metric("Skipped", reason)
+        throw LabSkip(reason: reason)
+    }
+
+    /// The app's own container, or a failure when it didn't open.
+    func container() throws -> RecordContainer {
+        try unwrap("The app's iCloud container opened", runner.cloud)
+    }
+
     /// The app's own context, switched to the Lab zone until the scenario ends. Fails when the
     /// container didn't open or iCloud isn't available, saying which.
     func cloud() async throws -> RecordContext {
-        let container = try unwrap("The app's iCloud container opened", runner.cloud)
+        let container = try container()
         let status = try await CKContainer.default().accountStatus()
         let found = switch status {
         case .available: "available"

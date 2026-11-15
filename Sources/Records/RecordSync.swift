@@ -260,6 +260,7 @@ actor RecordSync: CKSyncEngineDelegate {
     /// saved this session, because the engine counts the batch as received. The next launch
     /// fetches everything again, which changes nothing already here.
     func received(_ records: [CKRecord], deletions: [(CKRecord.ID, CKRecord.RecordType)]) async {
+        syncLog.notice("Fetched \(records.count) records and \(deletions.count) deletions")
         copyAssets(of: records)
         do {
             try database.transaction {
