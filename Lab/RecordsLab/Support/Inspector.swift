@@ -60,6 +60,30 @@ enum Inspector {
         return column(handle, "SELECT scope FROM \"_SyncState\" ORDER BY scope")
     }
 
+    /// The text the sync state table holds for `scope`, such as the saved schema.
+    static func syncValue(_ scope: String) -> String? {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let handle else {
+            sqlite3_close(handle)
+            return nil
+        }
+        defer { sqlite3_close(handle) }
+        return column(handle, "SELECT CAST(state AS TEXT) FROM \"_SyncState\" WHERE scope = '\(scope)'").first
+    }
+
+    /// Runs `sql` against the database file, for a scenario that changes it before the
+    /// container opens. Returns how many rows it changed, or `nil` when it failed.
+    static func change(_ sql: String) -> Int? {
+        var handle: OpaquePointer?
+        guard sqlite3_open_v2(databaseURL.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let handle else {
+            sqlite3_close(handle)
+            return nil
+        }
+        defer { sqlite3_close(handle) }
+        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else { return nil }
+        return Int(sqlite3_changes(handle))
+    }
+
     /// The asset files on disk and their total size.
     static func assetFiles() -> (count: Int, bytes: Int64) {
         let files = (try? FileManager.default.contentsOfDirectory(at: assetsURL, includingPropertiesForKeys: [.fileSizeKey])) ?? []

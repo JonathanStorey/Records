@@ -41,10 +41,16 @@ struct ScenariosView: View {
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    ShareLink(item: Report.text(for: runner)) {
+                        Label("Report", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(runner.outcomes.isEmpty)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Run every scenario", systemImage: "play.fill") {
-                            Task { await runner.runAll(Scenarios.all) }
+                            Task { await runner.runAll(Scenarios.all.filter { $0.group.runsInBatch }) }
                         }
                         Button("Clear results", systemImage: "xmark.circle") {
                             runner.clear()
@@ -94,14 +100,16 @@ struct GroupHeader: View {
                         Pill(text: "\(failed) failed", symbol: "xmark.octagon.fill", color: .red)
                     }
                     Spacer()
-                    Button {
-                        Task { await runner.runAll(scenarios) }
-                    } label: {
-                        Label("Run all", systemImage: "play.fill")
+                    if group.runsInBatch {
+                        Button {
+                            Task { await runner.runAll(scenarios) }
+                        } label: {
+                            Label("Run all", systemImage: "play.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(group.color)
+                        .disabled(runner.running != nil)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(group.color)
-                    .disabled(runner.running != nil)
                 }
                 if let progress = runner.progress {
                     Text("Running \(progress.done + 1) of \(progress.total)")
@@ -125,6 +133,8 @@ struct StatusIcon: View {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed?:
             Image(systemName: "xmark.octagon.fill").foregroundStyle(.red)
+        case .skipped?:
+            Image(systemName: "minus.circle.fill").foregroundStyle(.secondary)
         case nil:
             Image(systemName: "circle.dashed").foregroundStyle(.secondary)
         }
@@ -241,6 +251,7 @@ struct StepRow: View {
             case .running: ProgressView()
             case .passed: Image(systemName: "checkmark").foregroundStyle(.green)
             case .failed: Image(systemName: "xmark").foregroundStyle(.red)
+            case .skipped: Image(systemName: "minus").foregroundStyle(.secondary)
             }
         }
     }
@@ -248,7 +259,7 @@ struct StepRow: View {
     private var color: Color {
         switch step.status {
         case .failed: .red
-        case .running: .secondary
+        case .running, .skipped: .secondary
         case .passed: step.kind == .metric ? .purple : .accentColor
         }
     }
