@@ -29,7 +29,7 @@ enum FailureScenarios {
         // Read everything first, so the large review is deleted even when a check fails.
         let uploaded = try await ghost.fetch(ghost.id(of: large)) != nil
         let lines = (try? LogLine.read()) ?? []
-        let logged = lines.first { $0.date >= start && $0.message.contains(large.id.uuidString) }
+        let logged = lines.first { $0.date >= start && $0.message.contains(large.id.rawValue.uuidString) }
         let waiting = context.pendingUploads
         try await lab.act("Delete the large review") {
             context.delete(large)

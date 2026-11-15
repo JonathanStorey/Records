@@ -1,5 +1,6 @@
 import Foundation
 import Records
+import SwiftUI
 
 /// Scenarios that need a second device running the Lab, signed in to the same iCloud account.
 /// They work on the catalog in the app's own zone, so seed it on one device only and let the

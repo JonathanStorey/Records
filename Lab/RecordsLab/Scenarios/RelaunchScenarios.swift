@@ -1,5 +1,6 @@
 import Foundation
 import Records
+import SwiftUI
 
 /// Scenarios that quit the app and open it again. Each saves what it needs, asks you to quit,
 /// and finishes on its own at the next launch.
@@ -64,7 +65,7 @@ enum RelaunchScenarios {
         try lab.check("Nothing arrived from iCloud", context.events.lastSynced == lastSynced, expected: "no fetch", actual: "a fetch")
         try await lab.relaunch(
             "Tap Quit now, turn airplane mode off, then open the Lab again. The scenario finishes on its own.",
-            keeping: ["artist": artist.id.uuidString]
+            keeping: ["artist": artist.id.rawValue.uuidString]
         )
     }
 
@@ -182,7 +183,7 @@ enum RelaunchScenarios {
         }
         try await lab.relaunch(
             "Tap Quit now, then open the Lab again. The scenario finishes on its own.",
-            keeping: ["artist": artist.id.uuidString]
+            keeping: ["artist": artist.id.rawValue.uuidString]
         )
     }
 }
