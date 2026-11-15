@@ -10,22 +10,37 @@ import Synchronization
 /// view. Setting `$name` to a file copies it in instead, without reading it into memory. Reading the property reads that file, so a record that is loaded but never asked for its
 /// data never loads it.
 public struct AssetField {
-    /// Where asset files are kept: `Records/Assets` beside the database, which is in the app
-    /// group's folder when the container has one. Until a container with a file opens, and in
-    /// tests and previews that only use `.inMemory`, it is a temporary folder.
-    public static var directory: URL {
-        folder.withLock { $0 }
+    /// Where a new value's file is written until it is saved: a temporary folder. Saving copies
+    /// the file into its container's own asset folder, `Records/Assets` beside the database, so
+    /// containers never share files and a throwaway container never writes into the app's.
+    public static let directory = URL.temporaryDirectory
+        .appending(path: "Records", directoryHint: .isDirectory)
+        .appending(path: "Assets", directoryHint: .isDirectory)
+
+    /// The asset folder of each open database, with how many open databases use it.
+    private static let savedFolders = Mutex<[URL: Int]>([:])
+
+    /// Looks for saved files in `folder` too while its database is open.
+    static func open(_ folder: URL) {
+        savedFolders.withLock { $0[folder, default: 0] += 1 }
     }
 
-    private static let folder = Mutex(
-        URL.temporaryDirectory
-            .appending(path: "Records", directoryHint: .isDirectory)
-            .appending(path: "Assets", directoryHint: .isDirectory)
-    )
+    /// Stops looking in `folder` once no open database uses it.
+    static func close(_ folder: URL) {
+        savedFolders.withLock { folders in
+            folders[folder, default: 1] -= 1
+            if folders[folder] == 0 { folders[folder] = nil }
+        }
+    }
 
-    /// Keeps asset files in `directory` from now on. The container calls it when it opens.
-    static func use(_ directory: URL) {
-        folder.withLock { $0 = directory }
+    /// The file holding the asset with `id` on this device: in an open database's asset folder,
+    /// or among the files of values not yet saved. IDs are unique, so any copy is the same data.
+    static func file(for id: UUID) -> URL? {
+        let name = "\(id.uuidString).asset"
+        let folders = savedFolders.withLock { Array($0.keys) } + [directory]
+        return folders.lazy
+            .map { $0.appending(path: name, directoryHint: .notDirectory) }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private enum Source: Equatable {
@@ -48,8 +63,8 @@ public struct AssetField {
     /// `file`, such as the one CloudKit downloaded.
     public init(id: UUID?, file: URL?) {
         self.id = id
-        if let id, FileManager.default.fileExists(atPath: Self.url(for: id).path) {
-            source = .file(Self.url(for: id))
+        if let id, let own = Self.file(for: id) {
+            source = .file(own)
         } else {
             source = file.map(Source.file) ?? .none
         }
@@ -105,7 +120,7 @@ public struct AssetField {
         AssetState(property: property, id: id, fileURL: savedFileURL)
     }
 
-    /// The file for the asset with `id`.
+    /// Where a new value with `id` is written before it is saved.
     public static func url(for id: UUID) -> URL {
         directory.appending(path: "\(id.uuidString).asset", directoryHint: .notDirectory)
     }
@@ -155,17 +170,18 @@ extension AssetField: Hashable {
 extension AssetField: Sendable {}
 
 extension AssetState {
-    /// Puts the asset's file in the asset folder under its ID when it isn't there, so a saved
-    /// asset never names a missing file. Throws the file system's error when the file can't be
-    /// copied, such as a file from the Files app that the app didn't open for access.
-    func storeFile() throws {
+    /// Copies the asset's file into `folder`, a container's asset folder, under its ID when it
+    /// isn't there, so a saved asset never names a missing file. On APFS the copy is a clone.
+    /// Throws the file system's error when the file can't be copied, such as a file from the
+    /// Files app that the app didn't open for access.
+    func storeFile(in folder: URL) throws {
         guard let id else { return }
-        let destination = AssetField.url(for: id)
+        let destination = folder.appending(path: "\(id.uuidString).asset", directoryHint: .notDirectory)
         guard !FileManager.default.fileExists(atPath: destination.path) else { return }
         guard let fileURL else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: destination.path])
         }
-        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: fileURL, to: destination)
     }
 }

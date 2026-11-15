@@ -745,3 +745,12 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
     #expect(!context.hasChanges)
     #expect(try context.record(id: saved.id) == saved)
 }
+
+/// A container that doesn't sync never counts pending uploads.
+@MainActor
+@Test func aContainerWithoutSyncCountsNoPendingUploads() throws {
+    let context = try RecordContainer(for: Tune.self, sync: .inMemory).mainContext
+    context.insert(Tune(title: "Blue", plays: 0))
+    try context.save()
+    #expect(context.pendingUploads == 0)
+}

@@ -24,14 +24,20 @@ final class Database: @unchecked Sendable {
     /// Holds the sync engine's state for each database scope.
     static let syncStateTable = "_SyncState"
 
+    /// Where this database's asset files are kept: `Records/Assets` beside the file, or a
+    /// temporary folder for a database in memory, removed with it.
+    let assets: URL
+    private let isInMemory: Bool
     private let handle: OpaquePointer
     private let lock = NSRecursiveLock()
     /// Prepared statements by their SQL, reused for every call.
     private var statements: [String: OpaquePointer] = [:]
 
     /// Opens the database file at `url`, creating it and its folder if needed, or a database in
-    /// memory when `url` is `nil`.
-    init(url: URL?) throws {
+    /// memory when `url` is `nil`. Its asset files are kept in `assets`.
+    init(url: URL?, assets: URL) throws {
+        self.assets = assets
+        isInMemory = url == nil
         var path = ":memory:"
         if let url {
             do {
@@ -53,6 +59,7 @@ final class Database: @unchecked Sendable {
         if url != nil {
             try execute("PRAGMA journal_mode = WAL")
         }
+        AssetField.open(assets)
     }
 
     deinit {
@@ -60,6 +67,10 @@ final class Database: @unchecked Sendable {
             sqlite3_finalize(statement)
         }
         sqlite3_close_v2(handle)
+        AssetField.close(assets)
+        if isInMemory {
+            try? FileManager.default.removeItem(at: assets)
+        }
     }
 
     // MARK: - Tables
