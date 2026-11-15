@@ -252,6 +252,29 @@ extension Database {
         return changes.map { (key: $0.key, isDelete: $0.value) }
     }
 
+    /// How many of this user's records have changes waiting to upload. A pending link counts as
+    /// a change to the record that owns it, so a record counts once for its fields and links.
+    func pendingRecordCount() throws -> Int {
+        var names = Set<String>()
+        for recordType in try recordTables() {
+            let name = recordType == RecordLink.recordType ? "sourceName" : "_name"
+            let rows = try self.rows(
+                """
+                SELECT \(quoted(name)) AS "name", "_zoneName" FROM \(quoted(recordType)) \
+                WHERE ("_isCurrent" = 0 OR "_systemFields" IS NULL OR "_deleted" = 1) AND "_zoneOwner" = ?
+                """,
+                [.text(CKCurrentUserDefaultName)]
+            )
+            for row in rows {
+                guard case .text(let record) = row["name"], case .text(let zone) = row["_zoneName"],
+                      Zone.isAllowed(zone)
+                else { continue }
+                names.insert(zone + "/" + record)
+            }
+        }
+        return names.count
+    }
+
     /// The record type whose table holds `recordID`'s rows, or `nil` when none does. The engine
     /// names records by ID alone, and every record's name is a UUID, so at most one table does.
     func recordType(of recordID: CKRecord.ID) throws -> CKRecord.RecordType? {
@@ -314,9 +337,9 @@ extension Database {
 
     /// Deletes each `.asset` file in `folder` that no link row names, current or base.
     ///
-    /// Only the container calls it, when it opens and before any context exists. Setting an
-    /// `@Asset` writes its file before `save()`, so during a session an unsaved edit's file is
-    /// named by no row, and removing it would lose the user's new data.
+    /// Only the container calls it, when it opens and before any context exists. Unsaved values
+    /// keep their files in a temporary folder, so none are here, but sync copies a fetched file
+    /// in before its row is written, and removing it then would lose it.
     func removeUnusedAssetFiles(in folder: URL) throws {
         let named = Set(try rows("SELECT \"assetID\" FROM \(quoted(RecordLink.recordType)) WHERE \"assetID\" IS NOT NULL").compactMap { row -> String? in
             if case .text(let id) = row["assetID"] { id } else { nil }
