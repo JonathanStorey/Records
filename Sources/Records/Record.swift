@@ -1,4 +1,6 @@
 import CloudKit
+import OSLog
+import Synchronization
 
 /// A value type that Records stores as a `CKRecord`.
 ///
@@ -55,4 +57,25 @@ extension Record {
     public mutating func loadAsset(_ property: String, id: UUID?, file: URL?) {}
     public var referenceStates: [ReferenceState] { [] }
     public mutating func loadReference(_ property: String, to targets: [UUID], from graph: RecordGraph, depth: Int) throws {}
+}
+
+/// The records every read has left out, each logged once.
+private let leftOut = Mutex<Set<String>>([])
+private let readLog = Logger(subsystem: "Records", category: "Database")
+
+extension Record {
+    /// The record `row` holds, or `nil` when the row can't be read as this type, such as one
+    /// saved before a field with no default was added. Every read leaves such a record out, so
+    /// invalid data is invisible. Each one is logged the first time.
+    static func readable(from row: RecordRow) -> Self? {
+        do {
+            return try Self(from: row)
+        } catch {
+            let name = "\(recordType) \((try? row.id)?.uuidString ?? "with no name")"
+            if leftOut.withLock({ $0.insert(name).inserted }) {
+                readLog.error("Left out \(name, privacy: .public), which this app can't read: \(String(describing: error), privacy: .public)")
+            }
+            return nil
+        }
+    }
 }

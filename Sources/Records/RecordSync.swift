@@ -200,7 +200,12 @@ actor RecordSync: CKSyncEngineDelegate {
         _ context: CKSyncEngine.SendChangesContext, syncEngine: CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
         let scope = context.options.scope
-        let changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
+        var changes = syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
+        let stale = changes.filter { isStale($0) }
+        if !stale.isEmpty {
+            syncEngine.state.remove(pendingRecordZoneChanges: stale)
+            changes.removeAll { stale.contains($0) }
+        }
         return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: changes) { [self] recordID in
             guard let record = recordToSend(recordID) else {
                 // Nothing to save: the record synced or was deleted since it was added.
@@ -208,6 +213,21 @@ actor RecordSync: CKSyncEngineDelegate {
                 return nil
             }
             return record
+        }
+    }
+
+    /// Whether `change` deletes a record that is no longer deleted here. A newer edit from another
+    /// device brings a deleted record back when it arrives before the deletion uploads, and
+    /// sending the deletion then would delete the record the merge kept.
+    nonisolated func isStale(_ change: CKSyncEngine.PendingRecordZoneChange) -> Bool {
+        guard case .deleteRecord(let recordID) = change else { return false }
+        do {
+            guard let recordType = try database.recordType(of: recordID),
+                  let row = try database.currentRow(of: Database.key(of: recordID, recordType: recordType))
+            else { return false }
+            return row["_deleted"] != .integer(1)
+        } catch {
+            return false
         }
     }
 

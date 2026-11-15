@@ -267,6 +267,27 @@ private func twoDevices(with tune: Tune) async throws -> (StandInServer, Device,
     #expect(try phone.context.record(id: tune.id) == edited)
 }
 
+/// The laptop's edit arrives before the phone's deletion uploads, and wins. The queued deletion
+/// is dropped, because sending it would delete the tune the merge kept.
+@MainActor
+@Test(.tags(.sync)) func anEditFetchedOverADeletionDropsTheQueuedDeletion() async throws {
+    let tune = Tune(title: "Blue", plays: 0)
+    let (server, phone, laptop) = try await twoDevices(with: tune)
+    try phone.delete(tune)
+    let id = CKRecord.ID(recordName: tune.id.uuidString, zoneID: Zone.records.zoneID)
+    let deletion = CKSyncEngine.PendingRecordZoneChange.deleteRecord(id)
+    #expect(!phone.sync.isStale(deletion))
+    var edited = tune
+    edited.plays = 5
+    try laptop.save(edited)
+    try await laptop.send(to: server)
+
+    await phone.fetch(from: server)
+    #expect(try phone.context.record(id: tune.id) == edited)
+    #expect(phone.sync.isStale(deletion))
+    #expect(!phone.sync.isStale(.saveRecord(id)))
+}
+
 @MainActor
 @Test(.tags(.sync)) func anAssetReachesTheOtherDevice() async throws {
     let server = StandInServer()

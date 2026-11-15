@@ -88,8 +88,7 @@ public struct RecordGraph {
     func record<T: Record>(_ type: T.Type, id: UUID, depth: Int) throws -> T? {
         let key = Self.key(T.recordType, id.uuidString)
         if depth == 0, let record = decoded.records[key] as? T { return record }
-        guard let row = rows[key] else { return nil }
-        var record = try T(from: row)
+        guard let row = rows[key], var record = T.readable(from: row) else { return nil }
         try load(&record, depth: depth)
         if depth == 0 { decoded.records[key] = record }
         return record

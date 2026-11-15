@@ -584,13 +584,11 @@ public final class RecordContext {
         checkRegistered(R.self)
         let plan = self.plan(for: descriptor)
         guard plan.page != nil else { return try fetchRecords(descriptor).count }
-        // The database counts the matches without reading them.
+        // The database finds the matches. Each is read, so one this app can't read isn't counted.
         let (matching, values) = Database.matching(zone: zone, filter: plan.filter)
-        let rows = try database.rows(
-            "SELECT COUNT(*) AS \"count\" FROM \(quoted(R.recordType)) WHERE \(matching)", values
-        )
-        guard case .integer(let total)? = rows.first?["count"] else { return 0 }
-        let remaining = max(Int(total) - max(descriptor.fetchOffset ?? 0, 0), 0)
+        let rows = try database.rows("SELECT * FROM \(quoted(R.recordType)) WHERE \(matching)", values)
+        let total = rows.filter { R.readable(from: RecordRow($0)) != nil }.count
+        let remaining = max(total - max(descriptor.fetchOffset ?? 0, 0), 0)
         return descriptor.fetchLimit.map { min(remaining, max($0, 0)) } ?? remaining
     }
 
