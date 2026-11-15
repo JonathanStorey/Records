@@ -743,7 +743,9 @@ private func referenceIDs(_ record: some Record, _ property: String) -> [UUID] {
 
     await context.refresh()
     #expect(context.hasChanges)
+    try context.save()
     #expect(try context.record(id: saved.id) == edited)
+    #expect(try context.fetchCount(RecordDescriptor<Tune>()) == 2)
 }
 
 /// A container that doesn't sync never counts pending uploads.
