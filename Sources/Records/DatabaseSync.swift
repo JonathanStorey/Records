@@ -184,7 +184,7 @@ extension Database {
     ///
     /// | Error | Action |
     /// | --- | --- |
-    /// | `serverRecordChanged` | The error's server record merges in as theirs, as a fetch would. Sent again while still pending. |
+    /// | `serverRecordChanged` | The error's server record merges in as theirs, as a fetch would. Sent again while still pending. Sync never calls this with a server record the app can't read. |
     /// | `zoneNotFound`, `unknownItem` | The server copy is forgotten, so the record uploads as new. A deletion the server can't find is done, so its rows are removed. |
     /// | `batchRequestFailed` | Sent again while still pending. Another record in its batch failed. |
     /// | Network, throttling, busy zone, not signed in, cancelled, `quotaExceeded` | Nothing. The engine retries, or the next save tries again. |

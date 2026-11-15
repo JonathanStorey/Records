@@ -55,7 +55,7 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             // The `id` the member role adds.
             properties.insert(StoredProperty(
                 name: "id", key: "id", fieldKey: "id", type: "Records.RecordID<Self>", wrappedType: nil,
-                isArray: false, isEncrypted: false, isAsset: false, isLocation: false
+                defaultValue: nil, isArray: false, isEncrypted: false, isAsset: false, isLocation: false
             ), at: 0)
         }
         let fields = properties.filter { $0.key != "id" }
@@ -172,7 +172,12 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
             if let wrapped = field.wrappedType {
                 read = "Records.FieldCoding((\(wrapped)).self).decodeIfPresent(\"\(field.fieldKey)\", from: row)"
             } else if field.isArray {
+                // CloudKit stores an empty list as no field, so a missing list is empty, never
+                // the default.
                 read = "Records.FieldCoding((\(field.type)).self).decodeIfPresent(\"\(field.fieldKey)\", from: row) ?? []"
+            } else if let value = field.defaultValue {
+                // A record saved before the field existed doesn't have it.
+                read = "Records.FieldCoding((\(field.type)).self).decodeIfPresent(\"\(field.fieldKey)\", from: row) ?? (\(value))"
             } else {
                 read = "Records.FieldCoding((\(field.type)).self).decode(\"\(field.fieldKey)\", from: row)"
             }
@@ -338,6 +343,8 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
                     lines.append("        self._\(property.key) = Records.LocationField(try container.decodeIfPresent(Records.Coordinate.self, forKey: \(key)))")
                 } else if let wrapped = property.wrappedType {
                     lines.append("        self.\(property.name) = try container.decodeIfPresent((\(wrapped)).self, forKey: \(key))")
+                } else if let value = property.defaultValue {
+                    lines.append("        self.\(property.name) = try container.decodeIfPresent((\(property.type)).self, forKey: \(key)) ?? (\(value))")
                 } else {
                     lines.append("        self.\(property.name) = try container.decode((\(property.type)).self, forKey: \(key))")
                 }
@@ -414,6 +421,9 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
         let type: String
         /// The wrapped type when the declared type is optional, such as `Int` for `Int?`.
         let wrappedType: String?
+        /// The initial value as written, such as `0` in `var plays = 0`, used when a record saved
+        /// before the property existed doesn't have it. Always `nil` for an optional.
+        let defaultValue: String?
         /// Whether the declared type is `[T]` or `Array<T>`.
         let isArray: Bool
         /// Whether it is marked `@Encrypted`, so it is stored in `encryptedValues`.
@@ -529,6 +539,8 @@ public struct RecordMacro: ExtensionMacro, MemberMacro {
                     fieldKey: renamed ?? key,
                     type: type.trimmedDescription,
                     wrappedType: wrapped?.trimmedDescription,
+                    // An optional's missing value is `nil`, and the record name is never missing.
+                    defaultValue: wrapped == nil && key != "id" ? binding.initializer?.value.trimmedDescription : nil,
                     isArray: isArray(type),
                     isEncrypted: isEncrypted,
                     isAsset: isAsset,

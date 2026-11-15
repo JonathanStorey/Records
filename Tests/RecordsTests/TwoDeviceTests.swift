@@ -347,6 +347,35 @@ private func isStorageFull(_ device: Device) -> Bool? {
     #expect(device.context.events.lastSynced != nil)
 }
 
+@MainActor
+@Test(.tags(.sync)) func aRecordMissingAFieldIsSkipped() async throws {
+    let device = try Device()
+    let broken = CKRecord(recordType: Tune.recordType, recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: Zone.records.zoneID))
+    broken["title"] = "No plays"
+    let tune = CKRecord(recordType: Tune.recordType, recordID: CKRecord.ID(recordName: UUID().uuidString, zoneID: Zone.records.zoneID))
+    tune["title"] = "Blue"
+    tune["plays"] = 0
+    await device.sync.received([broken, tune], deletions: [])
+    #expect(try device.database.rows("SELECT * FROM \"Tune\"").count == 1)
+    #expect(try device.context.fetch(RecordDescriptor<Tune>()).map(\.title) == ["Blue"])
+}
+
+/// Merging a server copy the app can't read would write it, so the upload stops instead, and
+/// this device keeps its own copy.
+@MainActor
+@Test(.tags(.sync)) func aConflictWithAnUnreadableServerCopyStopsTheUpload() async throws {
+    let device = try Device()
+    let tune = Tune(title: "Mine", plays: 3)
+    try device.save(tune)
+    let sent = try #require(device.sync.recordToSend(CKRecord.ID(recordName: tune.id.uuidString, zoneID: Zone.records.zoneID)))
+    let theirs = CKRecord(recordType: Tune.recordType, recordID: sent.recordID)
+    theirs["title"] = "No plays"
+    let error = CKError(.serverRecordChanged, userInfo: [CKRecordChangedErrorServerRecordKey: theirs])
+    let again = await device.sync.sent(saved: [], failedSaves: [(sent, error)], deleted: [], failedDeletes: [])
+    #expect(again.isEmpty)
+    #expect(try device.context.record(id: tune.id)?.title == "Mine")
+}
+
 // MARK: - Saved state
 
 @MainActor
