@@ -3,15 +3,17 @@ import SwiftUI
 
 @main
 struct RecordsLabApp: App {
-    @State private var runner = Runner()
+    @State private var runner: Runner
     /// The app's own container, which syncs with iCloud, or why it couldn't open.
     private let opened: Result<RecordContainer, any Error>
 
     init() {
-        opened = Result { try RecordContainer(for: Catalog.types, sync: .iCloud) }
+        let opened = Result { try RecordContainer(for: Catalog.types, sync: .iCloud) }
         if case .failure(let error) = opened {
             print("LAB FAIL launch: the container didn't open: \(error)")
         }
+        self.opened = opened
+        _runner = State(initialValue: Runner(cloud: try? opened.get()))
     }
 
     var body: some Scene {

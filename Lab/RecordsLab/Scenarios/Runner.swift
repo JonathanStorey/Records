@@ -1,4 +1,5 @@
 import OSLog
+import Records
 import SwiftUI
 
 /// The groups on the Scenarios tab, each with its own color and symbol.
@@ -40,8 +41,8 @@ enum ScenarioGroup: String, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .local: "Records on this device only, in throwaway containers. No iCloud."
-        case .roundTrip: "Records sent to iCloud, erased here, and fetched back."
-        case .ghost: "A second device, played by the Lab, edits the same records in iCloud."
+        case .roundTrip: "Records sent to iCloud and read back by a second device the Lab plays. Needs iCloud, and works in a zone of its own."
+        case .ghost: "A second device, played by the Lab, changes the same records in iCloud. Needs iCloud, and works in a zone of its own."
         case .relaunch: "Steps that need the app swiped away and opened again."
         case .failures: "Errors iCloud can return, and how sync recovers."
         }
@@ -129,6 +130,13 @@ final class Runner {
 
     static let log = Logger(subsystem: "RecordsLab", category: "Scenarios")
 
+    /// The app's own container, which syncs with iCloud, or `nil` when it didn't open.
+    let cloud: RecordContainer?
+
+    init(cloud: RecordContainer?) {
+        self.cloud = cloud
+    }
+
     func run(_ scenario: Scenario) async {
         guard running == nil else { return }
         await perform(scenario)
@@ -170,6 +178,8 @@ final class Runner {
         } catch {
             failure = String(describing: error)
         }
+        // A sync scenario works in the Lab zone. Put the app back where it was.
+        if let cloud { cloud.mainContext.zone = cloud.defaultZone }
         let duration = ContinuousClock.now - start
         outcomes[scenario.id]?.duration = duration
         outcomes[scenario.id]?.failure = failure
@@ -265,6 +275,21 @@ final class Lab {
         runner.end(index, in: scenario, passed: true, since: start)
     }
 
+    /// Waits until `condition`, which may reach iCloud, holds, checking every `interval`, and
+    /// fails after `timeout`.
+    func poll(_ name: String, every interval: Duration = .seconds(2), timeout: Duration = .seconds(90), until condition: @MainActor () async throws -> Bool) async throws {
+        let index = runner.begin(.wait, name, in: scenario)
+        let start = ContinuousClock.now
+        while try await !condition() {
+            if ContinuousClock.now - start > timeout {
+                runner.end(index, in: scenario, passed: false, since: start, detail: "Timed out")
+                throw LabFailure(step: name, expected: "within \(timeout.label)", actual: "timed out")
+            }
+            try await Task.sleep(for: interval)
+        }
+        runner.end(index, in: scenario, passed: true, since: start)
+    }
+
     /// Shows a question, with `content` above it, and waits for the answer: `true` for Yes or
     /// Done.
     func ask(_ title: String, detail: String, answers: Question.Answers = .yesNo, @ViewBuilder content: () -> some View) async -> Bool {
@@ -278,6 +303,35 @@ final class Lab {
         }
         runner.end(index, in: scenario, passed: true, since: start, detail: answers == .yesNo ? (answer ? "Yes" : "No") : nil)
         return answer
+    }
+
+    /// The app's own context, switched to the Lab zone until the scenario ends. Fails when the
+    /// container didn't open or iCloud isn't available, saying which.
+    func cloud() async throws -> RecordContext {
+        let container = try unwrap("The app's iCloud container opened", runner.cloud)
+        let status = try await CKContainer.default().accountStatus()
+        let found = switch status {
+        case .available: "available"
+        case .noAccount: "not signed in"
+        case .restricted: "restricted"
+        case .temporarilyUnavailable: "temporarily unavailable"
+        default: "unknown"
+        }
+        try check("Signed in to iCloud", status == .available, expected: "available", actual: found)
+        let context = container.mainContext
+        context.zone = Ghost.zone
+        return context
+    }
+
+    /// Waits until iCloud has confirmed every saved change.
+    func waitForUploads(_ context: RecordContext, timeout: Duration = .seconds(60)) async throws {
+        try await wait("iCloud confirms every change", timeout: timeout) { context.pendingUploads == 0 }
+    }
+
+    /// Fetches from iCloud, as pull to refresh does, and times it.
+    @discardableResult
+    func refresh(_ context: RecordContext) async throws -> Duration {
+        try await act("Fetch from iCloud") { await context.refresh() }
     }
 
     /// Records a measurement, such as a count or a rate, as a step of its own.
