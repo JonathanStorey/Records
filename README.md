@@ -878,6 +878,9 @@ toolchain (Xcode 16 or later).
 | `RecordsTests` | Library tests (Swift Testing) |
 | `RecordsMacrosTests` | Macro expansion tests |
 
+`Lab/` holds Records Lab, an iOS app that runs the library against iCloud on a real device. See
+[Lab/README.md](Lab/README.md).
+
 ## Development
 
 ```sh

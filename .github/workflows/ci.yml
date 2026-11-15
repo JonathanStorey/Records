@@ -16,3 +16,18 @@ jobs:
         run: swift build --build-tests
       - name: Test
         run: swift test
+
+  lab:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version
+        run: xcodebuild -version
+      - name: Build Records Lab
+        run: >
+          xcodebuild build
+          -project Lab/RecordsLab.xcodeproj
+          -scheme RecordsLab
+          -destination 'generic/platform=iOS Simulator'
+          -skipMacroValidation
+          CODE_SIGNING_ALLOWED=NO
