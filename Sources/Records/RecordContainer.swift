@@ -96,7 +96,7 @@ public final class RecordContainer: Sendable {
         let url = try sync.isInMemory ? nil : Self.url(appGroup: sync.appGroup)
         try self.init(for: types, url: url, syncsWithICloud: sync.isICloud, defaultZone: defaultZone)
         if sync.isICloud && !Self.isExtension {
-            let recordSync = RecordSync(container: self, assets: database.assets)
+            let recordSync = RecordSync(container: self, assets: database.assets, iCloudContainer: sync.iCloudContainer)
             iCloudSync.withLock { $0 = recordSync }
             Task { await recordSync.start() }
         }
@@ -300,6 +300,8 @@ extension RecordContainer {
         private enum Place: Sendable { case memory, device, iCloud }
         private let place: Place
         let appGroup: String?
+        /// The iCloud container's identifier, or `nil` for the app's default container.
+        var iCloudContainer: String? = nil
 
         /// Kept in memory and gone when the app quits, for tests and previews.
         public static let inMemory = Sync(place: .memory, appGroup: nil)
@@ -313,10 +315,11 @@ extension RecordContainer {
             Sync(place: .device, appGroup: appGroup)
         }
 
-        /// Kept in a file in `appGroup`'s shared folder and synced with the app's default iCloud
-        /// container.
-        public static func iCloud(appGroup: String) -> Sync {
-            Sync(place: .iCloud, appGroup: appGroup)
+        /// Kept in a file on this device, or in `appGroup`'s shared folder, and synced with the
+        /// iCloud container named `container`, such as `"iCloud.com.example.Music"`, or the app's
+        /// default container.
+        public static func iCloud(container: String? = nil, appGroup: String? = nil) -> Sync {
+            Sync(place: .iCloud, appGroup: appGroup, iCloudContainer: container)
         }
 
         var isInMemory: Bool { place == .memory }

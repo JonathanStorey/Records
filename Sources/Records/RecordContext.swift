@@ -278,9 +278,9 @@ public final class RecordContext {
         return (try? database.load(R.self, key: key)) ?? nil
     }
 
-    /// Discards every pending edit, then brings in what changed on the server and sends anything
-    /// waiting to upload, such as a widget's saves. Returns once the server's changes are in the
-    /// records. Without iCloud sync it only discards the edits, as `rollback()` does.
+    /// Brings in what changed on the server and sends anything waiting to upload, such as a
+    /// widget's saves. Returns once the server's changes are in the records. Unsaved edits stay,
+    /// laid over the new records as after any sync. Without iCloud sync it does nothing.
     ///
     /// It never throws. A refresh that can't reach iCloud leaves `events.lastSynced` where it
     /// was, and sync tries again on its own. The newest `.account` event says when the user isn't
@@ -291,7 +291,6 @@ public final class RecordContext {
     ///     .refreshable { await context.refresh() }
     /// ```
     public func refresh() async {
-        rollback()
         await container?.refresh()
     }
 

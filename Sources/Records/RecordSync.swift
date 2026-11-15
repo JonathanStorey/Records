@@ -16,6 +16,8 @@ actor RecordSync: CKSyncEngineDelegate {
     let assets: URL
     /// The zone created when there is no saved state.
     let defaultZone: Zone
+    /// The iCloud container's identifier, or `nil` for the app's default container.
+    let iCloudContainer: String?
     /// The container, whose contexts rebase and get events after sync writes. Weak, because the
     /// container keeps this.
     private weak var container: RecordContainer?
@@ -34,12 +36,18 @@ actor RecordSync: CKSyncEngineDelegate {
     /// The `_SyncState` key of the registered types and fields the state was fetched with.
     static let schemaKey = "schema"
 
-    init(container: RecordContainer, assets: URL) {
+    init(container: RecordContainer, assets: URL, iCloudContainer: String? = nil) {
         database = container.database
         types = container.types
         defaultZone = container.defaultZone
         self.assets = assets
+        self.iCloudContainer = iCloudContainer
         self.container = container
+    }
+
+    /// The iCloud container records sync with.
+    private var cloud: CKContainer {
+        iCloudContainer.map(CKContainer.init(identifier:)) ?? .default()
     }
 
     // MARK: - Starting
@@ -64,7 +72,7 @@ actor RecordSync: CKSyncEngineDelegate {
     /// created first.
     private func startEngine(with state: CKSyncEngine.State.Serialization?) {
         let configuration = CKSyncEngine.Configuration(
-            database: CKContainer.default().privateCloudDatabase, stateSerialization: state, delegate: self
+            database: cloud.privateCloudDatabase, stateSerialization: state, delegate: self
         )
         let engine = CKSyncEngine(configuration)
         if state == nil {
@@ -150,7 +158,7 @@ actor RecordSync: CKSyncEngineDelegate {
     /// Appends the account's status to the contexts' events. With `rebasing`, the contexts
     /// rebase first, because the records changed.
     private func reportAccountStatus(rebasing: Bool = false) async {
-        let status = (try? await CKContainer.default().accountStatus()) ?? .couldNotDetermine
+        let status = (try? await cloud.accountStatus()) ?? .couldNotDetermine
         await container?.syncDidWrite(.account(.now, status), rebasing: rebasing)
     }
 
