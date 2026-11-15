@@ -29,13 +29,14 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
         case (true, true): "Records.ToMany(ids: initialValue)"
         case (true, false): "Records.ToMany(initialValue)"
         }
-        // A `from:` side reads its IDs. A reference that holds records reads them through
-        // `read`, which warns in a debug build when they aren't loaded, and a sorted one sorts
-        // them each time it is read.
-        let loaded = "\(storage).read(Self.self, \"\(reference.key)\")"
-        let read = reference.isFrom
-            ? "\(storage).\(reference.isToMany ? "ids" : "id")"
-            : reference.sort.map { "\(loaded).sorted(using: \($0))" } ?? loaded
+        let member = switch (reference.isToMany, reference.isFrom) {
+        case (false, true): "id"
+        case (false, false): "value"
+        case (true, true): "ids"
+        case (true, false): "values"
+        }
+        // A sorted reference sorts its records each time it is read.
+        let read = reference.sort.map { "\(storage).values.sorted(using: \($0))" } ?? "\(storage).\(member)"
         // A reference can only be set when the record is made. The owner changes its targets
         // through `$name`, which records each change in a context.
         return [

@@ -355,7 +355,7 @@ final class RecordMacroTests: XCTestCase {
                         _author = Records.ToOne(initialValue)
                     }
                     get {
-                        _author.read(Self.self, "author")
+                        _author.value
                     }
                 }
 
@@ -496,7 +496,7 @@ final class RecordMacroTests: XCTestCase {
                         _tags = Records.ToMany(initialValue)
                     }
                     get {
-                        _tags.read(Self.self, "tags")
+                        _tags.values
                     }
                 }
 
@@ -599,7 +599,7 @@ final class RecordMacroTests: XCTestCase {
                         _manager = Records.ToOne(initialValue)
                     }
                     get {
-                        _manager.read(Self.self, "manager")
+                        _manager.value
                     }
                 }
 
@@ -619,7 +619,7 @@ final class RecordMacroTests: XCTestCase {
                         _mentor = Records.ToOne(initialValue)
                     }
                     get {
-                        _mentor.read(Self.self, "mentor")
+                        _mentor.value
                     }
                 }
 
@@ -657,7 +657,7 @@ final class RecordMacroTests: XCTestCase {
                         _profile = Records.ToOne(initialValue)
                     }
                     get {
-                        _profile.read(Self.self, "profile")
+                        _profile.value
                     }
                 }
 
@@ -1164,7 +1164,7 @@ final class RecordMacroTests: XCTestCase {
                         _owner = Records.ToOne(initialValue)
                     }
                     get {
-                        _owner.read(Self.self, "owner")
+                        _owner.value
                     }
                 }
 
@@ -1633,7 +1633,7 @@ final class RecordMacroTests: XCTestCase {
                         _discs = Records.ToMany(initialValue)
                     }
                     get {
-                        _discs.read(Self.self, "discs").sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
+                        _discs.values.sorted(using: [SortDescriptor(\\Disc.title, order: .reverse)])
                     }
                 }
 
@@ -1668,7 +1668,7 @@ final class RecordMacroTests: XCTestCase {
                         _discs = Records.ToMany(initialValue)
                     }
                     get {
-                        _discs.read(Self.self, "discs").sorted(using: [SortDescriptor(\\Disc.year)])
+                        _discs.values.sorted(using: [SortDescriptor(\\Disc.year)])
                     }
                 }
 

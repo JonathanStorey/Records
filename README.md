@@ -824,19 +824,15 @@ track.tags                   // []: level two doesn't load records
 ```
 
 A record-form reference at level two reads as `nil` or `[]` even when it has targets, but it still
-holds their IDs, so its links stay the same. `isLoaded` tells "empty" from "not loaded", and the
+holds their IDs, so its links stay the same. `$name` tells "empty" from "not loaded", because the
 IDs are there either way:
 
 ```swift
 track.tags                // []: the records weren't loaded at this level
-track.$tags.isLoaded      // false
 track.$tags.ids           // [energetic.id, live.id]: every ID, loaded or not
-album.$cover.isLoaded     // true: level one is always loaded
+track.$tags.count         // 2, the true count
 album.$cover.id           // nil only when the album truly has no cover
 ```
-
-In a debug build, reading a reference that has targets but none of their records logs a warning
-naming the property, once. Release builds stay silent.
 
 Every read pays for the references it loads, so the widest to-many reference sets the cost. When
 an album can have thousands of tracks, let each track own the link with `@Reference var album:

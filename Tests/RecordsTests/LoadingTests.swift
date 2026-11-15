@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 import Testing
 @testable import Records
 
@@ -36,7 +35,6 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
     #expect(fetched.map(\.id) == lps.map(\.id))
     #expect(fetched.map { $0.musician?.name } == ["Nova", "Echo", nil])
     #expect(fetched.map { $0.cuts.map(\.title) } == [["Bloom", "Drift"], ["Ash"], []])
-    #expect(fetched.allSatisfy { $0.$musician.isLoaded && $0.$cuts.isLoaded })
 }
 
 /// Loading stops one level deep: the loaded records' own references hold IDs.
@@ -49,8 +47,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
     let review = try #require(try context.fetch(RecordDescriptor<Review>()).first)
     let lp = try #require(review.lp)
     #expect(lp.title == "A")
-    #expect(review.$lp.isLoaded)
-    #expect(!lp.$musician.isLoaded && !lp.$cuts.isLoaded)
+    #expect(lp.musician == nil && lp.cuts.isEmpty)
     #expect(lp.$musician.id == lps[0].musician?.id)
     #expect(lp.$cuts.count == 2)
 }
@@ -92,34 +89,7 @@ private func savedShelf() throws -> (RecordContext, [Musician], [LP]) {
 
     let reviews = try context.fetch(RecordDescriptor<Review>(predicate: #Predicate { $0.lp?.musician?.name == "Nova" }))
     #expect(reviews.map { $0.lp?.title } == ["A"])
-    #expect(reviews.first?.lp?.$musician.isLoaded == false)
+    #expect(reviews.first?.lp?.musician == nil)
+    #expect(reviews.first?.lp?.$musician.id == lps[0].musician?.id)
     #expect(reviews.first.map { ids($0, "lp") } == [lps[0].uuid])
 }
-
-/// A reference with no target counts as loaded.
-@MainActor
-@Test func anEmptyReferenceIsLoaded() throws {
-    let (context, _, lps) = try savedShelf()
-    context.insert(Review(stars: 1, lp: nil))
-    try context.save()
-
-    let review = try #require(try context.fetch(RecordDescriptor<Review>()).first)
-    #expect(review.$lp.isLoaded)
-    let unloaded = try #require(try context.fetch(RecordDescriptor<LP>(predicate: #Predicate { $0.year == 2010 })).first)
-    #expect(unloaded.id == lps[2].id)
-    #expect(unloaded.$musician.isLoaded && unloaded.$cuts.isLoaded)
-}
-
-#if DEBUG
-/// A debug build warns once about a reference that holds IDs but none of their records, and
-/// never about one with no targets.
-@Test func readingAnUnloadedReferenceWarns() {
-    _ = ToMany<Cut>(ids: []).read(LP.self, "emptyProbe")
-    _ = ToOne<Musician>(id: nil).read(LP.self, "emptyOneProbe")
-    #expect(!UnloadedReference.warned.withLock { $0.contains("LP.emptyProbe") || $0.contains("LP.emptyOneProbe") })
-
-    _ = ToMany<Cut>(ids: [Cut.ID(rawValue: UUID())]).read(LP.self, "unloadedProbe")
-    _ = ToOne<Musician>(id: Musician.ID(rawValue: UUID())).read(LP.self, "unloadedOneProbe")
-    #expect(UnloadedReference.warned.withLock { $0.isSuperset(of: ["LP.unloadedProbe", "LP.unloadedOneProbe"]) })
-}
-#endif

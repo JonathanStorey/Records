@@ -38,8 +38,8 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 /// may point at its own type.
 ///
 /// A record read from the database holds its targets here, but their own references read `nil`
-/// or `[]` even when they have targets. `$name` gives the IDs either way, and `isLoaded` says
-/// whether the records are here: `album.$tracks.ids`, `track.$tags.isLoaded`.
+/// or `[]` even when they have targets. `$name` gives the IDs either way: `album.$tracks.ids`,
+/// `album.$artist.id`.
 ///
 /// The property is read-only after the record is made. Change its targets through `$name` and a
 /// context: `album.$tracks.insert(track, in: context)`, `album.$artist.set(nova, in: context)`.
