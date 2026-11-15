@@ -243,7 +243,14 @@ extension RecordContext {
 
         var graph = RecordGraph()
         let (current, zoneValues) = Database.matching(zone: zone, filter: nil)
-        for (recordType, names) in targets where types[recordType] != nil {
+        for (recordType, names) in targets {
+            guard let type = types[recordType] else { continue }
+            // The links a target reads: the ones it owns, and the ones that point at it for its
+            // `from:` sides. Other links that point at it, such as every owner's, are left out.
+            let inverseSources = type.schema.references.compactMap { reference in
+                reference.inverseOf.map { RecordLink.source(type: reference.target.recordType, property: $0) }
+            }
+            let sourceList = Array(repeating: "?", count: inverseSources.count).joined(separator: ", ")
             for chunk in Array(names).chunked(400) {
                 let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
                 let values = chunk.map(SQLValue.text)
@@ -254,13 +261,16 @@ extension RecordContext {
                     guard case .text(let name) = row["_name"] else { continue }
                     graph[recordType, name] = RecordRow(row)
                 }
-                // Every link that touches a target, so its own references hold their IDs.
+                // The links the targets read, so their own references hold their IDs.
+                let reads = inverseSources.isEmpty
+                    ? ""
+                    : " OR (\"targetName\" IN (\(placeholders)) AND \"source\" IN (\(sourceList)))"
                 for row in try database.rows(
                     """
                     SELECT * FROM \(quoted(RecordLink.recordType)) WHERE \(current) \
-                    AND ("sourceName" IN (\(placeholders)) OR "targetName" IN (\(placeholders)))
+                    AND ("sourceName" IN (\(placeholders))\(reads))
                     """,
-                    zoneValues + values + values
+                    zoneValues + values + (inverseSources.isEmpty ? [] : values + inverseSources.map(SQLValue.text))
                 ) {
                     guard case .text(let name) = row["_name"] else { continue }
                     graph.addLink(row, name: name)
