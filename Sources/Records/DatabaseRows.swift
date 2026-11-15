@@ -16,7 +16,7 @@ extension Database {
     }
 
     /// Every saved, undeleted `R` in `zone` that meets `filter`, in the order and range of `page`
-    /// when given, with references holding IDs. One query reads the rows and one reads every
+    /// when given, with references holding IDs. A row this app can't read is left out. One query reads the rows and one reads every
     /// link they own or are the target of.
     func loadAll<R: Record>(
         _ type: R.Type, zone: Zone, filter: SQLFilter?, page: SQLPage?
@@ -44,18 +44,19 @@ extension Database {
             guard case .text(let name) = row["_name"] else { continue }
             graph.addLink(row, name: name)
         }
-        return try rows.map { row in
-            var record = try R(from: RecordRow(row))
+        return try rows.compactMap { row in
+            guard var record = R.readable(from: RecordRow(row)) else { return nil }
             try graph.load(&record, depth: 0)
             return record
         }
     }
 
-    /// The saved `R` for `key`, with its references holding IDs, or `nil` when it is missing or
-    /// deleted.
+    /// The saved `R` for `key`, with its references holding IDs, or `nil` when it is missing,
+    /// deleted, or can't be read.
     func load<R: Record>(_ type: R.Type, key: RecordKey) throws -> R? {
-        guard let row = try currentRow(of: key), row["_deleted"] != .integer(1) else { return nil }
-        var record = try R(from: RecordRow(row))
+        guard let row = try currentRow(of: key), row["_deleted"] != .integer(1),
+              var record = R.readable(from: RecordRow(row))
+        else { return nil }
         var graph = RecordGraph()
         for (name, row) in try savedLinks(touching: key) {
             graph.addLink(row, name: name)

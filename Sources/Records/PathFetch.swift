@@ -147,7 +147,7 @@ private final class LoadedReader {
             for link in links(readBy: node) { loaded.add(link) }
             if node != root { loaded[node.recordType, node.name] = graph[node] }
         }
-        var record = try R(from: row)
+        guard var record = R.readable(from: row) else { return nil }
         try loaded.load(&record, depth: traversal.hops)
         return record
     }
@@ -220,8 +220,9 @@ extension RecordContext {
 
         // Return records with references holding IDs. `fetch` then loads their targets.
         return try descriptor.page(of: matches).map { loaded in
-            guard let row = graph[RecordKey(recordType: R.recordType, name: loaded.id.uuidString, zone: zone)] else { return loaded }
-            var record = try R(from: row)
+            guard let row = graph[RecordKey(recordType: R.recordType, name: loaded.id.uuidString, zone: zone)],
+                  var record = R.readable(from: row)
+            else { return loaded }
             try graph.records.load(&record, depth: 0)
             return record
         }

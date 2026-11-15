@@ -51,7 +51,7 @@ extension Database {
     /// | Synced | Theirs replaces the row. |
     /// | Edited | The fields merge. Theirs becomes the base, and the record stays pending when the result differs from it. |
     /// | New, with the same ID | The fields merge with no base, so ours wins every field that differs. |
-    /// | Deleted | Their edit wins, and the record returns with their values. The server copy our deletion was made against, fetched again, changes nothing. |
+    /// | Deleted | Their edit wins, and the record returns with their values. Sync drops the queued deletion instead of sending it. The server copy our deletion was made against, fetched again, changes nothing. |
     ///
     /// Applying the same server copy twice changes nothing, so a repeated fetch is harmless.
     ///
