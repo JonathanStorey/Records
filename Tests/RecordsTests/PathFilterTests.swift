@@ -141,7 +141,7 @@ private let reviewPredicates: [Predicate<Review>] = [
 }
 
 @MainActor
-@Test func fetchedRecordsStillHoldIDs() throws {
+@Test func fetchedRecordsHoldTheirReferencesOneLevelDeep() throws {
     let library = Library()
     let context = try library.save()
     let lps = try context.fetch(RecordDescriptor<LP>(predicate: #Predicate { $0.musician?.name.contains("ov") == true }))
@@ -149,7 +149,7 @@ private let reviewPredicates: [Predicate<Review>] = [
     let expected: Set<LP.ID> = [library.lps[0].id, library.lps[3].id]
     #expect(fetched == expected)
     for lp in lps {
-        #expect(lp.musician == nil)
+        #expect(lp.musician?.name == "Nova")
         #expect(lp.referenceStates.first { $0.property == "musician" }?.ids == [library.musicians[0].uuid])
     }
 }

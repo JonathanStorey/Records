@@ -598,17 +598,9 @@ var body: some View {
 Setting a record again keeps it. A new record set to `nil` before it is saved is simply
 dropped. A `@Recordable` that isn't optional keeps showing its record after a delete.
 
-References hold IDs. Name the ones to load with `expand:`, which works like
-`relationshipKeyPathsForPrefetching`:
-
-```swift
-@Recordable(expand: \Album.artist, \Album.tracks) var album = album
-// or, in an init:
-_album = Recordable(album, expand: \Album.artist)
-```
-
-The targets are read as saved each time the record is, so a change to one shows once it is saved.
-Expanded targets are for showing. Editing `album.artist?.name` through the wrapper saves nothing,
+Its references hold their records, and those records' references hold IDs, as
+[What loading returns](#what-loading-returns) describes. The targets are read as saved each time
+the record is, so a change to one shows once it is saved. They are for showing. Editing `album.artist?.name` through the wrapper saves nothing,
 because only the album is saved. Give the artist its own `@Recordable` to edit it.
 
 A `@Recordable` edits its record in the container's `defaultZone`, or in the zone you pass with
@@ -628,8 +620,8 @@ let any = try context.record(id: someID)                       // (any Record)?
 ```
 
 Both look in the context's `zone` and return the saved record, or `nil` when it is missing or
-deleted. Changes not yet saved don't show until `save()`. References hold their targets' IDs. Without a type, one indexed query finds the table that
-holds the ID.
+deleted. Changes not yet saved don't show until `save()`. Its references hold their records. Without
+a type, one indexed query finds the table that holds the ID.
 
 ## Fetching records
 
@@ -644,7 +636,8 @@ let count = try context.fetchCount(RecordDescriptor<Album>())
 
 `RecordDescriptor` takes Foundation's `#Predicate` and `SortDescriptor`, as SwiftData's
 `FetchDescriptor` does. `fetch` looks in the context's `zone` and returns saved records only, so
-changes not yet saved show after `save()`. Reading never writes. References hold their targets' IDs.
+changes not yet saved show after `save()`. Reading never writes. Each result's references hold
+their records, read together for every result, one query per target type.
 
 The parts of a predicate the database can check run there, so only matching rows are read:
 comparisons of numbers, Booleans, dates, enums, `nil`, and the `id`, string equality, `&&`,
@@ -662,22 +655,8 @@ Predicates can also read through references to records, at any depth:
 
 The database checks each path through the links, reaching only targets that are saved. When
 Swift has to check part of the predicate, fetch loads the records the paths reach, and only
-those. The records it returns still hold IDs. Everything
+those. The records it returns are loaded like any others. Everything
 else, such as `contains` on a string or a computed property, is checked in Swift on the rows read. Either way the results are the same.
-
-Fetched references hold IDs. To get records instead, name the references to load with the
-results, as with SwiftData:
-
-```swift
-var descriptor = RecordDescriptor<Album>(sortBy: [SortDescriptor(\.year)])
-descriptor.relationshipKeyPathsForPrefetching = [\Album.artist, \Album.tracks]
-let albums = try context.fetch(descriptor)   // albums[0].artist?.name is loaded
-```
-
-Each key path names a reference on its own type, so naming references on the loaded types goes
-deeper. `[\Review.album, \Album.artist]` loads each review's album and each album's artist, and
-`[\Album.tracks, \Track.composer]` works through a to-many reference the same way. References
-not named hold IDs. The targets are read together, one query per type per level.
 
 When the whole predicate runs in the database and every sort is by a number or a date, the
 database also sorts and applies `fetchLimit` and `fetchOffset`, so only the records returned are
@@ -828,11 +807,12 @@ for `from:` properties, the ones that point at it. It skips links it can't read.
 
 ## What loading returns
 
-Loading stops one level deep. The targets are records, and their own references hold only IDs, so
-a fetch never grows into the whole graph, and cycles are safe.
+Every read loads one level deep: `fetch`, `record(id:)`, `@Recordable`, and the decoder. A record's
+references hold records, and those records' own references hold only IDs, so a read never grows
+into the whole graph, and cycles are safe.
 
 ```swift
-let album = try decoder.decode(Album.self, from: record, links: links, targets: targets)
+let album = try context.record(id: albumID, for: Album.self)!
 
 album.tracks.map(\.title)    // ["Ignition", "Static Bloom"]: level one holds records
 album.artist?.name           // "Nova Static"
@@ -844,19 +824,24 @@ track.tags                   // []: level two doesn't load records
 ```
 
 A record-form reference at level two reads as `nil` or `[]` even when it has targets, but it still
-holds their IDs, so its links stay the same. To tell "empty" from "not loaded", read the
-reference's IDs, which are there either way:
+holds their IDs, so its links stay the same. `$name` tells "empty" from "not loaded", because the
+IDs are there either way:
 
 ```swift
-track.tags                                   // []: the records weren't loaded at this level
-track.$tags.ids                              // [energetic.id, live.id]: every ID, loaded or not
-track.tags.count == track.$tags.count        // false here, so the tags weren't loaded
-album.$cover.id                              // nil only when the album truly has no cover
+track.tags                // []: the records weren't loaded at this level
+track.$tags.ids           // [energetic.id, live.id]: every ID, loaded or not
+track.$tags.count         // 2, the true count
+album.$cover.id           // nil only when the album truly has no cover
 ```
+
+Every read pays for the references it loads, so the widest to-many reference sets the cost. When
+an album can have thousands of tracks, let each track own the link with `@Reference var album:
+Album?`, and give the album `@Reference(from: \Track.album) var trackIDs: [Track.ID]`. A `from:`
+side holds IDs, so a list of albums loads no tracks.
 
 `$name` is a `ReferenceIDs` for a to-many reference and a `ReferenceID` for a to-one reference.
 `from:` sides don't need either, because they hold IDs and are always complete. To show a
-track's tags, load the track.
+track's tags, read the track.
 
 ## Not built yet
 

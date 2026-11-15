@@ -44,28 +44,6 @@ struct Traversal {
         }
     }
 
-    /// The references `keyPaths` name, each on its own record type, for prefetching from `R`.
-    /// The hops are as many as the named references chain from `R`, so `[\Review.album,
-    /// \Album.artist]` takes two. A chain that loops takes at most one hop per reference.
-    init<R: Record>(prefetching keyPaths: [AnyKeyPath], from _: R.Type) {
-        var targets: [CKRecord.RecordType: [any Record.Type]] = [:]
-        for keyPath in keyPaths {
-            guard let root = type(of: keyPath).rootType as? any Record.Type,
-                  let reference = root.recordReference(for: keyPath)
-            else { continue }
-            if references.insert(Reference(recordType: root.recordType, property: reference.property)).inserted {
-                targets[root.recordType, default: []].append(reference.target)
-            }
-        }
-        var frontier: Set<CKRecord.RecordType> = [R.recordType]
-        while hops < references.count {
-            let next = Set(frontier.flatMap { targets[$0] ?? [] }.map { $0.recordType })
-            guard !next.isEmpty else { break }
-            hops += 1
-            frontier = next
-        }
-    }
-
     func contains(_ recordType: CKRecord.RecordType, _ property: String) -> Bool {
         references.contains(Reference(recordType: recordType, property: property))
     }
@@ -240,7 +218,7 @@ extension RecordContext {
         }
         if !descriptor.sortBy.isEmpty { matches.sort(using: descriptor.sortBy) }
 
-        // Return records as `fetch` always does, with references holding IDs.
+        // Return records with references holding IDs. `fetch` then loads their targets.
         return try descriptor.page(of: matches).map { loaded in
             guard let row = graph[RecordKey(recordType: R.recordType, name: loaded.id.uuidString, zone: zone)] else { return loaded }
             var record = try R(from: row)
@@ -249,42 +227,78 @@ extension RecordContext {
         }
     }
 
-    /// `records` with the references `keyPaths` name holding their records, as deep as they
-    /// chain. The targets are saved records, read together, one query per type per level. Each
-    /// of `records` follows its own references, even ones changed since it was saved. They are
-    /// read in `zone`, or the context's `zone` without one.
-    func prefetch<R: Record>(_ keyPaths: [AnyKeyPath], into records: [R], in zone: Zone? = nil) throws -> [R] {
+    /// `records` with their references holding the saved records they point at, whose own
+    /// references hold IDs. Each of `records` keeps everything else as it is, and follows its
+    /// own references, even ones changed since it was saved. The targets are read together, one
+    /// query per type, in `zone`, or the context's `zone` without one.
+    func loadingChildren<R: Record>(of records: [R], in zone: Zone? = nil) throws -> [R] {
         let zone = zone ?? self.zone
-        let traversal = Traversal(prefetching: keyPaths, from: R.self)
-        guard !traversal.isEmpty, !records.isEmpty else { return records }
-        var graph = Graph(zone: zone)
-        let roots = records.map { record in
-            let node = RecordKey(recordType: R.recordType, name: record.id.uuidString, zone: zone)
-            var row = RecordRow(["_name": .text(record.id.uuidString)])
-            record.encodeFields(into: &row)
-            graph[node] = row
-            for link in record.links() { graph.records.add(link) }
-            return node
+        var targets: [CKRecord.RecordType: Set<String>] = [:]
+        for record in records {
+            for reference in record.referenceStates where !reference.ids.isEmpty {
+                targets[reference.targetType, default: []].formUnion(reference.ids.map(\.uuidString))
+            }
         }
-        let infos = PathInfos(types: types, traversal: traversal)
-        try load(&graph, from: roots, through: traversal, infos: infos, in: zone, ownLinksGiven: Set(roots))
+        guard !targets.isEmpty else { return records }
 
-        let reader = LoadedReader(graph: graph, traversal: traversal, infos: infos)
-        return try zip(records, roots).map { record, root in
-            try reader.decode(R.self, root: root) ?? record
+        var graph = RecordGraph()
+        let (current, zoneValues) = Database.matching(zone: zone, filter: nil)
+        for (recordType, names) in targets {
+            guard let type = types[recordType] else { continue }
+            // The links a target reads: the ones it owns, and the ones that point at it for its
+            // `from:` sides. Other links that point at it, such as every owner's, are left out.
+            let inverseSources = type.schema.references.compactMap { reference in
+                reference.inverseOf.map { RecordLink.source(type: reference.target.recordType, property: $0) }
+            }
+            let sourceList = Array(repeating: "?", count: inverseSources.count).joined(separator: ", ")
+            for chunk in Array(names).chunked(400) {
+                let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ", ")
+                let values = chunk.map(SQLValue.text)
+                for row in try database.rows(
+                    "SELECT * FROM \(quoted(recordType)) WHERE \(current) AND \"_name\" IN (\(placeholders))",
+                    zoneValues + values
+                ) {
+                    guard case .text(let name) = row["_name"] else { continue }
+                    graph[recordType, name] = RecordRow(row)
+                }
+                // The links the targets read, so their own references hold their IDs.
+                let reads = inverseSources.isEmpty
+                    ? ""
+                    : " OR (\"targetName\" IN (\(placeholders)) AND \"source\" IN (\(sourceList)))"
+                for row in try database.rows(
+                    """
+                    SELECT * FROM \(quoted(RecordLink.recordType)) WHERE \(current) \
+                    AND ("sourceName" IN (\(placeholders))\(reads))
+                    """,
+                    zoneValues + values + (inverseSources.isEmpty ? [] : values + inverseSources.map(SQLValue.text))
+                ) {
+                    guard case .text(let name) = row["_name"] else { continue }
+                    graph.addLink(row, name: name)
+                }
+            }
+        }
+        return try records.map { record in
+            var record = record
+            for reference in record.referenceStates {
+                try record.loadReference(reference.property, to: reference.ids, from: graph, depth: 1)
+            }
+            return record
         }
     }
 
+    /// `record` with its references holding records, as `loadingChildren(of:in:)` loads them.
+    func loadingChildren<R: Record>(of record: R, in zone: Zone? = nil) throws -> R {
+        try loadingChildren(of: [record], in: zone)[0]
+    }
+
     /// Loads the records `roots` reach through `traversal`, level by level, with every link
-    /// that touches each record loaded. The records in `ownLinksGiven` already hold the links
-    /// they own, so their saved ones are left out.
+    /// that touches each record loaded.
     private func load(
-        _ graph: inout Graph, from roots: [RecordKey], through traversal: Traversal, infos: PathInfos,
-        in zone: Zone, ownLinksGiven: Set<RecordKey> = []
+        _ graph: inout Graph, from roots: [RecordKey], through traversal: Traversal, infos: PathInfos, in zone: Zone
     ) throws {
         var frontier = roots
         for level in 0...traversal.hops {
-            try loadLinks(for: frontier.map(\.name), into: &graph, in: zone, ownLinksGiven: ownLinksGiven)
+            try loadLinks(for: frontier.map(\.name), into: &graph, in: zone)
             guard level < traversal.hops else { break }
 
             // The records the traversed references of the frontier point at.
@@ -322,9 +336,8 @@ extension RecordContext {
         }
     }
 
-    /// Loads every saved link that touches the records named `names`, except the links owned by
-    /// records in `ownLinksGiven`.
-    private func loadLinks(for names: [String], into graph: inout Graph, in zone: Zone, ownLinksGiven: Set<RecordKey>) throws {
+    /// Loads every saved link that touches the records named `names`.
+    private func loadLinks(for names: [String], into graph: inout Graph, in zone: Zone) throws {
         let missing = Array(Set(names).subtracting(graph.linksLoaded))
         guard !missing.isEmpty else { return }
         graph.linksLoaded.formUnion(missing)
@@ -340,19 +353,10 @@ extension RecordContext {
                 zoneValues + values + values
             )
             for row in rows {
-                guard case .text(let name) = row["_name"], !Self.isOwned(row, byAnyOf: ownLinksGiven, in: zone) else { continue }
+                guard case .text(let name) = row["_name"] else { continue }
                 graph.records.addLink(row, name: name)
             }
         }
-    }
-
-    /// Whether the link saved as `link` is owned by one of `records`: its source is that record's
-    /// type and name.
-    private nonisolated static func isOwned(_ link: [String: SQLValue], byAnyOf records: Set<RecordKey>, in zone: Zone) -> Bool {
-        guard !records.isEmpty, case .text(let source) = link["source"], case .text(let sourceName) = link["sourceName"]
-        else { return false }
-        let sourceType = String(source.split(separator: ".", maxSplits: 1).first ?? "")
-        return records.contains(RecordKey(recordType: sourceType, name: sourceName, zone: zone))
     }
 }
 

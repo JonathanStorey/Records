@@ -15,6 +15,13 @@ public struct RecordGraph {
     /// The file each asset was downloaded to, by asset ID, for assets read from a `CKRecord`.
     private var assetFiles: [String: URL] = [:]
     private var linkIDs: Set<UUID> = []
+    /// Records read with `depth` 0, by `key(_:_:)`, so a target many records share is decoded
+    /// once. Replaced whenever the graph changes, so copies that change never share one.
+    private var decoded = Decoded()
+
+    private final class Decoded {
+        var records: [String: any Record] = [:]
+    }
 
     init() {}
 
@@ -23,12 +30,16 @@ public struct RecordGraph {
     /// The row of the record of type `recordType` named `name`.
     subscript(recordType: CKRecord.RecordType, name: String) -> RecordRow? {
         get { rows[Self.key(recordType, name)] }
-        set { rows[Self.key(recordType, name)] = newValue }
+        set {
+            rows[Self.key(recordType, name)] = newValue
+            decoded = Decoded()
+        }
     }
 
     /// Adds `link` under each record it names, once.
     mutating func add(_ link: RecordLink) {
         guard linkIDs.insert(link.uuid).inserted else { return }
+        decoded = Decoded()
         linksByName[link.sourceName, default: []].append(link)
         if let target = link.targetName, target != link.sourceName {
             linksByName[target, default: []].append(link)
@@ -75,9 +86,12 @@ public struct RecordGraph {
     /// The record of type `T` with `id`, with its references holding records `depth` levels deep,
     /// or `nil` when the graph doesn't hold it.
     func record<T: Record>(_ type: T.Type, id: UUID, depth: Int) throws -> T? {
-        guard let row = self[T.recordType, id.uuidString] else { return nil }
+        let key = Self.key(T.recordType, id.uuidString)
+        if depth == 0, let record = decoded.records[key] as? T { return record }
+        guard let row = rows[key] else { return nil }
         var record = try T(from: row)
         try load(&record, depth: depth)
+        if depth == 0 { decoded.records[key] = record }
         return record
     }
 

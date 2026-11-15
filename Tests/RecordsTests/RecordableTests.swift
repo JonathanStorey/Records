@@ -17,13 +17,11 @@ private final class Editor<R: Record> {
     let context: RecordContext
     let record: R
     let zone: Zone?
-    let expand: [AnyKeyPath]
 
-    init(_ record: R, in context: RecordContext, zone: Zone? = nil, expand: [AnyKeyPath] = []) {
+    init(_ record: R, in context: RecordContext, zone: Zone? = nil) {
         self.record = record
         self.context = context
         self.zone = zone
-        self.expand = expand
     }
 
     /// The record with its pending edits, or `nil` when it is missing or deleted.
@@ -31,7 +29,7 @@ private final class Editor<R: Record> {
         get {
             let zone = self.zone ?? context.defaultZone
             guard let draft = context.draft(id: record.id, for: R.self, in: zone) else { return nil }
-            return expand.isEmpty ? draft : context.expanded(draft, expand, in: zone)
+            return (try? context.loadingChildren(of: draft, in: zone)) ?? draft
         }
         set { edit(newValue) }
     }
@@ -299,7 +297,7 @@ private func novel(_ title: String, year: Int) -> Novel {
     #expect(try context.record(id: saved.id, for: Novel.self)?.year == 1980)
 }
 
-// MARK: - Expanding references
+// MARK: - Loaded references
 
 @MainActor
 private func savedLP() throws -> (RecordContext, LP, Musician) {
@@ -311,22 +309,20 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     return (context, try #require(try context.record(id: lp.id, for: LP.self)), nova)
 }
 
-/// `expand` loads the references it names, and only those.
+/// The record's references hold their records, and theirs hold IDs.
 @MainActor
-@Test func expandLoadsTheNamedReferences() throws {
+@Test func anEditorLoadsReferencesOneLevelDeep() throws {
     let (context, lp, _) = try savedLP()
-    #expect(lp.musician == nil)
-
-    let editor = Editor(lp, in: context, expand: [\LP.musician])
+    let editor = Editor(lp, in: context)
     #expect(editor.value?.musician?.name == "Nova")
-    #expect(editor.value?.cuts.isEmpty == true)
+    #expect(editor.value?.cuts.map(\.title) == ["Bloom"])
 }
 
-/// Expanded targets show changes to them once saved.
+/// Loaded targets show changes to them once saved.
 @MainActor
-@Test func expandShowsChangesToTargets() throws {
+@Test func loadedTargetsShowChangesOnceSaved() throws {
     let (context, lp, nova) = try savedLP()
-    let editor = Editor(lp, in: context, expand: [\LP.musician])
+    let editor = Editor(lp, in: context)
 
     var renamed = nova
     renamed.name = "Nova II"
@@ -336,11 +332,11 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     #expect(editor.value?.musician?.name == "Nova II")
 }
 
-/// Editing an expanded record saves its own fields and keeps its targets.
+/// Editing a record with loaded targets saves its own fields and keeps its targets.
 @MainActor
-@Test func editingAnExpandedRecordSavesOnlyItsOwnFields() throws {
+@Test func editingSavesOnlyTheRecordsOwnFields() throws {
     let (context, lp, nova) = try savedLP()
-    let editor = Editor(lp, in: context, expand: [\LP.musician, \LP.cuts])
+    let editor = Editor(lp, in: context)
     var edited = try #require(editor.value)
     edited.title = "A (Live)"
     editor.value = edited
@@ -354,11 +350,11 @@ private func savedLP() throws -> (RecordContext, LP, Musician) {
     #expect(editor.value?.cuts.map(\.title) == ["Bloom"])
 }
 
-/// An editor expands in its own zone, whatever the context's current zone.
+/// An editor loads targets in its own zone, whatever the context's current zone.
 @MainActor
-@Test func expandReadsInTheEditorsZone() throws {
+@Test func loadedTargetsComeFromTheEditorsZone() throws {
     let (context, lp, _) = try savedLP()
-    let editor = Editor(lp, in: context, expand: [\LP.musician])
+    let editor = Editor(lp, in: context)
     context.zone = "Work"
     #expect(editor.value?.musician?.name == "Nova")
     #expect(context.zone == "Work")

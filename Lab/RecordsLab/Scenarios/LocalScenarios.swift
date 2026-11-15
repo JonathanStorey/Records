@@ -87,7 +87,7 @@ enum LocalScenarios {
 
     static let nesting = Scenario(
         id: "local.nesting", group: .local, title: "Nested references", symbol: "square.stack.3d.down.right",
-        summary: "Builds three albums whose tracks sample tracks on the album before, saves them through the albums alone, and loads them three levels deep with prefetching. Without prefetching, references hold only IDs."
+        summary: "Builds three albums whose tracks sample tracks on the album before, and saves them through the albums alone. A read loads one level: the album holds its tracks, and each track's sample is an ID."
     ) { lab in
         let container = try Catalog.scratch()
         let context = container.mainContext
@@ -116,25 +116,23 @@ enum LocalScenarios {
         try lab.expect("Every track was saved through its album", try context.fetchCount(RecordDescriptor<Track>()), 30)
 
         var loaded: Album?
-        let deep = try await lab.act("Fetch the last album with its artist, tracks and samples") {
-            var descriptor = RecordDescriptor<Album>(predicate: #Predicate { $0.title == "Volume 3" })
-            descriptor.relationshipKeyPathsForPrefetching = [\Album.artist, \Album.tracks, \Track.sampledFrom]
-            loaded = try context.fetch(descriptor).first
+        let fetching = try await lab.act("Fetch the last album") {
+            loaded = try context.fetch(RecordDescriptor<Album>(predicate: #Predicate { $0.title == "Volume 3" })).first
         }
         let album = try lab.unwrap("Found the album", loaded)
         try lab.expect("Level 1: the artist is loaded", album.artist?.name, "Marrow")
         try lab.expect("Level 1: all ten tracks are loaded", album.tracks.count, 10)
         try lab.expect("Tracks sort by number", album.tracks.map(\.number), Array(1...10))
         try lab.expect("The $tracks handle lists IDs in the same order", album.$tracks.ids, album.tracks.map(\.id))
-        try lab.expect("Level 2: each track's sample is loaded", album.tracks.compactMap(\.sampledFrom).count, 10)
-        try lab.expect("The sample is the right track", album.tracks.first?.sampledFrom?.title, "Part 2.1")
-        lab.metric("Three-level fetch", deep.label)
+        try lab.expect("Level 2: no sample records are loaded", album.tracks.compactMap(\.sampledFrom).count, 0)
+        try lab.expect("Level 2: every sample ID is there", album.tracks.compactMap(\.$sampledFrom.id).count, 10)
+        lab.metric("One-level fetch", fetching.label)
 
-        let shallow = try lab.unwrap("Fetch without prefetching", try context.record(id: album.id))
-        try lab.expect("Track records aren't loaded", shallow.tracks.count, 0)
-        try lab.expect("Track IDs are still there", shallow.$tracks.count, 10)
-        try lab.check("The artist isn't loaded", shallow.artist == nil, expected: "nil", actual: "a record")
-        try lab.expect("The artist ID is still there", shallow.$artist.id, artist.id)
+        let firstTrack = try lab.unwrap("The first track", album.tracks.first)
+        let sampleID = try lab.unwrap("The first track's sample ID", firstTrack.$sampledFrom.id)
+        let sample = try lab.unwrap("Read the sample by ID", try context.record(id: sampleID))
+        try lab.expect("The sample is the right track", sample.title, "Part 2.1")
+        try lab.expect("A read by ID loads one level too", sample.sampledFrom?.title, "Part 1.1")
     }
 
     // MARK: - Relationship shapes
@@ -391,9 +389,7 @@ enum LocalScenarios {
 
         var everything: [Album] = []
         try await lab.act("Fetch every album with its tracks and artist") {
-            var descriptor = RecordDescriptor<Album>()
-            descriptor.relationshipKeyPathsForPrefetching = [\Album.tracks, \Album.artist]
-            everything = try context.fetch(descriptor)
+            everything = try context.fetch(RecordDescriptor<Album>())
         }
         try lab.expect("Twelve albums", everything.count, Seed.albums.count)
 
@@ -542,9 +538,7 @@ enum LocalScenarios {
 
         var loaded: [Album] = []
         let loading = try await lab.act("Load the album with every track") {
-            var descriptor = RecordDescriptor<Album>()
-            descriptor.relationshipKeyPathsForPrefetching = [\Album.tracks]
-            loaded = try context.fetch(descriptor)
+            loaded = try context.fetch(RecordDescriptor<Album>())
         }
         try lab.expect("Every track loaded", loaded.first?.tracks.count, total)
         lab.metric("Loaded", loading.label)

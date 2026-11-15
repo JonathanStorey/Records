@@ -153,15 +153,15 @@ private func savedNovel() throws -> (RecordContext, Novel) {
     #expect(context.changes.count == 3)
 }
 
-/// Expanding a record in another zone reads it there without touching anything observed.
+/// Loading a record's targets in another zone reads them there without touching anything observed.
 @MainActor
-@Test func expandingInAnotherZoneChangesNothingObserved() throws {
+@Test func loadingTargetsInAnotherZoneChangesNothingObserved() throws {
     let (context, novel) = try savedNovel()
     context.zone = "Work"
     context.insert(novel)
     context.zone = .records
     #expect(!observes({ _ = context.changes; _ = context.hasChanges; _ = context.events }) {
-        _ = context.expanded(novel, [\Novel.writers], in: "Work")
+        _ = try? context.loadingChildren(of: novel, in: "Work")
     })
     #expect(context.zone == .records)
 }

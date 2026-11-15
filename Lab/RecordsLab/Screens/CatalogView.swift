@@ -61,15 +61,11 @@ struct CatalogView: View {
     }
 
     private var albumsDescriptor: RecordDescriptor<Album> {
-        var descriptor = RecordDescriptor<Album>(sortBy: [SortDescriptor(\.title)])
-        descriptor.relationshipKeyPathsForPrefetching = [\Album.artist]
-        return descriptor
+        RecordDescriptor<Album>(sortBy: [SortDescriptor(\.title)])
     }
 
     private var reviewsDescriptor: RecordDescriptor<Review> {
-        var descriptor = RecordDescriptor<Review>()
-        descriptor.relationshipKeyPathsForPrefetching = [\Review.album]
-        return descriptor
+        RecordDescriptor<Review>()
     }
 
     /// The records, or none with the error printed.
@@ -137,7 +133,7 @@ struct AlbumDetail: View {
     private let original: Album
 
     init(album: Album) {
-        _album = Recordable(album, expand: \Album.artist, \Album.tracks, \Album.artwork)
+        _album = Recordable(album)
         original = album
     }
 
