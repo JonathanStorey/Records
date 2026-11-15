@@ -1641,7 +1641,7 @@ final class RecordMacroTests: XCTestCase {
 
                 var $discs: Records.ReferenceIDs<Disc> {
                     get {
-                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs)
+                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs, sortBy: [SortDescriptor(\\Disc.title, order: .reverse)])
                     }
                     set {
                         _discs = newValue.storage
@@ -1676,7 +1676,7 @@ final class RecordMacroTests: XCTestCase {
 
                 var $discs: Records.ReferenceIDs<Disc> {
                     get {
-                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs)
+                        Records.ReferenceIDs(owner: Self.self, id: id, property: "discs", storage: _discs, sortBy: [SortDescriptor(\\Disc.year)])
                     }
                     set {
                         _discs = newValue.storage

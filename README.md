@@ -197,8 +197,10 @@ with the same parameters as SwiftData's `@Query`:
 @Reference(sort: [SortDescriptor(\Track.disc), SortDescriptor(\Track.number)]) var all: [Track]
 ```
 
-A sorted reference sorts each time it's read. `$tags.ids` stays sorted by ID, because sorting by
-fields needs the records.
+A sorted reference sorts each time it's read. Its handle, `$tags`, holds the sort as `sortBy` and
+lists its IDs in the same order when the records are loaded, so a list of `tags` and a list of
+`$tags` line up. Without loaded records it lists them by ID, because sorting by fields needs the
+records.
 
 ## Every relationship, by example
 
