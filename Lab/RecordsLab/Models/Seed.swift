@@ -107,7 +107,7 @@ enum Seed {
     @discardableResult
     static func insertCatalog(into context: RecordContext) -> Int {
         let artists = Self.artists.map {
-            Artist(name: $0.name, founded: year($0.founded), genres: $0.genres, albumIDs: [])
+            Artist(name: $0.name, founded: year($0.founded), genres: $0.genres)
         }
         var count = artists.count
         var allTracks: [Track] = []
@@ -124,12 +124,11 @@ enum Seed {
                     title: "\(words[(index * 3 + number) % words.count]) \(words[(index + number * 5) % words.count])",
                     number: number,
                     seconds: Double(150 + (index * 37 + number * 23) % 240),
-                    mood: Mood.allCases[(index + number) % Mood.allCases.count],
-                    albumID: nil, playlistIDs: [], sampledFrom: sample
+                    mood: Mood.allCases[(index + number) % Mood.allCases.count], sampledFrom: sample
                 ))
             }
             let artwork = index.isMultiple(of: 2)
-                ? Artwork(credit: "Studio \(words[index % words.count])", image: Media.cover("photo.artframe", hue: hue), albumID: nil)
+                ? Artwork(credit: "Studio \(words[index % words.count])", image: Media.cover("photo.artframe", hue: hue))
                 : nil
             let album = Album(
                 title: title, year: 1990 + index * 3, rating: Rating(rawValue: index % 5 + 1),
@@ -169,33 +168,22 @@ enum Seed {
         let tracks = (1...count).map { number in
             Track(
                 title: "Take \(number)", number: number, seconds: Double(60 + number % 300),
-                mood: Mood.allCases[number % Mood.allCases.count], albumID: nil, playlistIDs: [], sampledFrom: nil
+                mood: Mood.allCases[number % Mood.allCases.count]
             )
         }
         return Album(
             title: "Bulk Session \(Date.now.formatted(date: .omitted, time: .shortened))", year: 2026,
-            rating: nil, notes: nil, cover: nil, artist: nil, tracks: tracks, artwork: nil
+            cover: nil, tracks: tracks
         )
     }
 
-    /// Deletes every record in the context's zone, and returns how many. Deleting an album
-    /// would delete its tracks and artwork anyway, but any left on their own go too.
+    /// Deletes every record in the context's zone, one type at a time, and returns how many.
+    /// Deleting an album would delete its tracks and artwork anyway, but any left on their own
+    /// go too.
     @discardableResult
     static func eraseAll(in context: RecordContext) throws -> Int {
-        var count = 0
-        func delete<R: Record>(_ type: R.Type) throws {
-            for record in try context.fetch(RecordDescriptor<R>()) {
-                context.delete(record)
-                count += 1
-            }
-        }
-        try delete(Review.self)
-        try delete(Venue.self)
-        try delete(Playlist.self)
-        try delete(Album.self)
-        try delete(Artist.self)
-        try delete(Track.self)
-        try delete(Artwork.self)
-        return count
+        try context.delete(Review.self) + context.delete(Venue.self) + context.delete(Playlist.self)
+            + context.delete(Album.self) + context.delete(Artist.self) + context.delete(Track.self)
+            + context.delete(Artwork.self)
     }
 }

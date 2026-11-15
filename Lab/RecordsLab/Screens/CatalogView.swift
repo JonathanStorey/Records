@@ -188,16 +188,13 @@ struct AlbumDetail: View {
             }
             AlbumFieldsSection(album: album, title: "Fields")
             Section {
-                let tracks = Dictionary(album.wrappedValue.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-                ForEach(album.wrappedValue.$tracks, id: \.self) { id in
-                    if let track = tracks[id] {
-                        NavigationLink {
-                            TrackEditor(track: track)
-                        } label: {
-                            TrackRow(track: track)
-                        }
-                    } else {
-                        Text(id.description).font(.caption.monospaced()).foregroundStyle(.secondary)
+                // The tracks are loaded and sorted by number, and `$tracks` lists them in the
+                // same order, so the offsets fit.
+                ForEach(album.wrappedValue.tracks) { track in
+                    NavigationLink {
+                        TrackEditor(track: track)
+                    } label: {
+                        TrackRow(track: track)
                     }
                 }
                 .onDelete { offsets in

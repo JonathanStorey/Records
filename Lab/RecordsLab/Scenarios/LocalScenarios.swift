@@ -26,10 +26,10 @@ enum LocalScenarios {
         let context = container.mainContext
         let cover = Media.cover("music.note", hue: 0.6)
         let founded = Seed.year(1994)
-        let artist = Artist(name: "Nova", founded: founded, genres: ["Ambient", "Electronic"], albumIDs: [])
+        let artist = Artist(name: "Nova", founded: founded, genres: ["Ambient", "Electronic"])
         let album = Album(
             title: "Blue Hour", year: 1997, rating: .four, notes: "One take, no edits.", cover: cover,
-            artist: artist, tracks: [], artwork: nil
+            artist: artist
         )
         let place = Coordinate(latitude: 47.6062, longitude: -122.3321)
         let address = Address(street: "1 Pier Road", city: "Seattle", country: "USA")
@@ -91,19 +91,19 @@ enum LocalScenarios {
     ) { lab in
         let container = try Catalog.scratch()
         let context = container.mainContext
-        let artist = Artist(name: "Marrow", founded: Seed.year(1988), genres: ["Rock"], albumIDs: [])
+        let artist = Artist(name: "Marrow", founded: Seed.year(1988), genres: ["Rock"])
         var albums: [Album] = []
         var previous: [Track] = []
         for index in 0..<3 {
             let tracks = (1...10).map { number in
                 Track(
                     title: "Part \(index + 1).\(number)", number: number, seconds: Double(120 + number * 10),
-                    mood: .dark, albumID: nil, playlistIDs: [], sampledFrom: previous.isEmpty ? nil : previous[number - 1]
+                    mood: .dark, sampledFrom: previous.isEmpty ? nil : previous[number - 1]
                 )
             }
             albums.append(Album(
-                title: "Volume \(index + 1)", year: 2000 + index, rating: nil, notes: nil, cover: nil,
-                artist: artist, tracks: tracks, artwork: nil
+                title: "Volume \(index + 1)", year: 2000 + index, cover: nil,
+                artist: artist, tracks: tracks
             ))
             previous = tracks
         }
@@ -125,6 +125,7 @@ enum LocalScenarios {
         try lab.expect("Level 1: the artist is loaded", album.artist?.name, "Marrow")
         try lab.expect("Level 1: all ten tracks are loaded", album.tracks.count, 10)
         try lab.expect("Tracks sort by number", album.tracks.map(\.number), Array(1...10))
+        try lab.expect("The $tracks handle lists IDs in the same order", album.$tracks.ids, album.tracks.map(\.id))
         try lab.expect("Level 2: each track's sample is loaded", album.tracks.compactMap(\.sampledFrom).count, 10)
         try lab.expect("The sample is the right track", album.tracks.first?.sampledFrom?.title, "Part 2.1")
         lab.metric("Three-level fetch", deep.label)
@@ -144,14 +145,14 @@ enum LocalScenarios {
     ) { lab in
         let container = try Catalog.scratch()
         let context = container.mainContext
-        let artist = Artist(name: "Kite Theory", founded: Seed.year(2011), genres: ["Pop"], albumIDs: [])
+        let artist = Artist(name: "Kite Theory", founded: Seed.year(2011), genres: ["Pop"])
         let tracks = (1...3).map {
-            Track(title: "Song \($0)", number: $0, seconds: 200, mood: .bright, albumID: nil, playlistIDs: [], sampledFrom: nil)
+            Track(title: "Song \($0)", number: $0, seconds: 200, mood: .bright)
         }
-        let remix = Track(title: "Song 1 (Remix)", number: 1, seconds: 260, mood: .energetic, albumID: nil, playlistIDs: [], sampledFrom: tracks[0])
-        let artwork = Artwork(credit: "Studio Atlas", image: nil, albumID: nil)
-        let first = Album(title: "First", year: 2012, rating: nil, notes: nil, cover: nil, artist: artist, tracks: tracks, artwork: artwork)
-        let second = Album(title: "Second", year: 2014, rating: nil, notes: nil, cover: nil, artist: nil, tracks: [remix], artwork: nil)
+        let remix = Track(title: "Song 1 (Remix)", number: 1, seconds: 260, mood: .energetic, sampledFrom: tracks[0])
+        let artwork = Artwork(credit: "Studio Atlas", image: nil)
+        let first = Album(title: "First", year: 2012, cover: nil, artist: artist, tracks: tracks, artwork: artwork)
+        let second = Album(title: "Second", year: 2014, cover: nil, tracks: [remix])
         let morning = Playlist(name: "Morning", preview: nil, tracks: [tracks[0], tracks[1]])
         let focus = Playlist(name: "Focus", preview: nil, tracks: [tracks[0], remix])
         let venue = Venue(name: "Sala Norte", address: Address(street: "Calle Mayor 8", city: "Madrid", country: "Spain"), place: nil, artists: [artist])
@@ -201,15 +202,15 @@ enum LocalScenarios {
 
     static let cascade = Scenario(
         id: "local.cascade", group: .local, title: "Deletes that cascade", symbol: "trash.square",
-        summary: "Deleting an album deletes its tracks and artwork and removes the links others hold to it. A track moved to another album in the same save survives."
+        summary: "Deleting an album deletes its tracks and artwork and removes the links others hold to it. A track moved to another album in the same save survives. Then deletes reviews by predicate."
     ) { lab in
         let container = try Catalog.scratch()
         let context = container.mainContext
         let tracks = (1...5).map {
-            Track(title: "Cut \($0)", number: $0, seconds: 180, mood: .calm, albumID: nil, playlistIDs: [], sampledFrom: nil)
+            Track(title: "Cut \($0)", number: $0, seconds: 180, mood: .calm)
         }
-        let artwork = Artwork(credit: "Studio Prism", image: nil, albumID: nil)
-        let album = Album(title: "Doomed", year: 2020, rating: nil, notes: nil, cover: nil, artist: nil, tracks: tracks, artwork: artwork)
+        let artwork = Artwork(credit: "Studio Prism", image: nil)
+        let album = Album(title: "Doomed", year: 2020, cover: nil, tracks: tracks, artwork: artwork)
         let playlist = Playlist(name: "Keepers", preview: nil, tracks: [tracks[0], tracks[1]])
         let review = Review(text: "Gone too soon.", score: 3, album: album)
         try await lab.act("Insert an album with five tracks, artwork, a playlist and a review") {
@@ -231,9 +232,9 @@ enum LocalScenarios {
         let savedReview = try lab.unwrap("The review remains", try context.record(id: review.id))
         try lab.check("The review dropped the album", savedReview.$album.id == nil, expected: "nil", actual: "an ID")
 
-        let keeper = Track(title: "Keeper", number: 1, seconds: 200, mood: .bright, albumID: nil, playlistIDs: [], sampledFrom: nil)
-        let leaving = Album(title: "Leaving", year: 2021, rating: nil, notes: nil, cover: nil, artist: nil, tracks: [keeper], artwork: nil)
-        let staying = Album(title: "Staying", year: 2022, rating: nil, notes: nil, cover: nil, artist: nil, tracks: [], artwork: nil)
+        let keeper = Track(title: "Keeper", number: 1, seconds: 200, mood: .bright)
+        let leaving = Album(title: "Leaving", year: 2021, cover: nil, tracks: [keeper])
+        let staying = Album(title: "Staying", year: 2022, cover: nil)
         try await lab.act("Save two albums, then move a track and delete its old album in one save") {
             context.insert(leaving)
             context.insert(staying)
@@ -244,6 +245,19 @@ enum LocalScenarios {
         }
         let survivor = try lab.unwrap("The moved track survives", try context.record(id: keeper.id))
         try lab.expect("It belongs to its new album", survivor.albumID, staying.id)
+
+        var deleted = 0
+        try await lab.act("Save five reviews, then delete the ones scored under 3 by predicate") {
+            for score in 1...5 {
+                context.insert(Review(text: "Scored \(score)", score: score))
+            }
+            try context.save()
+            deleted = try context.delete(Review.self, where: #Predicate { $0.score < 3 })
+            try context.save()
+        }
+        try lab.expect("Two reviews matched", deleted, 2)
+        let left = try context.fetch(RecordDescriptor<Review>(sortBy: [SortDescriptor(\.score)])).map(\.score)
+        try lab.expect("The rest remain", left, [3, 3, 4, 5])
     }
 
     // MARK: - Pending changes
@@ -254,8 +268,8 @@ enum LocalScenarios {
     ) { lab in
         let container = try Catalog.scratch()
         let context = container.mainContext
-        let album = Album(title: "Draft", year: 2019, rating: nil, notes: nil, cover: nil, artist: nil, tracks: [], artwork: nil)
-        let review = Review(text: "Fine.", score: 3, album: nil)
+        let album = Album(title: "Draft", year: 2019, cover: nil)
+        let review = Review(text: "Fine.", score: 3)
         try await lab.act("Save an album and a review") {
             context.insert(album)
             context.insert(review)
@@ -263,7 +277,7 @@ enum LocalScenarios {
         }
         try lab.check("Nothing pending after a save", !context.hasChanges, expected: "false", actual: "true")
 
-        let artist = Artist(name: "Quiet Engines", founded: Seed.year(1999), genres: ["Jazz"], albumIDs: [])
+        let artist = Artist(name: "Quiet Engines", founded: Seed.year(1999), genres: ["Jazz"])
         try await lab.act("Insert an artist, rename the album and delete the review") {
             context.insert(artist)
             var renamed = album
@@ -301,8 +315,7 @@ enum LocalScenarios {
         let container = try Catalog.scratch()
         let context = container.mainContext
         let album = Album(
-            title: "Take 0", year: 2024, rating: .one, notes: nil, cover: Media.cover("waveform", hue: 0.8),
-            artist: nil, tracks: [], artwork: nil
+            title: "Take 0", year: 2024, rating: .one, cover: Media.cover("waveform", hue: 0.8)
         )
         try await lab.act("Save an album") {
             context.insert(album)
@@ -339,7 +352,7 @@ enum LocalScenarios {
     ) { lab in
         let container = try Catalog.scratch()
         let context = container.mainContext
-        let album = Album(title: "Paper Moons", year: 2001, rating: .three, notes: nil, cover: nil, artist: nil, tracks: [], artwork: nil)
+        let album = Album(title: "Paper Moons", year: 2001, rating: .three, cover: nil)
         try await lab.act("Save an album") {
             context.insert(album)
             try context.save()
@@ -434,8 +447,8 @@ enum LocalScenarios {
         let container = try Catalog.scratch()
         let context = container.mainContext
         let cover = Media.cover("photo", hue: 0.33)
-        let album = Album(title: "Glass Garden", year: 2005, rating: nil, notes: nil, cover: cover, artist: nil, tracks: [], artwork: nil)
-        let playlist = Playlist(name: "Tones", preview: Media.tone(hertz: 440), tracks: [])
+        let album = Album(title: "Glass Garden", year: 2005, cover: cover)
+        let playlist = Playlist(name: "Tones", preview: Media.tone(hertz: 440))
         try await lab.act("Save an album with a cover and a playlist with audio") {
             context.insert(album)
             context.insert(playlist)
@@ -444,6 +457,8 @@ enum LocalScenarios {
         var saved = try lab.unwrap("Read the album", try context.record(id: album.id))
         try lab.expect("The cover reads back", saved.cover, cover)
         let firstID = try lab.unwrap("The cover has an ID", saved.assetStates.first?.id)
+        let inAppFolder = FileManager.default.fileExists(atPath: Inspector.assetsURL.appending(path: "\(firstID.uuidString).asset").path)
+        try lab.check("A scratch container keeps its files out of the app's folder", !inAppFolder, expected: "no file there", actual: "a file there")
         let savedPlaylist = try lab.unwrap("Read the playlist", try context.record(id: playlist.id))
         try lab.expect("The audio reads back", savedPlaylist.preview?.count, Media.tone(hertz: 440).count)
 

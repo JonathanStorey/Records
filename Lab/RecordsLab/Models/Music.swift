@@ -25,7 +25,7 @@ struct Artist {
     var name: String
     var founded: Date
     var genres: [String]
-    @Reference(from: \Album.artist) var albumIDs: [Album.ID]
+    @Reference(from: \Album.artist) var albumIDs: [Album.ID] = []
 }
 
 /// The most complex record: plain, optional, enum, encrypted and asset fields, and three
@@ -37,9 +37,9 @@ struct Album {
     var rating: Rating?
     @Encrypted var notes: String?
     @Asset var cover: Data?
-    @Reference var artist: Artist?
-    @Reference(sort: \Track.number) var tracks: [Track]
-    @Reference var artwork: Artwork?
+    @Reference var artist: Artist? = nil
+    @Reference(sort: \Track.number) var tracks: [Track] = []
+    @Reference var artwork: Artwork? = nil
 }
 
 /// Deleted with its album, listed on playlists by ID, and able to point at another track.
@@ -49,9 +49,9 @@ struct Track {
     var number: Int
     var seconds: Double
     var mood: Mood
-    @Reference(from: \Album.tracks, deleteSelf: true) var albumID: Album.ID?
-    @Reference(from: \Playlist.tracks) var playlistIDs: [Playlist.ID]
-    @Reference var sampledFrom: Track?
+    @Reference(from: \Album.tracks, deleteSelf: true) var albumID: Album.ID? = nil
+    @Reference(from: \Playlist.tracks) var playlistIDs: [Playlist.ID] = []
+    @Reference var sampledFrom: Track? = nil
 }
 
 /// Many-to-many with tracks, with an audio asset.
@@ -59,7 +59,7 @@ struct Track {
 struct Playlist {
     var name: String
     @Asset var preview: Data?
-    @Reference var tracks: [Track]
+    @Reference var tracks: [Track] = []
 }
 
 /// One-to-one with its album, and deleted with it.
@@ -67,7 +67,7 @@ struct Playlist {
 struct Artwork {
     var credit: String
     @Asset var image: Data?
-    @Reference(from: \Album.artwork, deleteSelf: true) var albumID: Album.ID?
+    @Reference(from: \Album.artwork, deleteSelf: true) var albumID: Album.ID? = nil
 }
 
 /// A JSON field, a location, and a one-way to-many reference. Codable, so it can be sent
@@ -77,7 +77,7 @@ struct Venue: Codable {
     var name: String
     var address: Address
     @Location var place: Coordinate?
-    @Reference var artists: [Artist]
+    @Reference var artists: [Artist] = []
 }
 
 /// A renamed field, a creation date, and a one-way to-one reference. Codable too.
@@ -86,7 +86,7 @@ struct Review: Codable {
     var text: String
     @Renamed("stars") var score: Int
     @Timestamped(.created) var createdAt: Date?
-    @Reference var album: Album?
+    @Reference var album: Album? = nil
 }
 
 enum Catalog {

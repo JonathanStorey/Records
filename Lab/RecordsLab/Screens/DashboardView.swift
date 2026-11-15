@@ -108,6 +108,13 @@ struct DashboardView: View {
                 Label("Last change from iCloud", systemImage: "icloud.and.arrow.down")
             }
             LabeledContent {
+                Text(context.pendingUploads, format: .number)
+                    .monospacedDigit()
+                    .foregroundStyle(context.pendingUploads == 0 ? Color.secondary : Color.orange)
+            } label: {
+                Label("Not yet uploaded", systemImage: context.pendingUploads == 0 ? "checkmark.icloud" : "icloud.and.arrow.up")
+            }
+            LabeledContent {
                 Text(syncState.contains("private") ? "Saved" : "Not yet")
             } label: {
                 Label("Sync engine state", systemImage: syncState.contains("private") ? "externaldrive.fill.badge.checkmark" : "externaldrive")
@@ -129,7 +136,7 @@ struct DashboardView: View {
         } header: {
             Text("Sync")
         } footer: {
-            Text("Refreshing fetches from iCloud and uploads anything waiting. It discards unsaved edits first.")
+            Text("Not yet uploaded is context.pendingUploads: records with saved changes iCloud hasn't confirmed. Refreshing fetches from iCloud and uploads anything waiting. It discards unsaved edits first.")
         }
     }
 
