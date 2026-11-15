@@ -11,36 +11,35 @@ enum FailureScenarios {
 
     static let tooLarge = Scenario(
         id: "failures.tooLarge", group: .failures, title: "A record over 1 MB", symbol: "externaldrive.badge.xmark",
-        summary: "Saves a review whose text is 1.2 MB, over CloudKit's limit for a record, beside a small one. The small one uploads, the large one doesn't, and the log names it. The result says whether the large one keeps waiting to upload. Deleting it afterwards must clear it."
+        summary: "Saves a review whose text is 1.2 MB, over iCloud's limit for a record, beside a small one. The save must throw, naming the large review, and write neither. Then the small one saves alone and uploads, leaving nothing waiting."
     ) { lab in
         let context = try await lab.cloud()
         let ghost = Ghost()
         let small = Review(text: "Fits.", score: 3)
         let large = Review(text: String(repeating: "x", count: 1_200_000), score: 1)
-        let start = Date.now
+        var thrown: (any Error)?
         try await lab.act("Save a 1.2 MB review and a small one") {
             context.insert(small)
             context.insert(large)
+            do { try context.save() } catch { thrown = error }
+        }
+        let kept = context.hasChanges
+        let saved = try context.record(id: small.id) != nil
+        try await lab.act("Drop the large review and save the small one") {
+            context.rollback(id: large.id)
             try context.save()
         }
-        try await lab.poll("The small review reaches iCloud") { try await ghost.fetch(ghost.id(of: small)) != nil }
-        try await lab.act("Give sync 10 more seconds") { try await Task.sleep(for: .seconds(10)) }
-
-        // Read everything first, so the large review is deleted even when a check fails.
-        let uploaded = try await ghost.fetch(ghost.id(of: large)) != nil
-        let lines = (try? LogLine.read()) ?? []
-        let logged = lines.first { $0.date >= start && $0.message.contains(large.id.rawValue.uuidString) }
-        let waiting = context.pendingUploads
-        try await lab.act("Delete the large review") {
-            context.delete(large)
-            try context.save()
-        }
-
-        try lab.check("iCloud refused the large review", !uploaded, expected: "refused", actual: "uploaded")
-        try lab.check("The log names it", logged != nil, expected: "a log line", actual: "none")
-        if let logged { lab.metric("Logged", logged.message) }
-        lab.metric("Waiting to upload after the failure", waiting == 0 ? "nothing" : "\(waiting), retried at every save, refresh and launch")
         try await lab.waitForUploads(context)
+        let uploaded = try await ghost.fetch(ghost.id(of: small)) != nil
+
+        var named = false
+        if case .recordTooLarge(_, let id, _) = thrown as? RecordContextError { named = id == large.id.rawValue }
+        try lab.check("The save threw for the large review", named, expected: "recordTooLarge", actual: thrown.map { "\($0)" } ?? "no error")
+        if let thrown { lab.metric("Error", "\(thrown)") }
+        try lab.check("Nothing was written", !saved, expected: "nothing", actual: "the small review")
+        try lab.check("The changes stayed in the context", kept, expected: "kept", actual: "dropped")
+        try lab.check("The small review reached iCloud alone", uploaded, expected: "uploaded", actual: "missing")
+        lab.metric("Waiting to upload", context.pendingUploads == 0 ? "nothing" : "\(context.pendingUploads)")
     }
 
     static let largeBatch = Scenario(

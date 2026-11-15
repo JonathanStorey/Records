@@ -101,6 +101,10 @@ extension Database {
         let key = change.key
         let savedLinks = try currentLinks(of: key)
         guard !change.isDelete else { return try delete(key, links: savedLinks, now: now) }
+        let bytes = Self.size(of: change.values)
+        guard bytes <= Self.recordSizeLimit else {
+            throw RecordContextError.recordTooLarge(recordType: key.recordType, id: change.recordID, bytes: bytes)
+        }
         // A record removed or deleted since it was edited comes back whole.
         let savedRow = try currentRow(of: key)
         let hasOriginal = savedRow != nil && savedRow?["_deleted"] != .integer(1) && change.base != nil
@@ -118,6 +122,23 @@ extension Database {
             links.filter { !RecordContext.matches(original[$0.0], $0.1) }, of: key, saved: savedLinks,
             removing: Set(original.keys.filter { !kept.contains($0) }), now: now
         )
+    }
+
+    /// The most a record's fields may hold, in bytes. CloudKit refuses a record over 1 MB, and
+    /// stopping at 1,000,000 rather than 1,048,576 leaves room for what it adds to each record.
+    static let recordSizeLimit = 1_000_000
+
+    /// About what `values` take up in a record: each field's name and value.
+    static func size(of values: [String: SQLValue]) -> Int {
+        values.reduce(0) { total, field in
+            let value = switch field.value {
+            case .null: 0
+            case .integer, .real: 8
+            case .text(let text): text.utf8.count
+            case .blob(let data): data.count
+            }
+            return total + field.key.utf8.count + value
+        }
     }
 
     /// Deletes `key`'s record and `links`, the links it owns.
