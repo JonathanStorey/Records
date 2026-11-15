@@ -73,7 +73,7 @@ public struct ReferenceMacro: AccessorMacro, PeerMacro {
             """
             \(raw: RecordMacro.accessLevel(of: variable))var $\(raw: reference.key): \(raw: handle)<\(raw: reference.target)> {
                 get {
-                    \(raw: handle)(owner: Self.self, id: id, property: "\(raw: reference.key)", storage: \(raw: reference.storage))
+                    \(raw: handle)(owner: Self.self, id: id, property: "\(raw: reference.key)", storage: \(raw: reference.storage)\(raw: reference.sort.map { ", sortBy: \($0)" } ?? ""))
                 }
                 set {
                     \(raw: reference.storage) = newValue.storage
