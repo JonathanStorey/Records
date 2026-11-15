@@ -1,4 +1,6 @@
 import CloudKit
+import os
+import Synchronization
 
 /// One `@Reference` that writes links, with its current targets, as the encoder needs it.
 @_documentation(visibility: internal)
@@ -72,6 +74,19 @@ public struct ToOne<Target: Record> {
             id = newValue?.id
             box = newValue.map(Box.init)
         }
+    }
+
+    /// Whether the target's record is here: there is no target, or its record is loaded.
+    public var isLoaded: Bool { id == nil || value != nil }
+
+    /// The loaded target, as `@Reference` reads it for `property` of `owner`. In a debug build,
+    /// reading a target whose record isn't loaded logs a warning once.
+    public func read<Owner: Record>(_ owner: Owner.Type, _ property: String) -> Target? {
+        let value = self.value
+        #if DEBUG
+        if value == nil, id != nil { UnloadedReference.warn(owner, property, ids: 1) }
+        #endif
+        return value
     }
 
     /// Sets the reference as read from storage. Uses the first of `ids`. When `depth` is at
@@ -148,6 +163,19 @@ public struct ToMany<Target: Record> {
             ids = storedIDs.filter { box?.values[$0] == nil } + newValue.map(\.id)
             box = Box(Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }))
         }
+    }
+
+    /// Whether every target's record is loaded. True when there are no targets.
+    public var isLoaded: Bool { storedIDs.allSatisfy { box?.values[$0] != nil } }
+
+    /// The loaded targets, as `@Reference` reads them for `property` of `owner`. In a debug
+    /// build, reading targets none of whose records are loaded logs a warning once.
+    public func read<Owner: Record>(_ owner: Owner.Type, _ property: String) -> [Target] {
+        let values = self.values
+        #if DEBUG
+        if values.isEmpty, !storedIDs.isEmpty { UnloadedReference.warn(owner, property, ids: storedIDs.count) }
+        #endif
+        return values
     }
 
     /// Sets the reference to the targets `ids` as read from storage. When `depth` is at least 1,
@@ -260,6 +288,10 @@ public struct ReferenceIDs<Target: Record>: RandomAccessCollection, Equatable {
         return sorted + storage.ids.filter { !isLoaded.contains($0) }
     }
 
+    /// Whether every target's record is loaded, so `album.tracks` lists them all. A record read
+    /// from the database loads its own references, but not its targets' references.
+    public var isLoaded: Bool { storage.isLoaded }
+
     public var startIndex: Int { 0 }
     public var endIndex: Int { ids.count }
     public subscript(position: Int) -> Target.ID { ids[position] }
@@ -338,6 +370,11 @@ public struct ReferenceID<Target: Record>: Equatable {
     /// The target's ID, loaded or not, or `nil` when there is none.
     public var id: Target.ID? { storage.id }
 
+    /// Whether `album.artist` holds the target's record: there is no target, or its record is
+    /// loaded. A record read from the database loads its own references, but not its targets'
+    /// references.
+    public var isLoaded: Bool { storage.isLoaded }
+
     /// Points the reference at `record`, replacing any target it had.
     @MainActor
     public mutating func set(_ record: Target, in context: RecordContext) {
@@ -365,5 +402,24 @@ extension Record {
     /// sides are left out, since this record doesn't own those links.
     var loadedTargets: [any Record] {
         referenceStates.flatMap(\.records)
+    }
+}
+
+// MARK: - Reading unloaded references
+
+/// The debug warning for reading a reference that holds IDs but not their records.
+enum UnloadedReference {
+    /// The properties warned about, as `Album.tracks`, so each warns once.
+    static let warned = Mutex<Set<String>>([])
+    private static let log = Logger(subsystem: "Records", category: "References")
+
+    /// Logs once that `property` of `owner` holds `ids` targets whose records aren't loaded.
+    static func warn(_ owner: any Record.Type, _ property: String, ids: Int) {
+        let name = "\(owner).\(property)"
+        guard warned.withLock({ $0.insert(name).inserted }) else { return }
+        let targets = ids == 1 ? "a target" : "\(ids) targets"
+        log.fault("""
+            \(name, privacy: .public) holds \(targets, privacy: .public) whose records aren't loaded, so it reads             as empty. A record loads its own references, not its targets' references. Read the IDs             with $\(property, privacy: .public), or read the record itself.
+            """)
     }
 }

@@ -148,7 +148,9 @@ public final class RecordContext {
     /// ```
     @discardableResult
     public func delete<R: Record>(_ type: R.Type, where predicate: Predicate<R>? = nil) throws -> Int {
-        let records = try fetch(RecordDescriptor<R>(predicate: predicate))
+        _ = events
+        checkRegistered(R.self)
+        let records = try fetchRecords(RecordDescriptor<R>(predicate: predicate))
         for record in records {
             delete(record)
         }
@@ -519,12 +521,12 @@ public final class RecordContext {
     /// The saved `R` with `id` in the current `zone`, or `nil` when there is none. Changes not
     /// yet saved don't show until `save()`.
     ///
-    /// References hold their targets' IDs. Load the targets themselves with `record(id:for:)`.
+    /// Its references hold their records, and those records' references hold IDs.
     public func record<R: Record>(id: RecordID<R>, for type: R.Type = R.self) throws -> R? {
         _ = events
         checkRegistered(R.self)
         let key = RecordKey(recordType: R.recordType, name: id.uuidString, zone: zone)
-        return try database.load(R.self, key: key)
+        return try database.load(R.self, key: key).map { try loadingChildren(of: $0) }
     }
 
     /// The saved record with `id` in the current `zone`, whatever its type, or `nil` when there
@@ -538,23 +540,21 @@ public final class RecordContext {
               let type = types[recordType]
         else { return nil }
         return try database.load(type, key: RecordKey(recordType: recordType, name: name, zone: zone))
+            .map { try loadingChildren(of: $0) }
     }
 
     /// The saved records of `R` in the current `zone` that match `descriptor`, sorted and limited
-    /// as it says. Changes not yet saved don't show until `save()`. References hold their
-    /// targets' IDs.
+    /// as it says. Changes not yet saved don't show until `save()`.
     ///
-    /// The references named in `relationshipKeyPathsForPrefetching` come back holding their
-    /// records, loaded together for every result.
+    /// Their references hold their records, loaded together for every result, and those
+    /// records' references hold IDs.
     public func fetch<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         _ = events
         checkRegistered(R.self)
-        let records = try fetchRecords(descriptor)
-        guard !descriptor.relationshipKeyPathsForPrefetching.isEmpty else { return records }
-        return try prefetch(descriptor.relationshipKeyPathsForPrefetching, into: records)
+        return try loadingChildren(of: fetchRecords(descriptor))
     }
 
-    /// `fetch(descriptor)` without prefetching.
+    /// `fetch(descriptor)` with references holding IDs.
     private func fetchRecords<R: Record>(_ descriptor: RecordDescriptor<R>) throws -> [R] {
         let plan = self.plan(for: descriptor)
         if let page = plan.page {

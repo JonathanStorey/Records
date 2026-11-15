@@ -34,10 +34,12 @@ public macro Record(_ recordType: String) = #externalMacro(module: "RecordsMacro
 /// The property is never written as a field. Records stores each target as a separate link,
 /// which `CKRecordEncoder.links(for:in:)` writes. A decoded record has `nil` or `[]` here
 /// until its links are loaded. A to-one reference must be optional and a to-many reference a
-/// non-optional array, in a `var` with no initial value. Either may point at its own type.
+/// non-optional array, in a `var` that starts empty, if at all, with `= nil` or `= []`. Either
+/// may point at its own type.
 ///
-/// Where loading stopped, the property reads `nil` or `[]` even when it has targets.
-/// `$name` gives the IDs either way: `album.$tracks.ids`, `album.$artist.id`.
+/// A record read from the database holds its targets here, but their own references read `nil`
+/// or `[]` even when they have targets. `$name` gives the IDs either way, and `isLoaded` says
+/// whether the records are here: `album.$tracks.ids`, `track.$tags.isLoaded`.
 ///
 /// The property is read-only after the record is made. Change its targets through `$name` and a
 /// context: `album.$tracks.insert(track, in: context)`, `album.$artist.set(nova, in: context)`.

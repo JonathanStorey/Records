@@ -53,15 +53,9 @@ extension View {
 /// Declare it optional, as `@Recordable var album: Album?`, to see deletes: it reads `nil` once
 /// the record is deleted, and setting it to `nil` deletes the record.
 ///
-/// References hold IDs. Name the ones to load with `expand:`, as with
-/// `relationshipKeyPathsForPrefetching`:
-///
-/// ```swift
-/// @Recordable(expand: \Album.artist, \Album.tracks) var album = album
-/// ```
-///
-/// Expanded targets are for showing. Editing one through the wrapper doesn't save it, so edit
-/// it with its own `@Recordable`.
+/// Its references hold their records, as saved, and those records' references hold IDs. The
+/// targets are for showing. Editing one through the wrapper doesn't save it, so edit it with its
+/// own `@Recordable`.
 @MainActor
 @propertyWrapper
 public struct Recordable<Value> {
@@ -75,28 +69,25 @@ public struct Recordable<Value> {
     private let record: any Record
     /// The zone the record is edited in, or `nil` for the container's `defaultZone`.
     private let zone: Zone?
-    /// The references to load each time the record is read.
-    private let expand: [AnyKeyPath]
     /// What reads when the record is missing or deleted: `nil` for an optional wrapper, and
     /// the record as given for one that isn't.
     private let missing: Value
 
-    private init(record: any Record, zone: Zone?, expand: [AnyKeyPath], missing: Value) {
+    private init(record: any Record, zone: Zone?, missing: Value) {
         self.record = record
         self.zone = zone
-        self.expand = expand
         self.missing = missing
     }
 
-    /// The record with its pending edits, and with the references `expand` names loaded.
+    /// The record with its pending edits, and with its references holding records.
     /// Setting it records the edit in the context, and setting `nil` deletes the record.
     public var wrappedValue: Value {
         get {
             _ = modified
             let zone = self.zone ?? context.defaultZone
             guard let draft = context.draft(of: record, in: zone) else { return missing }
-            guard !expand.isEmpty else { return draft as! Value }
-            return context.expanded(draft, expand, in: zone) as! Value
+            // A record whose targets can't be read shows as it is.
+            return ((try? context.loadingChildren(of: draft, in: zone)) ?? draft) as! Value
         }
         nonmutating set {
             let now = Date()
@@ -120,34 +111,31 @@ public struct Recordable<Value> {
 }
 
 extension Recordable where Value: Record {
-    /// A property that edits `record` in `zone`, or in the container's `defaultZone` without one,
-    /// with the references `expand` names loaded.
-    public init(_ record: Value, zone: Zone? = nil, expand: AnyKeyPath...) {
-        self.init(record: record, zone: zone, expand: expand, missing: record)
+    /// A property that edits `record` in `zone`, or in the container's `defaultZone` without one.
+    public init(_ record: Value, zone: Zone? = nil) {
+        self.init(record: record, zone: zone, missing: record)
     }
 
-    /// A property that edits `wrappedValue` in `zone`, as `@Recordable(.records) var album = album`,
-    /// with the references `expand` names loaded.
-    public init(wrappedValue: Value, _ zone: Zone? = nil, expand: AnyKeyPath...) {
-        self.init(record: wrappedValue, zone: zone, expand: expand, missing: wrappedValue)
+    /// A property that edits `wrappedValue` in `zone`, as `@Recordable(.records) var album = album`.
+    public init(wrappedValue: Value, _ zone: Zone? = nil) {
+        self.init(record: wrappedValue, zone: zone, missing: wrappedValue)
     }
 }
 
 extension Recordable {
     /// An optional property that edits `record` in `zone`, or in the container's `defaultZone`
-    /// without one, with the references `expand` names loaded. It reads `nil` once the record
-    /// is deleted.
-    public init<R: Record>(_ record: R, zone: Zone? = nil, expand: AnyKeyPath...) where Value == R? {
-        self.init(record: record, zone: zone, expand: expand, missing: nil)
+    /// without one. It reads `nil` once the record is deleted.
+    public init<R: Record>(_ record: R, zone: Zone? = nil) where Value == R? {
+        self.init(record: record, zone: zone, missing: nil)
     }
 
     /// An optional property that edits `wrappedValue`, as `@Recordable var album: Album? = album`.
     /// `wrappedValue` must hold a record.
-    public init<R: Record>(wrappedValue: R?, _ zone: Zone? = nil, expand: AnyKeyPath...) where Value == R? {
+    public init<R: Record>(wrappedValue: R?, _ zone: Zone? = nil) where Value == R? {
         guard let record = wrappedValue else {
             preconditionFailure("An optional @Recordable starts from a record, not nil.")
         }
-        self.init(record: record, zone: zone, expand: expand, missing: nil)
+        self.init(record: record, zone: zone, missing: nil)
     }
 }
 
@@ -159,11 +147,5 @@ extension RecordContext {
     /// The record `record` names, as `draft(id:for:in:)` reads it.
     func draft<R: Record>(of record: R, in zone: Zone) -> R? {
         draft(id: record.id, for: R.self, in: zone)
-    }
-
-    /// `record` with the references `keyPaths` name holding their records, read in `zone`
-    /// whatever the current `zone`. A record that can't be read stays as it is.
-    func expanded<R: Record>(_ record: R, _ keyPaths: [AnyKeyPath], in zone: Zone) -> R {
-        (try? prefetch(keyPaths, into: [record], in: zone).first) ?? record
     }
 }

@@ -55,7 +55,9 @@ private let kid = disc("Kid A", 2000, 4)
     context.insert(crate)
     try context.save()
 
-    let saved = try #require(try context.record(id: crate.id))
+    // Read as a record loaded inside another holds it: with IDs only.
+    let key = RecordKey(recordType: Crate.recordType, name: crate.id.uuidString, zone: context.zone)
+    let saved = try #require(try context.database.load(Crate.self, key: key))
     #expect(saved.discs.isEmpty)
     #expect(saved.$discs.ids == [blue.id, kid.id, abbey.id].sorted())
 }
@@ -67,15 +69,13 @@ private let kid = disc("Kid A", 2000, 4)
     context.insert(crate)
     try context.save()
 
-    var descriptor = RecordDescriptor<Crate>()
-    descriptor.relationshipKeyPathsForPrefetching = [\Crate.discs]
+    let descriptor = RecordDescriptor<Crate>()
     var loaded = try #require(try context.fetch(descriptor).first)
     #expect(loaded.$discs.ids == loaded.discs.map(\.id))
     loaded.$discs.remove(atOffsets: IndexSet(integer: 0), in: context)   // the first by title
     #expect(loaded.discs.map(\.title) == ["Blue", "Kid A"])
     try context.save()
 
-    descriptor.relationshipKeyPathsForPrefetching = [\Crate.discs]
     #expect(try context.fetch(descriptor).first?.discs.map(\.title) == ["Blue", "Kid A"])
 }
 
